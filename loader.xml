@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE MudletPackage>
+<MudletPackage version="1.001">
+<ScriptPackage>
+<Script isActive="yes" isFolder="no">
+<name>Combat V2 Startup</name>
+<packageName>Combat V2 Loader</packageName>
+<script><![CDATA[
+if combat_v2_startup_handler then killAnonymousEventHandler(combat_v2_startup_handler) end
+combat_v2_startup_handler=registerAnonymousEventHandler("sysLoadEvent",function()
+  dofile(getMudletHomeDir().."/combat_v2/bootstrap.lua")
+end)
+]]></script>
+<eventHandlerList />
+</Script>
+</ScriptPackage>
+</MudletPackage>

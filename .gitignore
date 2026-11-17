@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.pyc
+.env
+.env.*
+*.log
+*.zip
+*.mpackage
+combat-v2-backups/
+# Never commit complete Mudlet profiles or account data.
+profiles/
+current/
+profile.ini
+command_history*
+*.new
