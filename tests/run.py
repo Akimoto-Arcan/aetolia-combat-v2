@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix='cv2-test-') as tmp:
     profile = Path(tmp) / 'Combat V2'
     profile.mkdir()
     target = installer.install(profile)
-    assert len(list(target.glob('*.lua'))) == 7
+    assert {p.name for p in target.glob('*.lua')} == installer.MODULES
     original = (target / 'bootstrap.lua').read_bytes()
     (target / 'bootstrap.lua').write_text('-- previous version\n')
     installer.install(profile)
@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix='cv2-test-') as tmp:
     assert (target / 'bootstrap.lua').read_bytes() == original
     for source in sorted(target.glob('*.lua')):
         subprocess.run(['luac', '-p', str(source)], check=True)
-    for script in ['engine.lua', 'gui.lua']:
+    for script in ['engine.lua', 'backend.lua', 'combat_text.lua', 'gui.lua']:
         subprocess.run(['lua', str(ROOT / 'tests' / script), target.as_posix() + '/'], check=True)
     tree = ET.parse(ROOT / 'loader.xml')
     assert tree.find('.//Script').get('isActive') == 'yes'
@@ -34,4 +34,4 @@ with tempfile.TemporaryDirectory(prefix='cv2-test-') as tmp:
         pass
     else:
         raise AssertionError('Installer should reject nonexistent profile')
-print('PASS installer, backup/restore content, missing-profile refusal, loader XML, seven Lua syntax checks, engine and GUI suites')
+print('PASS installer, backup/restore content, missing-profile refusal, loader XML, nine Lua syntax checks, engine, backend and GUI suites')

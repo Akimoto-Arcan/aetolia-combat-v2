@@ -8,6 +8,7 @@ import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parent
+MODULES = {'bootstrap.lua', 'state.lua', 'monk.lua', 'events.lua', 'runner.lua', 'curing.lua', 'gui.lua', 'tracker.lua', 'bashing.lua'}
 
 def default_profiles():
     if sys.platform == 'win32':
@@ -22,8 +23,8 @@ def install(profile):
         raise ValueError('Profile directory does not exist. Create/open the profile in Mudlet first: ' + str(profile))
     target = profile / 'combat_v2'
     sources = sorted((ROOT / 'combat_v2').glob('*.lua'))
-    if len(sources) != 7:
-        raise ValueError('Expected seven source modules; checkout is incomplete')
+    if {source.name for source in sources} != MODULES:
+        raise ValueError('Expected module manifest does not match; checkout is incomplete')
     backup = profile / 'combat-v2-backups' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     existing = [target / s.name for s in sources if (target / s.name).exists()]
     if existing:
@@ -41,7 +42,7 @@ def install(profile):
         staged = dest.with_suffix('.lua.new')
         shutil.copy2(source, staged)
         os.replace(staged, dest)
-    print('Installed seven modules:', target)
+    print('Installed', len(sources), 'modules:', target)
     print('First installation: install ' + str(ROOT / 'loader.xml') + ' using Mudlet Package Manager, then reopen the profile.')
     print('Existing installation: use cv2 reload while out of combat (reload starts OFF).')
     return target

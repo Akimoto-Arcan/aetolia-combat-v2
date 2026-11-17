@@ -66,7 +66,7 @@ Tests install into an isolated temporary profile, verify replacement backups, pa
 
 ## Scope and privacy
 
-This is a basic in-game testing build, not a completed PvP system. Enemy limb damage, affliction, prone and parry text ingestion remain incomplete; the selector can consume those fields but this build does not infer them reliably. Live game syntax/timing still requires testing.
+Bashing/PvP testing build with hunting queues, Scorpion-aware bashing, parry-aware limb routes, conditional finishers, scoped combat-text tracking, safety gates and a bounded diagnostic trace. See [backend controls and limitations](docs/backend.md). Enemy trauma uses explicitly marked legacy estimates after confirmed hits; advanced Kaido/Telepathy routes and restoration prediction are not complete. Live game timing still requires controlled testing.
 
 Only Lua modules, loader, installer, documentation and tests belong here. Never commit profile XML exports, passwords, tokens, logs, command history or live combat state. The loader XML contains only a startup script, not a complete profile.
 

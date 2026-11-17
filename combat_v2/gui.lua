@@ -95,7 +95,8 @@ function M.refresh(state,runner,cure)
  local rows={}
  for _,k in ipairs({"left_arm","right_arm","left_leg","right_leg","torso","head"}) do
   local marker=t.mangled[k] and "MANGLED" or t.broken[k] and "BROKEN" or t.crippled[k] and "CRIPPLED" or ""
-  rows[#rows+1]=esc(k:gsub("_"," ")).." "..string.format("%.1f%%",tonumber(t.limbs[k]) or 0).." "..marker
+  local evidence=t.evidence and t.evidence["limb:"..k];local prefix=evidence and (evidence.confidence or 1)<1 and "~" or ""
+  rows[#rows+1]=esc(k:gsub("_"," ")).." "..prefix..string.format("%.1f%%",tonumber(t.limbs[k]) or 0).." "..marker
  end
  M.cards.limbs:echo(html(heading("ENEMY LIMBS / OBSERVED STATE")..table.concat({rows[1].." &nbsp; | &nbsp; "..rows[2],rows[3].." &nbsp; | &nbsp; "..rows[4],rows[5].." &nbsp; | &nbsp; "..rows[6]},"<br>").."<br>Prone: "..(t.prone and "yes" or "no").." &nbsp; Parry: "..esc(t.parry_limb or "unknown")))
  affpanel(ui,"player_afflictions",p.afflictions,"YOUR AFFLICTIONS","GMCP observed",C.warn)
