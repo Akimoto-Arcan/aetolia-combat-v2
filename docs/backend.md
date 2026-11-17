@@ -17,9 +17,17 @@ Optional explicit queue:
     cv2 queue next
     cv2 queue clear
 
-With no current target, BASH takes the first queued target. A confirmed selected-target death advances the queue; exhaustion stops. `next` explicitly skips to the next entry. Room item GMCP, when supplied, associates numeric IDs with names. If room GMCP is unavailable, an own-kill line within two seconds of this engine's single-target attack may bind an otherwise unnamed numeric target to its victim name; this is bounded action correlation, not a server-provided ID. No auto-picking of players, neutrals, or unknown objects; no automatic walking. A room change or unconfirmed target disappearance stops rather than assuming a kill.
+With no current target, BASH takes the first queued target. A confirmed selected-target death advances the queue; exhaustion enters the bounded IH checks below before halting. `next` explicitly skips to the next entry. Room item GMCP, when supplied, associates numeric IDs with names. If room GMCP is unavailable, an own-kill line within two seconds of this engine's single-target attack may bind an otherwise unnamed numeric target to its victim name; this is bounded action correlation, not a server-provided ID. No auto-picking of players, neutrals, or unknown objects; no automatic walking. A room change stops bashing. An unconfirmed target disappearance pauses for IH rather than assuming a kill.
 
 The bashing opening is `combo TARGET scs spp spp` whenever Scorpion is not confirmed. After a Scorpion stance message or GMCP confirmation, the normal combo is `combo TARGET sdk spp spp`. Stance is not assumed merely because a command was sent. Explicitly observed shield/rebounding still takes defensive precedence. No PvP limb tracking runs in BASH.
+
+## IH presence checks and recovery
+
+BASH sends `ih` before its first attack and waits for a fresh room-object result. The adapters follow the legacy Aetolia profile's `Info Here` header (`You can see the following N objects:` / `There is nothing here.`) and `Char.Items.List` room data. A cached room list or a header alone does not prove a target is present. Eligible targets must be the selected or explicitly queued NPC, with `m` attributes or a monster icon; no random NPC/player selection.
+
+When a target is unavailable, removed, or missing from a fresh room list, attacks pause and IH recovery begins. The first IH is immediate; additional checks are two seconds apart. A target found on any check resumes normal balance-gated bashing. After three failed checks, BASH switches OFF and cancels the retry timer. An unanswered request also consumes one check after its two-second response window; no response is not treated as confirmed absence. No fourth request is sent. Manual STOP, switching modes, disconnect, room change, player death, and reload cancel the scan; late responses cannot restart it. Ordinary low-health/balance pauses do not trigger an IH spam loop.
+
+`cv2 ih` explicitly starts a fresh presence check while BASH is active. Retry progress is visible in Executor status and `cv2 trace`. PvP does not issue NPC IH checks.
 
 ## PvP and assist
 

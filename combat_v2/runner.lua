@@ -26,6 +26,7 @@ function M.execute(r,a,approved)
  local s,p=r.state,r.state.player
  local function deny(msg) r.status=msg;return false,msg end
  if r.mode=="OFF" or r.mode=="SHADOW" then return deny(r.mode) end
+ if r.mode=="BASH" and s.hunting and s.hunting.ih and s.hunting.ih.active then return deny("waiting for IH target confirmation") end
  if not s.connected then return deny("not logged in / disconnected") end
  if (tonumber(p.hp) or 0)<=0 or p.dead then return deny("dead / no vitals") end
  if s.vitals_at and now()-s.vitals_at>cfg(r,"stale_vitals",20) then return deny("stale vitals") end

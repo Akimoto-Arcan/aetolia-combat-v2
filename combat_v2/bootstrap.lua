@@ -4,7 +4,7 @@ for _,key in ipairs({"gmcp_handler","text_handler"}) do if c[key] then killAnony
 for _,id in ipairs(c.handlers or {}) do killAnonymousEventHandler(id) end
 for _,key in ipairs({"line_trigger"}) do if c[key] then killTrigger(c[key]) end end
 for _,key in ipairs({"alias","target_alias"}) do if c[key] then killAlias(c[key]) end end
-for _,key in ipairs({"retry_timer","watch_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
+for _,key in ipairs({"retry_timer","watch_timer","ih_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
 c.state=dofile(root.."state.lua");c.current=c.state.upgrade(c.current)
 c.tracker=dofile(root.."tracker.lua");c.bashing=dofile(root.."bashing.lua");c.bashing.bind(c.state)
 c.monk=dofile(root.."monk.lua");c.monk.bind(c.tracker)
@@ -13,23 +13,78 @@ c.runner_module=dofile(root.."runner.lua");c.curing=dofile(root.."curing.lua");c
 c.runner=c.runner_module.new(c.current,c.monk);c.cure=(c.cure and c.cure.status) and c.cure or c.curing.new()
 c.mode="OFF";c.current.mode="OFF";c.current.hunting.active=false;c.current.stop_reason=nil
 local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
+local function cancel_ih()
+ if c.ih_timer then killTimer(c.ih_timer);c.ih_timer=nil end
+ local scan=c.current.hunting.ih;if scan then scan.active=false;scan.pending=false end
+end
+-- A failed IH check schedules the next request, never an attack.
+function combat_v2_ih_result()
+ local s=c.current;local scan=s.hunting.ih
+ if c.mode~="BASH" or not scan or not scan.active or not scan.pending or not scan.responded then return false end
+ local ok,why=c.bashing.ih_select(s)
+ if ok then
+  cancel_ih();s.hunting.verified_generation=s.target_generation
+  c.runner.status="IH confirmed target "..tostring(s.target.name);c.state.record(s,"ih_found",s.target.name)
+  return combat_v2_tick()
+ end
+ scan.last_failure=why;c.state.record(s,"ih_miss",scan.attempts.."/3: "..why)
+ if scan.attempts>=3 then combat_v2_stop("No target found after 3 IH checks");return false end
+ c.runner.status="IH "..scan.attempts.."/3: no target; next check in 2s";refresh();return false
+end
+function combat_v2_request_ih()
+ local s=c.current;local scan=s.hunting.ih
+ if c.mode~="BASH" or not scan or not scan.active then return false end
+ if not s.connected or (tonumber(s.player.hp) or 0)<=0 or s.player.dead then combat_v2_stop("IH cancelled: not logged in / dead");return false end
+ if not c.bashing.ih_request(s) then return false end
+ c.runner.status="Checking IH "..scan.attempts.."/3";c.state.record(s,"ih_request",scan.attempts.."/3")
+ c.ih_timer=tempTimer(2,function()
+  if c.mode~="BASH" or c.current.hunting.ih~=scan or not scan.active then return end
+  c.ih_timer=nil
+  if scan.pending then scan.pending=false;scan.last_failure="IH response unavailable";c.state.record(s,"ih_timeout",scan.attempts.."/3") end
+  if scan.attempts>=3 then combat_v2_stop("No target confirmed after 3 IH checks");return end
+  combat_v2_request_ih()
+ end)
+ local ok,why=pcall(c.ih_sender or send,"ih")
+ if not ok then combat_v2_stop("IH send failed: "..tostring(why));return false end
+ refresh();return true
+end
+function combat_v2_start_ih(reason)
+ if c.mode~="BASH" then return false end
+ local scan=c.current.hunting.ih
+ if scan and scan.active then return false,"IH already pending" end
+ cancel_ih();c.bashing.ih_begin(c.current);c.runner.pending=nil
+ if c.retry_timer then killTimer(c.retry_timer);c.retry_timer=nil end
+ c.state.record(c.current,"ih_begin",reason or "target verification")
+ return combat_v2_request_ih()
+end
 function combat_v2_stop(reason)
+ cancel_ih()
  c.runner_module.stop(c.runner,reason);c.mode="OFF";c.current.stop_reason=nil
  c.current.stats.stops=c.current.stats.stops+1;c.state.record(c.current,"stop",reason or "OFF")
- for _,key in ipairs({"retry_timer","watch_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
+ for _,key in ipairs({"retry_timer","watch_timer","ih_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
  refresh();return true
 end
 local function watchdog()
  c.watch_timer=nil
- if c.runner_module.watchdog(c.runner) then combat_v2_stop(c.runner.status);return end
+ if not (c.current.hunting.ih and c.current.hunting.ih.active) and c.runner_module.watchdog(c.runner) then combat_v2_stop(c.runner.status);return end
  if c.mode~="OFF" and c.mode~="SHADOW" then c.watch_timer=tempTimer(1,watchdog) end
 end
 function combat_v2_tick()
  local s=c.current
  if s.stop_reason then
   if s.stop_reason=="target slain" and c.mode=="BASH" and s.hunting.active then
-   s.stop_reason=nil;local ok,why=c.bashing.killed(s);if not ok then combat_v2_stop(why);return false,why end
+   s.stop_reason=nil;local ok=c.bashing.killed(s)
+   if not ok then s.hunting.active=true;s.stop_reason=nil end
+   combat_v2_start_ih("target slain; refresh room");return false,"checking IH"
+  elseif c.mode=="BASH" and (s.stop_reason=="target unavailable" or s.stop_reason=="target left room; confirmation required") then
+   local why=s.stop_reason;s.stop_reason=nil
+   if why=="target unavailable" then c.runner.waiting=false end
+   combat_v2_start_ih(why);return false,"checking IH"
   else local why=s.stop_reason;combat_v2_stop(why);return false,why end
+ end
+ if c.mode=="BASH" then
+  if s.hunting.ih and s.hunting.ih.active then refresh();return false,"checking IH" end
+  if not s.target.name or s.target.dead or s.hunting.verified_generation~=s.target_generation then combat_v2_start_ih("verify bashing target");return false,"checking IH" end
  end
  local ok,why=c.runner_module.tick(c.runner);c.mode=c.runner.mode;s.mode=c.mode
  if why=="cooldown" and not c.retry_timer then c.retry_timer=tempTimer(.35,function() c.retry_timer=nil;combat_v2_tick() end) end
@@ -39,9 +94,14 @@ function combat_v2_set_mode(mode)
  mode=string.upper(mode or "OFF");if mode=="AUTO" or mode=="PVP" then mode="FULL_AUTO" end
  if not ({OFF=true,SHADOW=true,ASSIST=true,BASH=true,FULL_AUTO=true})[mode] then return false,"invalid mode" end
  if mode=="OFF" then return combat_v2_stop() end
+ cancel_ih()
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
- if mode=="BASH" then local ok,why=c.bashing.start(c.current);if not ok then combat_v2_stop(why);return false,why end end
+ if mode=="BASH" then
+  local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end
+  c.current.hunting.verified_generation=nil
+ end
  if not c.watch_timer and mode~="SHADOW" then c.watch_timer=tempTimer(1,watchdog) end
+ if mode=="BASH" then return combat_v2_start_ih("BASH started") end
  return combat_v2_tick()
 end
 function combat_v2_set_target(name)
@@ -123,7 +183,14 @@ local function collection(kind)
  end)
 end
 collection("Afflictions");collection("Defences")
-handler("gmcp.Char.Items.List",function() c.bashing.items(c.current,gmcp.Char.Items.List);refresh() end)
+handler("gmcp.Char.Items.List",function()
+ local changed=c.bashing.items(c.current,gmcp.Char.Items.List);combat_v2_ih_result()
+ local s=c.current;local scan=s.hunting.ih
+ if changed and c.mode=="BASH" and not (scan and scan.active) and s.hunting.verified_generation==s.target_generation and s.target.name and not s.room.items[tostring(s.target.name)] then
+  s.stop_reason="target left room; confirmation required";combat_v2_tick()
+ end
+ refresh()
+end)
 handler("gmcp.Char.Items.Remove",function() c.bashing.item_removed(c.current,gmcp.Char.Items.Remove);combat_v2_tick() end)
 handler("gmcp.Room.Info",function()
  local info=gmcp.Room.Info or {};local previous=c.current.room.id;c.current.room.id=info.num
@@ -139,7 +206,9 @@ handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
  combat_v2_observe(e)
 end)
 c.line_trigger=tempRegexTrigger("^.*$",function()
- c.events.event(c.current,line or matches[1]);combat_v2_tick()
+ local text=line or matches[1]
+ if c.bashing.ih_text(c.current,text) then combat_v2_ih_result();refresh();return end
+ c.events.event(c.current,text);combat_v2_tick()
 end)
 c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  local arg=(matches[2] or ""):match("^%s*(.-)%s*$");local cmd,rest=arg:match("^(%S+)%s*(.*)$");cmd=(cmd or "status"):lower();rest=rest or ""
@@ -152,6 +221,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  elseif cmd=="reset" then combat_v2_reset_wait()
  elseif cmd=="status" then combat_v2_status()
  elseif cmd=="trace" then combat_v2_trace(rest)
+ elseif cmd=="ih" then ok,why=combat_v2_start_ih("manual IH verification")
  elseif cmd=="route" then ok,why=combat_v2_set_route(rest)
  elseif cmd=="config" then local k,v=rest:match("^(%S+)%s+(%S+)$");ok,why=combat_v2_config(k,v)
  elseif cmd=="track" then local k,a,b=rest:match("^(%S+)%s*(%S*)%s*(%S*)$");ok,why=combat_v2_track(k,a,b)
@@ -167,7 +237,8 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  if not ok and why then print(why) end
 end)
 c.target_alias=tempAlias([[^t(?:\s+(.*))?$]],function() local ok,why=combat_v2_set_target(matches[2] or "");if not ok then print(why) end end)
- local cached_connected,cached_vitals=c.current.connected,c.current.vitals_at
+cancel_ih()
+local cached_connected,cached_vitals=c.current.connected,c.current.vitals_at
 c.state.sync_gmcp(c.current,gmcp or {})
 c.current.connected=cached_connected;c.current.vitals_at=cached_vitals
 if getConnectionInfo then local _,_,connected=getConnectionInfo();if not connected then c.current.connected=false end end
