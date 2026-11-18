@@ -15,6 +15,10 @@ local count,checks=0,0
 local function eq(a,b,msg) checks=checks+1;assert(a==b,(msg or '')..' expected '..tostring(b)..', got '..tostring(a)) end
 local function test(name,fn) local ok,err=pcall(fn);assert(ok,name..': '..tostring(err));count=count+1;print('PASS '..name) end
 local function fixture()
+ local hookid=0
+ local function hook()hookid=hookid+1;return hookid end
+ tempRegexTrigger=tempRegexTrigger or hook;tempPromptTrigger=tempPromptTrigger or hook
+ registerAnonymousEventHandler=registerAnonymousEventHandler or hook
  clock=100;tcp=true
  local s=State.new();s.mode='BASH';s.connected=true;s.room.id=123;s.room.area='fake area';s.room.item_version=1
  local p=s.player;p.hp=1000;p.maxhp=1000;p.balance=true;p.equilibrium=true;p.left_arm_balance=true;p.right_arm_balance=true
@@ -31,9 +35,10 @@ local function probe(c,n) E.text(c,'This globe is infused with water and can be 
 local function ack(c) E.text(c,drain);E.prompt(c);tick(c) end
 local function finish(c) E.text(c,success);E.prompt(c);tick(c) end
 
-test('default OFF, no initial summon or own-kill loop',function()
+test('default OFF and ON never create an initial summon',function()
  local c,sent=fixture();E.text(c,failure);tick(c);eq(#sent,0);eq(E.state(c).armed,false)
- E.arm(c,true);tick(c);E.text(c,'You have slain a massive elemental.');tick(c);eq(#sent,0)
+ E.text(c,'You have slain a massive elemental.');tick(c);eq(#sent,0)
+ E.arm(c,true);tick(c);eq(#sent,0)
  E.text(c,'Someone says, "'..failure..'"');tick(c);eq(#sent,0)
 end)
 test('exact finite probe drain summon; duplicate failures ignored',function()
@@ -326,7 +331,7 @@ test('uncommitted timeout OFF then explicit ON clears fault without sends',funct
  eq(E.state(c).fault,'recovery timeout');E.arm(c,false);eq(E.state(c).pending,nil)
  eq(E.state(c).fault,'recovery timeout');local n=#sent
  eq(E.arm(c,true),true);eq(E.state(c).fault,nil);eq(E.state(c).phase,'idle')
- eq(E.state(c).room,c.current.room.id);eq(E.state(c).status,'armed (waiting for own summon failure)')
+ eq(E.state(c).room,c.current.room.id);eq(E.state(c).status,'armed (waiting for own elemental kill or summon failure)')
  for i=1,10 do E.prompt(c);tick(c) end;eq(#sent,n)
 end)
 test('explicit ON cancels timed-out read-only waiting or probe without sends',function()
@@ -395,6 +400,169 @@ for _,path in ipairs({'direct ON','OFF ON','detach ON','reload ON'}) do
    module.arm(c,false);eq(module.arm(c,true),false)
    eq(b.pending,p);eq(b.committed,nil);eq(b.armed,false);eq(#sent,0)
   end
+ end)
+end
+local kill='You have slain a massive elemental.'
+local function ownkill(c) E.text(c,kill) end
+test('own exact kill queues one normal summon with no direct send or initial probe',function()
+ local c,sent=fixture();E.arm(c,true);ownkill(c)
+ eq(#sent,0);eq(E.state(c).pending.phase,'normal');eq(E.state(c).committed,nil)
+ for i=1,10 do ownkill(c) end;tick(c)
+ eq(table.concat(sent,'|'),'summon elemental');eq(E.state(c).pending.kind,'normal');eq(E.state(c).committed,true)
+ for i=1,10 do ownkill(c);tick(c) end;eq(#sent,1)
+ E.text(c,success);tick(c);eq(E.state(c).pending.phase,'summon')
+ c.runner.waiting=true;c.current.player.balance=false;E.prompt(c);tick(c)
+ eq(E.state(c).pending,nil);eq(E.state(c).committed,nil);eq(E.state(c).armed,true)
+ c.runner.waiting=false;c.current.player.balance=true
+ for i=1,10 do ownkill(c);tick(c) end;eq(#sent,1,'duplicate kill after completion spawned twice')
+ E.arm(c,false);E.arm(c,true);ownkill(c);tick(c);eq(#sent,1,'OFF ON revived old kill')
+end)
+test('other kills speech retrieval variants and padded lines never queue',function()
+ local c,sent=fixture();E.arm(c,true)
+ for _,line in ipairs({'You have slain a tiny elemental.','Someone has slain a massive elemental.',
+  'Someone says, "'..kill..'"','Having slain a massive elemental, you retrieve the corpse.',
+  ' '..kill,kill..' trailing'}) do E.text(c,line);tick(c);eq(E.state(c).pending,nil) end
+ eq(#sent,0)
+end)
+for name,block in pairs(blockers) do
+ test('normal own-kill summon gated: '..name,function()
+  local c,sent=fixture();E.arm(c,true);block(c);ownkill(c)
+  for i=1,10 do tick(c);ownkill(c) end
+  eq(#sent,0);eq(E.state(c).pending.phase,'normal');eq(E.state(c).committed,nil)
+ end)
+end
+test('normal warm-health and occupied room holds retain only one unsent intent',function()
+ local c,sent=fixture();E.arm(c,true);c.current.player.hp=799;ownkill(c);tick(c)
+ eq(#sent,0);eq(c.mode,'BASH');eq(c.runner.mode,'BASH');eq(E.state(c).pending.phase,'normal')
+ clock=clock+13;tick(c);eq(E.state(c).fault,nil,'unsent intent treated as unanswered send')
+ arrive(c);c.current.player.hp=800;tick(c);eq(#sent,0)
+ leave(c);c.current.hunting.ih.active=true;tick(c);eq(#sent,0)
+ c.current.hunting.ih.active=false;c.current.player.right_arm_balance=false;tick(c);eq(#sent,0)
+ c.current.player.right_arm_balance=true;tick(c);eq(table.concat(sent,'|'),'summon elemental')
+end)
+test('normal NoPower fresh four AIR recovery is finite and duplicate kill cannot restart it',function()
+ local c,sent=fixture();E.arm(c,true);ownkill(c);tick(c);eq(sent[1],'summon elemental')
+ E.text(c,'Someone says, "'..failure..'"');eq(E.state(c).pending.kind,'normal')
+ E.text(c,failure);eq(E.state(c).committed,nil);eq(E.state(c).pending.phase,'waiting')
+ E.text(c,failure);ownkill(c);tick(c);eq(sent[2],'probe globe')
+ E.text(c,'This globe can be drained another 4 times.');tick(c);eq(#sent,2)
+ c.current.player.left_arm_balance=false;E.prompt(c);tick(c);eq(#sent,2)
+ c.current.player.left_arm_balance=true;tick(c);eq(#sent,2)
+ E.prompt(c);tick(c);eq(sent[3],'drain globe')
+ E.text(c,drain:gsub('water','air'));tick(c);eq(#sent,3)
+ c.current.player.balance=false;E.prompt(c);tick(c);eq(#sent,3)
+ c.current.player.balance=true;tick(c);eq(#sent,3);E.prompt(c);tick(c)
+ eq(sent[4],'summon elemental');eq(E.state(c).pending.kind,'recovery')
+ ownkill(c);finish(c);ownkill(c);tick(c)
+ eq(table.concat(sent,'|'),'summon elemental|probe globe|drain globe|summon elemental')
+ eq(E.state(c).pending,nil);eq(E.state(c).committed,nil);eq(E.state(c).fault,nil)
+end)
+test('normal recovery SUMMON rejection still faults rather than looping',function()
+ local c,sent=fixture();E.arm(c,true);ownkill(c);tick(c);E.text(c,failure);tick(c);probe(c,4);ack(c)
+ E.text(c,failure);eq(E.state(c).fault,'summon recovery failed; review required');eq(E.state(c).committed,true)
+ for i=1,10 do ownkill(c);E.text(c,failure);tick(c) end;eq(#sent,4);eq(E.arm(c,true),false)
+end)
+test('normal rejection does not bypass unexpected NPC recovery hold',function()
+ local c,sent=fixture();E.arm(c,true);ownkill(c);tick(c);E.text(c,failure);tick(c);probe(c,4)
+ arrive(c);ack(c);eq(#sent,3);eq(E.state(c).pending.phase,'drain');eq(E.state(c).committed,true)
+ leave(c);tick(c);eq(sent[4],'summon elemental')
+end)
+for name,change in pairs({room=function(c)c.current.room.id=456 end,mode=function(c)c.mode='OFF'end,
+ state_mode=function(c)c.current.mode='SHADOW'end,runner_mode=function(c)c.runner.mode='OFF'end,
+ dead=function(c)c.current.player.hp=0 end,tcp=function()tcp=false end,connection=function(c)c.current.connected=false end}) do
+ test('unsent normal scope cancellation '..name,function()
+  local c,sent=fixture();E.arm(c,true);ownkill(c);change(c);tick(c)
+  eq(E.state(c).armed,false);eq(E.state(c).pending,nil);eq(E.state(c).committed,nil);eq(E.state(c).fault,nil);eq(#sent,0)
+ end)
+end
+test('OFF cancels only unsent normal; sent normal survives OFF detach reload and late ACK',function()
+ local c,sent=fixture();E.arm(c,true);ownkill(c);E.arm(c,false)
+ eq(E.state(c).pending,nil);eq(E.state(c).fault,nil);tick(c);eq(#sent,0)
+ c,sent=fixture();E.arm(c,true);ownkill(c);tick(c);local p=E.state(c).pending
+ E.arm(c,false);eq(E.state(c).pending,p);eq(E.state(c).committed,true);eq(E.arm(c,true),false)
+ E.detach(c);local fresh=dofile(root..'elementals.lua');fresh.attach(c);eq(fresh.arm(c,true),false)
+ fresh.text(c,success);fresh.text(c,failure);fresh.prompt(c);fresh.service(c)
+ eq(E.state(c).pending,p);eq(E.state(c).committed,true);eq(#sent,1)
+end)
+test('normal send timeout or uncertain sender never permits blind recovery',function()
+ for _,sender in ipairs({function()return false end,function()error('fake normal error')end}) do
+  local c,sent=fixture();E.arm(c,true);ownkill(c);E.service(c,sender)
+  eq(E.state(c).committed,true);eq(E.state(c).pending.kind,'normal');eq(E.state(c).armed,false)
+  E.text(c,failure);tick(c);eq(#sent,0);eq(E.arm(c,true),false)
+ end
+ local c,sent=fixture();E.arm(c,true);ownkill(c);tick(c);clock=clock+12;tick(c)
+ eq(E.state(c).fault,'recovery timeout');eq(E.state(c).committed,true);eq(#sent,1)
+end)
+test('core attack and kill target clearing correlate two kills without duplicating frames',function()
+ local Bash=dofile(root..'bashing.lua');Bash.bind(State)
+ local Events=dofile(root..'events.lua');Events.bind(dofile(root..'tracker.lua'))
+ local c,sent=fixture();local s=c.current;E.arm(c,true)
+ Runner.bind_policy(Policy.allowed)
+ for id=77,78 do
+  State.set_target(s,tostring(id));s.target.display_name='a massive elemental';s.hunting.active=true
+  clock=clock+1;c.runner.waiting=false
+  local oldsender=c.runner.sender;c.runner.sender=function()end
+  eq(Runner.execute(c.runner,{name='combo',command='combo '..id..' spk spp spp',generation=s.target_generation}),true)
+  c.runner.sender=oldsender
+  Events.event(s,kill);eq(s.target.dead,true);Bash.killed(s)
+  eq(s.target.name,nil);Bash.ih_begin(s)
+  ownkill(c);tick(c);eq(#sent,id-77,'summon while IH active')
+  s.hunting.ih={active=false,pending=false,responded=true,room_id=123,start_version=0}
+  c.runner.waiting=false;tick(c);eq(#sent,id-76);eq(sent[#sent],'summon elemental');finish(c)
+  ownkill(c);tick(c);eq(#sent,id-76,'duplicate after target clear')
+ end
+ -- History eviction is not new attack evidence.
+ s.history={};ownkill(c);tick(c);eq(#sent,2)
+ State.set_target(s,'79');State.record(s,'send','quickdismount');ownkill(c);tick(c);eq(#sent,2)
+ State.record(s,'send','scs');ownkill(c);tick(c);eq(#sent,2,'preparation is not a fresh attack')
+end)
+test('reentrant normal rejection schedules fresh recovery only once',function()
+ local c,sent=fixture();c.runner.sender=function(cmd)
+  sent[#sent+1]=cmd;ownkill(c);E.service(c)
+  if cmd=='summon elemental' and #sent==1 then E.text(c,failure);E.text(c,failure) end
+ end
+ E.arm(c,true);ownkill(c);tick(c);eq(#sent,1);eq(E.state(c).pending.phase,'waiting')
+ tick(c);probe(c,4);ack(c);finish(c)
+ eq(table.concat(sent,'|'),'summon elemental|probe globe|drain globe|summon elemental');eq(E.state(c).pending,nil)
+end)
+test('owned 250ms normal timer holds and cancels without idle polling',function()
+ local c,sent=fixture();local timers={};local id=0
+ tempTimer=function(delay,fn)eq(delay,.25);id=id+1;timers[id]=fn;return id end
+ killTimer=function(n)timers[n]=nil end
+ E.attach(c);E.arm(c,true);eq(next(timers),nil)
+ c.current.player.balance=false;ownkill(c);eq(type(next(timers)),'number');eq(#sent,0)
+ local n,fn=next(timers);timers[n]=nil;fn();eq(#sent,0);eq(type(next(timers)),'number')
+ E.arm(c,false);eq(next(timers),nil);eq(E.state(c).pending,nil)
+ -- A new fixture has fresh scope/correlation; service does not rely on prompt
+ -- traffic resuming after the physical readiness hold.
+ c,sent=fixture();E.attach(c);E.arm(c,true);ownkill(c)
+ n,fn=next(timers);timers[n]=nil;fn();eq(sent[1],'summon elemental')
+ finish(c);eq(next(timers),nil);eq(E.state(c).pending,nil)
+ tempTimer=nil;killTimer=nil
+end)
+for _,api in ipairs({'tempRegexTrigger','tempPromptTrigger','registerAnonymousEventHandler'})do
+ test('essential hook registration fails closed: '..api,function()
+  local saved={tempRegexTrigger=tempRegexTrigger,tempPromptTrigger=tempPromptTrigger,registerAnonymousEventHandler=registerAnonymousEventHandler,killTrigger=killTrigger,killAnonymousEventHandler=killAnonymousEventHandler,tempAlias=tempAlias}
+  for _,bad in ipairs({'nil','false','zero','negative','string','throw','missing'})do
+   for _,committed in ipairs({false,true})do
+    local c,sent=fixture();local live={};local serial=0
+    local function register()serial=serial+1;live[serial]=true;return serial end
+    tempRegexTrigger=register;tempPromptTrigger=register;registerAnonymousEventHandler=register;tempAlias=nil
+    killTrigger=function(id)live[id]=nil end;killAnonymousEventHandler=killTrigger
+    local b=E.state(c);local pending
+    if committed then pending={phase='drain'};b.committed=true;b.pending=pending end
+    _G[api]=function()
+     if bad=='nil' then return nil,'error' elseif bad=='false' then return false
+     elseif bad=='zero' then return 0 elseif bad=='negative' then return -1
+     elseif bad=='string' then return '1' else error('injected registration error') end
+    end
+    if bad=='missing' then _G[api]=nil end
+    eq(pcall(E.attach,c),false);eq(b.armed,false);eq(b.attached,false);eq(#b.handles,0);eq(next(live),nil);eq(#sent,0)
+    if committed then eq(b.committed,true);eq(b.pending,pending) end
+   end
+  end
+  for key,value in pairs(saved)do _G[key]=value end
+  tempAlias=saved.tempAlias
  end)
 end
 print(string.format('elementals: %d tests, %d assertions passed',count,checks))

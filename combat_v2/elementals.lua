@@ -1,7 +1,9 @@
--- Current-room, opt-in BASH sidecar. Never attacks, moves, scans or handles kills.
+-- Current-room, opt-in BASH sidecar. Own elemental kills request one guarded
+-- summon. Never attacks, moves or scans; normal rejection uses fresh recovery.
 -- A committed drain/summon barrier survives detach/reload, OFF and faults.
 local M={}
 local FAILURE='You do not have the power to summon forth an elemental.'
+local KILL='You have slain a massive elemental.'
 local SUCCESS='You concentrate on the raw elemental energy flowing about your body, coalescing some of its potential into a massive elemental.'
 local elements={water=true,air=true,earth=true,fire=true}
 local function now() return getEpoch and getEpoch() or os.clock() end
@@ -31,7 +33,9 @@ end
 local function checkscope(c,b)
  local ok,why=scope(c,b)
  if not ok then
-  if b.pending then fault(b,why) else b.armed=false;b.status=why end
+  if b.pending and b.pending.phase=='normal' and not b.committed then
+   b.pending=nil;b.phase='idle';b.armed=false;b.status=why;untimer(b)
+  elseif b.pending then fault(b,why) else b.armed=false;b.status=why end
  end
  return ok
 end
@@ -70,8 +74,8 @@ end
 local schedule
 function M.arm(c,on)
  local b=M.state(c)
- -- Only explicitly read-only phases are safe to discard without a commit flag.
- local unresolved=b.pending and b.pending.phase~='waiting' and b.pending.phase~='probe'
+ -- Only known unsent/read-only phases are safe to discard without a commit flag.
+ local unresolved=b.pending and b.pending.phase~='waiting' and b.pending.phase~='probe' and b.pending.phase~='normal'
  if on~=true then
   if b.committed or unresolved then fault(b,'disarmed with recovery unresolved') else b.pending=nil;b.phase='idle';b.armed=false;b.status='disarmed';untimer(b) end
   return true,b
@@ -81,11 +85,10 @@ function M.arm(c,on)
  local room=c.current and c.current.room and c.current.room.id
  local valid,why=scope(c,{room=room})
  if not valid then b.armed=false;b.status=why;return false,b end
- if b.pending and b.pending.phase~='waiting' and b.pending.phase~='probe' then return false,b end
- -- Only explicit ON cancels an uncommitted read-only attempt. It sends nothing
- -- and waits for a new own failure; a timeout never proves a physical recovery.
+ -- Only explicit ON cancels a known unsent/read-only attempt. It sends nothing;
+ -- a timeout never proves a physical recovery.
  untimer(b);b.pending=nil;b.fault=nil;b.phase='idle';b.room=room
- b.armed=true;b.status='armed (waiting for own summon failure)';return true,b
+ b.armed=true;b.status='armed (waiting for own elemental kill or summon failure)';return true,b
 end
 function M.prompt(c)
  local b=M.state(c);b.prompt=b.prompt+1
@@ -98,9 +101,34 @@ function M.text(c,line)
  local b=M.state(c)
  if not b.armed or b.fault or not checkscope(c,b) then return b end
  local p=b.pending
- if line==FAILURE then
+ if line==KILL then
+  if not p then
+   -- Core may already have cleared the killed target and begun IH. Keep the
+   -- last accepted attack generation, not the mutable current target pointer.
+   -- A repeated frame cannot earn another summon after success or OFF/ON;
+   -- another real BASH attack generation is required after the first kill.
+   local attack
+   for i=#(c.current.history or {}),1,-1 do
+    local h=c.current.history[i]
+    -- Stable BASH offense is a COMBO; dismount/stance preparation is not a
+    -- fresh attack and must not turn a repeated kill frame into a new intent.
+    if h.kind=='send' and type(h.detail)=='string' and h.detail:match('^combo ') and h.generation~=nil then attack=h;break end
+   end
+   local generation=attack and attack.generation or false
+   if b.kill_state~=c.current or b.kill_generation==nil or (attack and generation~=b.kill_generation) then
+    b.kill_state=c.current;b.kill_generation=generation
+    b.pending={phase='normal',started=now()};b.phase='normal';b.status='waiting for guarded own-kill summon';schedule(c)
+   end
+  end
+ elseif line==FAILURE then
   if p then
-   if p.phase=='summon' then fault(b,'summon recovery failed; review required') end
+   if p.phase=='summon' then
+    if p.kind=='normal' and not p.ack then
+     -- Exact rejection proves this normal SUMMON did not commit a spawn.
+     -- Discard that send, never a recovery send, and acquire a fresh count.
+     b.committed=nil;b.pending={phase='waiting',started=now()};b.phase='waiting';b.status='normal summon rejected; awaiting fresh recovery';schedule(c)
+    else fault(b,'summon recovery failed; review required') end
+   end
   else
    b.pending={phase='waiting',started=now()};b.phase='waiting';b.status='waiting for guarded empty room';schedule(c)
   end
@@ -140,8 +168,8 @@ function M.item(c,kind,payload)
  end
  return b
 end
-local function dispatch(c,b,phase,command,sender)
- local p={phase=phase,started=now(),dispatch_prompt=b.prompt,old_ids={}}
+local function dispatch(c,b,phase,command,sender,kind)
+ local p={phase=phase,kind=kind or 'recovery',started=now(),dispatch_prompt=b.prompt,old_ids={}}
  if phase=='summon' then for id in pairs(c.current.room.items or {}) do p.old_ids[tostring(id)]=true end end
  b.pending=p;b.phase=phase;b.status='awaiting '..phase
  if phase=='drain' or phase=='summon' then b.committed=true end
@@ -161,14 +189,19 @@ local function service(c,sender)
   b.pending=nil;b.committed=nil;b.phase="idle";b.status="recovered; armed for next independent failure";untimer(b);return b
  end
  local elapsed=now()-p.started
- if (not p.ack and p.phase~='waiting' and elapsed>=12) or elapsed>=60 then fault(b,'recovery timeout');return b end
+ if (not p.ack and p.phase~='waiting' and p.phase~='normal' and elapsed>=12) or elapsed>=60 then fault(b,'recovery timeout');return b end
  if p.external_success_prompt then b.status='awaiting post-success prompt';return b end
  local safe,why=gates(c)
  if not safe then b.status=why;return b end
  if (p.phase=='waiting' or p.phase=='probe') and target_present(c.current) then
   b.pending=nil;b.phase='idle';b.status='cancelled: living target present';untimer(b);return b
  end
- if p.phase=='waiting' then dispatch(c,b,'probe','probe globe',sender)
+ if p.phase=='normal' then
+  if target_present(c.current) then b.status='waiting for empty room before spawning another enemy';return b end
+  local hp,maxhp=tonumber(c.current.player.hp),tonumber(c.current.player.maxhp)
+  if not hp or not maxhp or maxhp<=0 or hp/maxhp<.8 then b.status='waiting for 80% health before spawning another enemy';return b end
+  dispatch(c,b,'summon','summon elemental',sender,'normal')
+ elseif p.phase=='waiting' then dispatch(c,b,'probe','probe globe',sender)
  elseif p.ack and p.ready_prompt then
   if p.phase=='probe' then
    if p.count and p.count>0 then dispatch(c,b,'drain','drain globe',sender) end
@@ -208,10 +241,16 @@ function M.detach(c)
 end
 function M.attach(c)
  local b=M.detach(c) -- Always OFF, including reload. Preserve unresolved barriers.
- b.attached=true
- local function own(kind,id) b.handles[#b.handles+1]={kind=kind,id=id} end
- if tempRegexTrigger then own('trigger',tempRegexTrigger('^.*$',function() M.text(c,line) end)) end
- if tempPromptTrigger then own('trigger',tempPromptTrigger(function() M.prompt(c);M.service(c) end)) end
+ local function own(kind,id)
+  assert(type(id)=='number' and id>0 and id<math.huge and id==math.floor(id),'invalid elemental '..kind..' hook ID')
+  b.handles[#b.handles+1]={kind=kind,id=id}
+ end
+ -- All receive/lifecycle hooks are essential. Failed registration must never
+ -- advertise an attached owner; tear down only our successfully acquired IDs.
+ local ok,err=pcall(function()
+ assert(type(tempRegexTrigger)=='function' and type(tempPromptTrigger)=='function' and type(registerAnonymousEventHandler)=='function','essential elemental hook API unavailable')
+ own('trigger',tempRegexTrigger('^.*$',function() M.text(c,line) end))
+ own('trigger',tempPromptTrigger(function() M.prompt(c);M.service(c) end))
  if registerAnonymousEventHandler then
   for _,event in ipairs({'gmcp.Char.Defences.Add','gmcp.Char.Items.Add','gmcp.Room.Info','sysDisconnectionEvent'}) do
    local event_name=event
@@ -219,9 +258,9 @@ function M.attach(c)
     if event_name=='gmcp.Char.Defences.Add' then M.defence(c,'Add',gmcp and gmcp.Char and gmcp.Char.Defences and gmcp.Char.Defences.Add)
     elseif event_name=='gmcp.Char.Items.Add' then M.item(c,'Add',gmcp and gmcp.Char and gmcp.Char.Items and gmcp.Char.Items.Add)
     elseif event_name=='sysDisconnectionEvent' then
-     if b.pending then fault(b,'disconnected during recovery') else M.arm(c,false) end
+     if b.pending and b.pending.phase~='normal' then fault(b,'disconnected during recovery') else M.arm(c,false) end
     elseif gmcp and gmcp.Room and gmcp.Room.Info and gmcp.Room.Info.num~=b.room then
-     if b.pending then fault(b,'room changed during recovery') else M.arm(c,false) end
+     if b.pending and b.pending.phase~='normal' then fault(b,'room changed during recovery') else M.arm(c,false) end
     end
     M.service(c)
    end))
@@ -232,6 +271,9 @@ function M.attach(c)
   if action=='on' then M.arm(c,true) elseif action=='off' then M.arm(c,false) end
   if echo then echo('Elemental recovery: '..b.status..'\n') end
  end)) end
+ end)
+ if not ok then M.detach(c);error('elemental attachment failed: '..tostring(err),0) end
+ b.attached=true
  return b
 end
 return M
