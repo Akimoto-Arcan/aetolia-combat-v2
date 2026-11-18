@@ -109,6 +109,20 @@ For BASH, an acknowledgement timeout/sender failure latches a safe pause without
 
 FIRSTAID is separate from attack OFF. Its existing server priorities remain unchanged.
 
+## Automatic enemy injury and posture tracking
+
+Confirmed named cripple/break/mangle messages and Discern observations update the matching limb flags and canonical enemy-affliction entries together. Observed incapacitating arm/leg breaks also establish crippled state. Confirmed knockdowns set both prone/fallen affliction aliases; stand/kipup or confirmed posture cures clear both without magically curing a limb. The existing selector then advances to Sweep for an injured standing target, and BBT when crippled and prone are both observed. Prone plus observed mangled head still selects Axe Kick. Markers are not manufactured from estimated trauma or sent commands. Other-target lines are rejected, and BASH still excludes PvP limb tracking.
+
+The actual training-dummy messages `buckles to the ground with a shuddering fall` and `lifts itself upright from the ground` now update posture. Those lines alone do not prove a cripple. The observed dummy test emitted falls/stands but no named limb-cripple confirmations; a live opponent's confirmed injury messages are needed to validate the complete BBT progression in game. Supported generic injury templates were sourced from AC2.2 Kaido / Third Party Salve attacks; further unseen messages should be captured and replay-tested rather than guessed.
+
+## Scoped training telemetry and sweep-loop prevention
+
+`cv2 config training_reports on` explicitly binds the reporting runed target dummy to the currently selected target generation and room; `off` disables it. A reporting dummy must be present. This is a training-only adapter, not permission to treat arbitrary speech as combat truth. Target changes, room movement and disconnect invalidate the scope. Exact reported damage totals replace estimates, including reductions after healing. Reported affliction gains/cures update the same canonical flags and enemy-affliction list used by the selector.
+
+Observed restoration application records the limb and a legacy estimated 4.1-second completion window in TARGET / ACTION. Applying poultice does not instantly clear injuries; explicit cure reports clear the corresponding flags. Exact subsequent training totals reconcile unreported damage reductions. The shown damage remains the last observed/reported total, not a claim of continuous server visibility between reports. The restore timer alone never fabricates a confirmed cure.
+
+Sweep is attempted once per confirmed leg-cripple setup. If the target stands before attack balance returns, the selector resumes limb preparation instead of repeating Sweep indefinitely. A newly confirmed cripple after a cure rearms setup; confirmed prone plus cripple still enables BBT. Live controlled tests verified a 34.50% break, 40.00% combo total, subsequent broken/crippled cure reports clearing both flags, and return to combo selection instead of stale Sweep. The training target automatically restores; a complete live BBT lock is not claimed by these tests.
+
 ## Target aliases in training tests
 
 A target such as `t dummy` can differ from the server's full attack name (`a battered training dummy`). At an own supported Tekura attack header, the tracker can bind that display name only when this engine sent an attack in the same target generation within two seconds and a unique living, unprotected room NPC matches the alias as a bounded word. Ambiguous aliases fail closed; choose the exact NPC ID instead. Global player matching remains exact. Connections still require a compatible, unexpired hit context, and displayed percentages remain confidence-tagged estimates. Hitpoint `Damage Dealt` is not a limb percentage. Historical missed hits are not backfilled, especially after a dummy resets.

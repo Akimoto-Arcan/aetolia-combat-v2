@@ -24,7 +24,7 @@ local function affliction(s,name,on)
  if not marker then limb,marker=normalized:match("^(.+)_(broken)$") end
  if not marker then limb,marker=normalized:match("^(.+)_(crippled)$") end
  if not marker then limb,marker=normalized:match("^(.+)_(mangled)$") end
- if marker and Tracker.limb(limb) then limb=Tracker.limb(limb);normalized=limb.."_"..marker;observe(s,marker,{limb=limb,value=on}) end
+ if marker and Tracker.limb(limb) then limb=Tracker.limb(limb);normalized=limb.."_"..marker;observe(s,marker,{limb=limb,value=on});if on and (marker=="broken" or marker=="mangled") and (limb:find("arm",1,true) or limb:find("leg",1,true)) then observe(s,"crippled",{limb=limb,value=true}) end end
  if normalized=="prone" or normalized=="fallen" then observe(s,"prone",{value=on}) end
  observe(s,"affliction",{name=normalized,value=on})
 end
@@ -33,6 +33,13 @@ local function context(s)
  local ctx=s.hit_context
  if ctx and ctx.generation==s.target_generation and ctx.expires>=now() then return ctx end
  s.hit_context=nil
+end
+local function injury(s,actor,raw,kind)
+ if not same(s,actor) then return false end
+ local limb=Tracker and Tracker.limb(raw);if not limb then return false end
+ observe(s,kind,{limb=limb,value=true})
+ if (kind=="broken" or kind=="mangled") and (limb:find("arm",1,true) or limb:find("leg",1,true)) then observe(s,"crippled",{limb=limb,value=true}) end
+ return true
 end
 function M.event(s,text)
  if type(text)~="string" then return s end
@@ -55,13 +62,56 @@ function M.event(s,text)
   if not s.hunting.active or s.target.attacked_generation==s.target_generation then s.target.dead=true;s.stop_reason="target slain";s.combat_response="kill";s.hit_context=nil end
   return s
  end
+ -- Explicitly scoped training-proxy reports; ordinary speech is never combat truth.
+ local training=s.training
+ local report=text:match('^A runed target dummy says, "(.-)"$')
+ if report and training and training.enabled and training.generation==s.target_generation and training.room==s.room.id and same(s,training.target) then
+  local limb,amount,total=report:match("^My (.-) took ([%d%.]+)%% damage%. It is now at ([%d%.]+)%% total%.$")
+  limb=limb and Tracker.limb(limb)
+  if limb and tonumber(total) and tonumber(total)<=100 then
+   local restore=s.target.restoration;local previous=s.target.limbs[limb] or 0;local evidence=s.target.evidence["limb:"..limb]
+   if restore and restore.active and restore.limb==limb and evidence and evidence.source=="scoped training dummy report" and previous+(tonumber(amount) or 0)-tonumber(total)>.1 then
+    restore.active=false;restore.confirmed_reduction=previous+(tonumber(amount) or 0)-tonumber(total);restore.confirmed_cure=now()
+   end
+   observe(s,"limb",{limb=limb,amount=tonumber(total),source="scoped training dummy report",confidence=1});return s
+  end
+  local gained=report:match("^I was afflicted with ([%a_]+)%.$")
+  local cured=report:match("^I was cured of ([%a_]+)%.$")
+  if gained or cured then
+   affliction(s,gained or cured,gained~=nil)
+   local restore=s.target.restoration
+   if cured and restore and cured:find(restore.limb,1,true) then restore.active=false;restore.confirmed_cure=now() end
+   return s
+  end
+ end
+ local who,where=text:match("^(.+) presses a restoration poultice against %w+ (.-), rubbing .- into .- flesh%.$")
+ if who and same(s,who) and Tracker.limb(where) and s.mode~="BASH" then
+  s.target.restoration={limb=Tracker.limb(where),started=now(),expected_end=now()+4.1,active=true,source="observed poultice application",confidence=.65}
+  return s
+ end
+ -- Named injury confirmations ported from AC2.2 generic salve attacks and Kaido.
+ local victim,part=text:match("^(.+)'s (.+) breaks from all the damage%.$")
+ if not victim then victim,part=text:match("^(.+)'s (.+) is shredded into meaty ribbons%.$") end
+ if victim and injury(s,victim,part,"broken") then return s end
+ victim,part=text:match("^(.+)'s (.+) has been beaten into uselessness%.$")
+ if not victim then victim,part=text:match("^(.+)'s (.+) has been torn into uselessness%.$") end
+ if victim and injury(s,victim,part,"mangled") then return s end
+ victim,part=text:match("^(.+)'s (.+) is badly crippled under the .+%.$")
+ if not victim then victim,part=text:match("^(.+)'s (.+) breaks in half%.$") end
+ if victim and injury(s,victim,part,"crippled") then return s end
+ victim=text:match("^(.+)'s broken legs cause .+ to fall to the ground in a heap%.$")
+ if victim and same(s,victim) then observe(s,"crippled",{limb="left_leg",value=true});observe(s,"crippled",{limb="right_leg",value=true});observe(s,"prone",{value=true});return s end
+ victim=text:match("^(.+) buckles to the ground with a shuddering fall%.$")
+ if victim and same(s,victim) then observe(s,"prone",{value=true});return s end
+ victim=text:match("^(.+) lifts itself upright from the ground%.$")
+ if victim and same(s,victim) then observe(s,"prone",{value=false});return s end
  local actor,aff=text:match("^You discern that (%w+) has been afflicted with (.+)%.$")
  if actor and same(s,actor) then affliction(s,aff,true);return s end
  actor,aff=text:match("^You discern that (%w+) has cured the effects of (.+)%.$")
  if actor and same(s,actor) then affliction(s,aff,false);return s end
- actor=text:match("^You connect and send (%w+) sprawling to the floor%.$") or text:match("^(%w+) is knocked to the ground%.$") or text:match("^You knock the legs out from under (%w+) and send %w+ sprawling%.$") or text:match("^You hear two loud snaps and see (%w+) fall to the ground%.$")
+ actor=text:match("^You connect and send (.+) sprawling to the floor%.$") or text:match("^(.+) is knocked to the ground%.$") or text:match("^You knock the legs out from under (.+) and send %w+ sprawling%.$") or text:match("^You hear two loud snaps and see (%w+) fall to the ground%.$")
  if actor and same(s,actor) then observe(s,"prone",{value=true});observe(s,"affliction",{name="fallen",value=true});return s end
- actor=text:match("^(%w+) stands up and stretches %w+ arms out wide%.$") or text:match("^(%w+) uses Tekura Kipup%.?$") or text:match("^(%w+) swings %w+ legs around and rises up from the ground%.$")
+ actor=text:match("^(.+) stands up and stretches %w+ arms out wide%.$") or text:match("^(%w+) uses Tekura Kipup%.?$") or text:match("^(%w+) swings %w+ legs around and rises up from the ground%.$")
  if actor and same(s,actor) then observe(s,"prone",{value=false});observe(s,"affliction",{name="fallen",value=false});observe(s,"affliction",{name="prone",value=false});return s end
  actor=text:match("^A nearly invisible magical shield forms around (.+)%.$")
  if actor and same(s,actor) then observe(s,"shield",{value=true});return s end

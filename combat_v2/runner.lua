@@ -64,6 +64,7 @@ function M.execute(r,a,approved)
  r.reject_snapshot=s.reject_sequence or 0;s.target.attacked_generation=s.target_generation;s.target.last_attack_at=now()
  local ok,err=pcall(sender,a.command)
  if not ok then if r.mode=="BASH" then r.fault="sender error: "..tostring(err);r.status=r.fault else M.stop(r,"sender error: "..tostring(err)) end;return false,r.status end
+ if a.name=="sweep" then s.target.sweep_attempted=true end
  if s.stats then s.stats.sent=s.stats.sent+1 end
  if s.history then s.history[#s.history+1]={time=now(),kind="send",target=s.target.name,detail=a.command,reason=a.reason,generation=s.target_generation};while #s.history>100 do table.remove(s.history,1) end end
  return true,a.command

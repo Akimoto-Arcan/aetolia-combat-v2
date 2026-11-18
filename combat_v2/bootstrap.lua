@@ -171,6 +171,13 @@ function combat_v2_set_route(route)
  c.current.config.route=route;c.runner.pending=nil;c.state.record(c.current,"route",route);refresh();return true
 end
 function combat_v2_config(key,value)
+ if key=="training_reports" then
+  if value=="off" then c.current.training=nil;return true end
+  if value~="on" or not c.current.target.name then return false,"select a target; training_reports on|off" end
+  local present=false;for _,item in pairs(c.current.room.items)do if tostring(item.name):lower()=="a runed target dummy" then present=true end end
+  if not present then return false,"No reporting runed target dummy in this room" end
+  c.current.training={enabled=true,target=c.current.target.name,generation=c.current.target_generation,room=c.current.room.id};return true
+ end
  if key=="group_web" then if value~="on" and value~="off" then return false,"group_web on|off" end;c.current.policy.group_web=value=="on";c.current.policy.web.at=nil;combat_v2_tick();return true end
  if key=="estimate_trauma" then
   if value~="on" and value~="off" then return false,"estimate_trauma on|off" end
@@ -195,7 +202,7 @@ c.handlers={}
 local function handler(event,fn) c.handlers[#c.handlers+1]=registerAnonymousEventHandler(event,fn) end
 handler("gmcp.Char.Vitals",function() c.state.sync_gmcp(c.current,gmcp);combat_v2_tick() end)
 handler("sysDisconnectionEvent",function()
- c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
+ c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
  c.current.policy.players_known=false;c.current.policy.web.at=nil;cancel_ih()
  if c.mode=="BASH" then if c.runner.waiting then c.runner.fault="Disconnected during attack; cv2 reset after review" end;c.runner.status="BASH paused: disconnected";refresh()
  else combat_v2_stop("disconnected") end
@@ -240,7 +247,7 @@ handler("gmcp.Char.Items.Remove",function() c.bashing.item_removed(c.current,gmc
 handler("gmcp.Room.Info",function()
  local s=c.current;local info=gmcp.Room.Info or {};local changed=c.policy.room(s,info)
  if changed then
-  s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
+  s.training=nil;s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
   if c.mode=="BASH" then c.state.set_target(s,"");c.runner.pending=nil end
  end
  combat_v2_tick()

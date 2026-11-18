@@ -69,6 +69,8 @@ function M.help_text()
   "  cv2 areas             Refresh the game's hunting-area list.",
   "  cv2 area yes / no     Answer the current area's approval prompt.",
   "  cv2 web               Refresh the current WEB MEMBERS roster.",
+  "  cv2 config training_reports on / off",
+  "                        Trust the local reporting dummy for this target only.",
   "  cv2 config group_web on / off",
   "                        Allow verified web members / strict solo mode.",
   "",
@@ -151,7 +153,7 @@ function M.layout()
  card("header",60);place(ui.buttons.help,rw-90,12,70,30)
  local bw=(cw-24)/5
  for i,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do place(ui.buttons[m],10+(i-1)*(bw+6),y,bw,30) end
- y=y+38;local compact=rh<800;card("status",compact and 110 or 120);card("target",compact and 70 or 80);card("limbs",compact and 90 or 102)
+ y=y+38;local compact=rh<800;card("status",compact and 110 or 120);card("target",compact and 86 or 96);card("limbs",compact and 90 or 102)
  local affY=y;local affH=rh-affY-188;local aw=(cw-10)/2
  ui.per_page=math.max(1,math.floor((affH-88)/19));ui.aff_height=affH
  for i,k in ipairs({"player_afflictions","enemy_afflictions"}) do
@@ -217,7 +219,9 @@ function M.refresh(state,runner,cure)
  local stance,stanced=M.stance(state);local stance_color=stanced==true and C.good or stanced==false and C.bad or C.warn
  M.cards.status:echo(html(heading("PLAYER STATUS").."<b style='font-size:16px;color:"..stance_color..";'>STANCE: "..esc(stance).."</b> &nbsp; Kai: "..esc(p.kai or "?").."<br>"..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>Balance %s &nbsp; Eq %s &nbsp; Arms %s / %s<br>Executor: %s",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana),ready(p.balance),ready(p.equilibrium),ready(p.left_arm_balance),ready(p.right_arm_balance),esc(runner.status or "idle"))))
  local a=runner.pending or state.last_action or {}
- M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"))
+ local restore=t.restoration;local restoration=""
+ if restore and restore.active then local remaining=math.max(0,(restore.expected_end or 0)-(getEpoch and getEpoch() or os.clock()));restoration="<br><span style='font-size:11px;color:"..C.warn..";'>RESTORE: "..esc(restore.limb:gsub("_"," "))..(remaining>0 and string.format(" ~%.1fs",remaining) or " awaiting cure confirmation").."</span>" end
+ M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"..restoration))
  local rows={}
  for _,k in ipairs({"left_arm","right_arm","left_leg","right_leg","torso","head"}) do
   local marker=t.mangled[k] and "MANGLED" or t.broken[k] and "BROKEN" or t.crippled[k] and "CRIPPLED" or ""

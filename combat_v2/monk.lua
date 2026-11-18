@@ -38,7 +38,7 @@ function M.choose(s)
  local crippled=next(t.crippled)~=nil
  if t.prone and crippled then return action("backbreaker","bbt "..t.name,"prone target with observed crippled limb") end
  if t.broken.left_arm and t.broken.right_arm then return action("thunderkick","tnk "..t.name,"both enemy arms observed broken",nil,true) end
- if not t.prone and (t.crippled.left_leg or t.crippled.right_leg or t.broken.left_leg or t.broken.right_leg) then return action("sweep","swk "..t.name,"observed leg injury; establish prone for throws",nil,true) end
+ if not t.prone and not t.sweep_attempted and (t.crippled.left_leg or t.crippled.right_leg or t.broken.left_leg or t.broken.right_leg) then return action("sweep","swk "..t.name,"observed leg injury; establish prone for throws",nil,true) end
  local limb=M.select_limb(s)
  if not limb then return wait("no legal unbroken, unguarded limb; review target state") end
  local side=limb:find("left",1,true) and "left" or "right"

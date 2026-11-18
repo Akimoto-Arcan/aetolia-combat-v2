@@ -48,15 +48,21 @@ function M.apply(s,e)
   t.limbs[limb]=kind=="damage" and math.min(100,(t.limbs[limb] or 0)+n) or n;key="limb:"..limb
  elseif kind=="broken" or kind=="mangled" or kind=="crippled" then
   local limb=M.limb(e.limb);if not limb then return false,"invalid limb" end
-  t[kind][limb]=e.value~=false or nil;key=kind..":"..limb
+  if kind=="crippled" and e.value and not t[kind][limb] then t.sweep_attempted=nil end
+  t[kind][limb]=e.value~=false or nil;t.afflictions[limb.."_"..kind]=e.value or nil;key=kind..":"..limb
  elseif kind=="affliction" then
   local aff=tostring(e.name or ""):lower():gsub("%s+","_")
   if not aff:match("^[%a_]+$") or #aff>60 then return false,"invalid affliction" end
-  t.afflictions[aff]=e.value~=false or nil;key="aff:"..aff
+  t.afflictions[aff]=e.value or nil;key="aff:"..aff
+  for _,marker in ipairs({"crippled","broken","mangled"})do
+   local limb=aff:match("^(.-)_"..marker.."$");limb=limb and M.limb(limb)
+   if limb then t[marker][limb]=e.value or nil end
+  end
+  if aff=="prone" or aff=="fallen" then t.prone=e.value;t.afflictions.prone=e.value or nil;t.afflictions.fallen=e.value or nil end
  elseif kind=="parry" then
   local limb=M.limb(e.limb);if not limb and e.limb~="none" then return false,"invalid parry limb" end
   t.parry_limb=limb;t.parry_confidence=math.max(0,math.min(1,tonumber(e.confidence) or 1));t.parry_at=now()
- elseif kind=="prone" or kind=="shield" or kind=="rebounding" then t[kind]=e.value~=false
+ elseif kind=="prone" or kind=="shield" or kind=="rebounding" then t[kind]=e.value~=false;if kind=="prone" then t.afflictions.prone=e.value or nil;t.afflictions.fallen=e.value or nil end
  elseif kind=="death" then t.dead=true;s.stop_reason="target slain"
  else return false,"unknown observation" end
  t.evidence=t.evidence or {};t.evidence[key]={source=e.source or "manual",confidence=tonumber(e.confidence) or 1,time=now(),generation=s.target_generation}
