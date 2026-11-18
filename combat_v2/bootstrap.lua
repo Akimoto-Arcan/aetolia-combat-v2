@@ -140,7 +140,7 @@ function combat_v2_config(key,value)
   if value~="on" and value~="off" then return false,"estimate_trauma on|off" end
   c.current.config.estimate_trauma=value=="on";return true
  end
- local bounds={health_pause={1,95},health_resume={2,100},ack_timeout={2,60},stale_vitals={5,120},parry_ttl={1,60},parry_min_confidence={0,1},kick_trauma={0,100},punch_trauma={0,100},boost_kick_trauma={0,100},boost_punch_trauma={0,100}}
+ local bounds={health_pause={1,95},health_resume={2,100},ack_timeout={2,60},parry_ttl={1,60},parry_min_confidence={0,1},kick_trauma={0,100},punch_trauma={0,100},boost_kick_trauma={0,100},boost_punch_trauma={0,100}}
  local b=bounds[key];local n=tonumber(value)
  if not b or not n or n~=n or n<b[1] or n>b[2] then return false,"invalid config value/key" end
  local cfg=c.current.config

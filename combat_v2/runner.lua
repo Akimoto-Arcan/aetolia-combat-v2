@@ -2,6 +2,11 @@ local M={}
 local function now() return getEpoch and getEpoch() or os.clock() end
 local function yes(x) return x==true or tonumber(x)==1 end
 local function cfg(r,k,default) return r.state.config and r.state.config[k] or default end
+local function connected(s)
+ if not s.connected then return false end
+ if getConnectionInfo then local _,_,tcp=getConnectionInfo();return tcp==true end
+ return true
+end
 function M.new(s,monk) return {state=s,monk=monk,mode="OFF",waiting=false,enabled=true,last_send=-100,cooldown=.3,status="OFF"} end
 function M.ready(r,requirements)
  local p=r.state.player
@@ -18,8 +23,9 @@ function M.stop(r,reason)
 end
 function M.watchdog(r)
  if r.mode=="OFF" or r.mode=="SHADOW" then return false end
+ -- Char.Vitals is event-driven, not a heartbeat; an idle timestamp is diagnostic only.
+ if not connected(r.state) then M.stop(r,"not logged in / disconnected");return true end
  if r.waiting and now()-r.last_send>cfg(r,"ack_timeout",8) then M.stop(r,"attack acknowledgement timed out; inspect cv2 trace");return true end
- if r.state.vitals_at and now()-r.state.vitals_at>cfg(r,"stale_vitals",20) then M.stop(r,"vitals stale; reconnect/review before restarting");return true end
  return false
 end
 function M.execute(r,a,approved)
@@ -27,9 +33,8 @@ function M.execute(r,a,approved)
  local function deny(msg) r.status=msg;return false,msg end
  if r.mode=="OFF" or r.mode=="SHADOW" then return deny(r.mode) end
  if r.mode=="BASH" and s.hunting and s.hunting.ih and s.hunting.ih.active then return deny("waiting for IH target confirmation") end
- if not s.connected then return deny("not logged in / disconnected") end
+ if not connected(s) then return deny("not logged in / disconnected") end
  if (tonumber(p.hp) or 0)<=0 or p.dead then return deny("dead / no vitals") end
- if s.vitals_at and now()-s.vitals_at>cfg(r,"stale_vitals",20) then return deny("stale vitals") end
  if not s.target.name or s.target.dead or not tostring(s.target.name):match("^[%w%s'%-]+$") or tostring(s.target.name):find("[\r\n]") then return deny("no valid living target") end
  local pct=(tonumber(p.maxhp) or 0)>0 and 100*p.hp/p.maxhp or 100
  if pct<cfg(r,"health_pause",30) then r.paused_health=true end

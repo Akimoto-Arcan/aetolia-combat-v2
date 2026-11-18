@@ -84,7 +84,6 @@ Integrations can call `combat_v2_observe({kind=...,target=...,source=...,confide
     cv2 config health_pause 30
     cv2 config health_resume 60
     cv2 config ack_timeout 8
-    cv2 config stale_vitals 20
     cv2 config parry_ttl 8
     cv2 config parry_min_confidence 0.75
     cv2 status
@@ -93,7 +92,7 @@ Integrations can call `combat_v2_observe({kind=...,target=...,source=...,confide
 
 Attacks pause below the configured health percentage and resume only above the higher recovery threshold. Dead, disconnected, prone, paralysed or sleeping players do not attack. Each action has its own balance requirements; a kick-only action does not unnecessarily require both arm balances. A sent attack requires observed balance loss and recovery before another send.
 
-A watchdog stops on acknowledgement timeout or stale vitals; it NEVER releases waiting and blindly resends. `reset` is an explicit manual wait reset; inspect trace before using it. Trace is a bounded 100-entry memory buffer, not an uploaded game log. Config changes are session-local (survive code reload in the same profile session, not guaranteed across restart).
+The watchdog stops on acknowledgement timeout or a lost session/TCP connection; it NEVER releases waiting and blindly resends. `Char.Vitals` is event-driven, not a heartbeat: an old vitals timestamp while connected and idle is diagnostic only and must not demand a reconnect. Session login evidence, positive HP, balances, IH target checks, and acknowledgement timeout still gate execution. `reset` is an explicit manual wait reset; inspect trace before using it. Trace is a bounded 100-entry memory buffer, not an uploaded game log. Config changes are session-local (survive code reload in the same profile session, not guaranteed across restart).
 
     cv2 curing on
     cv2 curing off

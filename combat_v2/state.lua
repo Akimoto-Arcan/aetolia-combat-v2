@@ -9,7 +9,7 @@ function M.target(name)
 end
 function M.new()
  return {mode="OFF",connected=false,target_generation=0,player={hp=0,maxhp=0,mana=0,maxmana=0,balance=false,equilibrium=false,left_arm_balance=false,right_arm_balance=false,afflictions={},defences={}},target=M.target(),
- config={route="legs",health_pause=30,health_resume=60,ack_timeout=8,stale_vitals=20,parry_ttl=8,parry_min_confidence=.75,estimate_trauma=true,kick_trauma=8.99,punch_trauma=5.49,boost_kick_trauma=10.8,boost_punch_trauma=6.6},
+ config={route="legs",health_pause=30,health_resume=60,ack_timeout=8,parry_ttl=8,parry_min_confidence=.75,estimate_trauma=true,kick_trauma=8.99,punch_trauma=5.49,boost_kick_trauma=10.8,boost_punch_trauma=6.6},
  hunting={queue={},active=false,kills=0,skipped=0},recoveries={},reject_sequence=0,history={},stats={sent=0,observed=0,stops=0},room={items={}},last_event=nil,last_action=nil}
 end
 local function merge(t,defaults)

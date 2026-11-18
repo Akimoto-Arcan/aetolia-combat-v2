@@ -51,7 +51,11 @@ s,r=fresh('BASH');s.player.hp=20;check(not R.tick(r) and r.paused_health,'low HP
 s.player.hp=45;check(not R.tick(r),'health hysteresis missing');s.player.hp=65;check(R.tick(r),'health recovery did not resume')
 s,r=fresh('BASH');s.player.prone=true;check(not R.tick(r),'prone player attacked')
 s,r=fresh('BASH');s.player.afflictions.paralysis=true;check(not R.tick(r),'paralysed player attacked')
-s,r=fresh('BASH');now=now+21;check(not R.tick(r) and r.mode=='OFF','stale vitals not stopped')
+s,r=fresh('BASH');now=now+120;check(not R.watchdog(r) and r.mode=='BASH','idle GMCP was treated as a disconnected session')
+check(R.tick(r),'quiet but connected session could not execute after idle')
+s,r=fresh('BASH');now=now+120;s.connected=false;check(not R.tick(r) and r.mode=='OFF','idle-vitals fix allowed disconnected execution')
+s,r=fresh('BASH');getConnectionInfo=function()return 'fixture',0,false end
+check(not R.tick(r) and r.mode=='OFF','closed TCP transport allowed execution');getConnectionInfo=nil
 s,r=fresh('BASH');check(R.tick(r),'initial send failed');local before=#sent;now=now+9;check(R.watchdog(r) and r.mode=='OFF' and #sent==before,'watchdog retried/spammed')
 s,r=fresh('ASSIST');check(not R.tick(r) and r.pending,'assist not pending');S.set_target(s,'another');check(not R.approve(r),'old target approval accepted')
 s,r=fresh('ASSIST');R.tick(r);observe(s,'shield',{value=true});check(not R.approve(r),'changed defence stale approval accepted')
