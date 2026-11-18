@@ -76,6 +76,28 @@ end
 local function escape(s)
   return (s:gsub('&','&amp;'):gsub('<','&lt;'):gsub('>','&gt;'))
 end
+-- Session-local position survives refresh and module reload; never owns combat.
+function M.drag(c, phase, event)
+ local ui=c.supplies_ui
+ if not ui or type(event)~='table' then return false end
+ if phase=='release' then ui.drag=nil;return true end
+ local gx,gy=tonumber(event.globalX),tonumber(event.globalY)
+ if not gx or not gy then return false end
+ if phase=='press' then
+  if event.button~='LeftButton' and event.button~='Left' then return false end
+  ui.drag={gx=gx,gy=gy,x=ui.x,y=ui.y};return true
+ end
+ if phase~='move' or not ui.drag then return false end
+ if type(event.buttons)=='table' then
+  local held=false
+  for key,value in pairs(event.buttons)do
+   if value=='LeftButton' or value=='Left' or ((key=='LeftButton' or key=='Left')and value==true)then held=true end
+  end
+  if not held then ui.drag=nil;return false end
+ end
+ local d=ui.drag;c.supplies_position={x=d.x+gx-d.gx,y=d.y+gy-d.gy}
+ M.render(c);return true
+end
 function M.render(c)
   local s = M.state(c)
   local title = 'FLUIDCACHE RESERVES'
@@ -102,9 +124,17 @@ function M.render(c)
       local noteRows=math.ceil(#note/math.max(1,math.floor((width-12)/7)))
       height=math.max(height,titleRows*24+noteRows*17+12)
     end
-    local x = math.max(0, math.min(350, w-width-10))
+    local position=c.supplies_position
+    local x=math.max(0,math.min(position and position.x or 350,math.max(0,w-width-10)))
+    local y=math.max(0,math.min(position and position.y or 10,math.max(0,h-height)))
     local label = ui.label
-    label:move(x, math.min(10, math.max(0,h-height)))
+    if not ui.drag_bound and type(label.setClickCallback)=='function' and type(label.setMoveCallback)=='function' and type(label.setReleaseCallback)=='function' then
+      label:setClickCallback(function(event)M.drag(c,'press',event)end)
+      label:setMoveCallback(function(event)M.drag(c,'move',event)end)
+      label:setReleaseCallback(function(event)M.drag(c,'release',event)end)
+      ui.drag_bound=true
+    end
+    label:move(x,y)
     label:resize(width, math.min(height,h))
     local color = s.level=='critical' and '#a40000' or (s.level=='warning' and '#5e4100' or '#172832')
     if type(label.setStyleSheet)=='function' then
@@ -113,7 +143,7 @@ function M.render(c)
     elseif type(label.setColor)=='function' then label:setColor(color) end
     label:echo('<div style="color:white; padding:4px"><b style="font-size:'..
       (s.level=='critical' and '20' or '13')..'px">'..escape(title)..'</b><br>'..escape(note)..'</div>')
-    ui.level=s.level; ui.x=x; ui.y=10; ui.width=width; ui.height=math.min(height,h)
+    ui.level=s.level; ui.x=x; ui.y=y; ui.width=width; ui.height=math.min(height,h)
   end
   return s
 end
