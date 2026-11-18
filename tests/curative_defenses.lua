@@ -36,7 +36,7 @@ do
  end
  B.master(s,true);for i=1,8 do clock=clock+20;tick()end
  check(#sent==0 and not s.buffs.pending and not s.buffs.fault,'self-affliction attempted')
- check(B.curative_catalog==nil and B.curative_policy_seed==nil,'obsolete curative engine survived')
+ check(#B.curative_catalog==15 and B.curative_policy_seed==nil,'metadata must not introduce a curative engine')
 end
 -- Mindseye may be used when actual ink is verified; it must never authorize EAT.
 do
@@ -154,5 +154,24 @@ do
  B.text(s,'You have the following tattoos:');B.text(s,'Head: Boar Active');B.on_prompt(s)
  check(row(s,'boar').active,'new report could not restore passive Active')
  B.sync(s,'List',{});check(row(s,'boar').active and #sent==0)
+end
+-- Official curative index is coverage metadata, not manufacturing permission.
+for _,class in ipairs({'Monk','Archivist'}) do
+ local s=fresh();B.set_class(s,class);B.sync(s,'List',{})
+ local count,herbal,apo,seen=0,0,0,{}
+ for _,e in ipairs(B.curative_catalog) do
+  count=count+1;check(not seen[e.key] and row(s,e.key),'curative missing/duplicate '..e.key);seen[e.key]=true
+  check(not e.command and e.class=='shared','curative sender/class restriction')
+  if e.source=='Herbalism' then herbal=herbal+1 else apo=apo+1 end
+  check(row(s,e.key).owner==e.owner,'curative owner '..e.key)
+ end
+ check(count==15 and herbal==9 and apo==6)
+ check(not B.set_group_known(s,'herbalism',{'Somnium'}),'manufacturing became consumption capability')
+ B.text(s,'Your mind is filled with distant thoughts.');check(row(s,'daydream').active)
+ B.text(s,'Your mind focuses back on the tasks at hand.');check(row(s,'daydream').active==false)
+ check(row(s,'daydream').owner=='CURATIVE MANUAL' and row(s,'daydream').control=='observed')
+ check(not B.toggle(s,'daydream',true) and not B.toggle(s,'daydream',false))
+ B.text(s,'Your resistance to damage by poison has been increased.')
+ check(row(s,'antivenin').active and not row(s,'venom_resistance').active and not B.availability(s,'antivenin'))
 end
 print('PASS current sensory safety '..n..' assertions: native12, no legacy self-affliction, current one-time Mindseye, native curing untouched, conservative Immunity cooldown')

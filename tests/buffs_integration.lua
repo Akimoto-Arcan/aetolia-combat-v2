@@ -37,7 +37,26 @@ function killTimer(id)timers[id]=nil end
 function send(command)sent[#sent+1]=command end
 function sendGMCP()end
 local shown=0
+-- Narrow bootstrap contract probe for parallel development: never opens buffs.lua.
+-- This verifies API routing/provenance only, NOT backend ownership or execution.
+local contract_only=arg[2]=='class-contract'
+local contract_calls={groups={},lists={},invalidations=0}
+local contract={catalog={}}
+function contract.state(s)s.buffs=s.buffs or {master=false,known={},have={}};return s.buffs end
+function contract.stop(s)contract.state(s).master=false end
+function contract.invalidate(s)contract_calls.invalidations=contract_calls.invalidations+1 end
+function contract.set_class(s,name)contract.state(s).class=name:lower()end
+function contract.supported_class(name)return name:lower()=='monk'or name:lower()=='archivist'end
+function contract.audit_groups(name)
+ if name:lower()=='monk'then return {'kaido','telepathy','survival','vision','avoidance'}end
+ if name:lower()=='archivist'then return {'geometrics','numerology','bioessence','survival','vision','avoidance'}end
+ return {}
+end
+function contract.set_groups(s,data)contract_calls.groups[#contract_calls.groups+1]={class=s.player.class,data=data}end
+function contract.set_group_known(s,group,list)contract_calls.lists[#contract_calls.lists+1]={class=s.player.class,group=group,list=list}end
+function contract.vitals()end
 function dofile(path)
+ if contract_only and path:match('/buffs.lua$')then return contract end
  if path:match('/gui.lua$')then return {create=function()end,refresh=function()end,show_defenses=function()shown=shown+1;return true end}end
  return realdofile(path)
 end
@@ -50,10 +69,56 @@ io=setmetatable({open=function(path,mode)
 end},{__index=nativeio})
 os.rename=function(a,b)if a:match('defup%-settings%.json%.new$')then store[b]=store[a];store[a]=nil;return true end;return rename(a,b)end
 yajl={to_string=function(value)payload=value;return 'fixture-json'end,to_value=function(text)assert(text=='fixture-json');return payload end}
-gmcp={Char={Status={class='Monk'},Name={name='Fixture'},Skills={Groups={{name='Kaido',rank='Transcendent 100%'}}},Vitals={hp=100,maxhp=100,mp=100,maxmp=100,wp=100,maxwp=100,balance=1,equilibrium=1,left_arm=1,right_arm=1,stance='scorpion'}},Room={Info={num=1,area='Fixture Hunt'},Players={}}}
+gmcp={Char={Status={class='Monk',guild='Archivists'},Name={name='Fixture'},Skills={Groups={{name='Kaido',rank='Transcendent 100%'}}},Vitals={hp=100,maxhp=100,mp=100,maxmp=100,wp=100,maxwp=100,balance=1,equilibrium=1,left_arm=1,right_arm=1,stance='scorpion'}},Room={Info={num=1,area='Fixture Hunt'},Players={}}}
 dofile(root..'bootstrap.lua')
 local c=combat_v2;local s=c.current;local M=c.buffs;local n=0
 local function check(ok,why)assert(ok,why);n=n+1 end
+if contract_only then
+ -- Keep this probe focused on bootstrap, without simulating a backend service.
+ combat_v2_tick=function()c.buff_snapshot()end
+ s.connected=true
+ check(s.player.class=='Monk' and s.buffs.class=='monk','guild became actual class')
+ check(#contract_calls.groups==0 and #contract_calls.lists==0,'startup consumed cached ownership')
+ local function event(kind)handlers['gmcp.Char.Skills.'..kind]()end
+ event('Groups');check(#contract_calls.groups==1,'fresh Monk Groups not routed')
+ gmcp.Char.Skills.List={group='Kaido',list={'Toughness'}};event('List')
+ check(#contract_calls.lists==1,'fresh Monk List not routed')
+ local pending={confirmed=true,prompt=1,prompt_ready=true};s.buffs.pending=pending
+ for _,class in ipairs({'Archivist','Monk','Archivist'})do
+  local groups,lists=#contract_calls.groups,#contract_calls.lists
+  gmcp.Char.Status.class=class;handlers['gmcp.Char.Status']()
+  check(s.player.class==class and #contract_calls.groups==groups and #contract_calls.lists==lists,'class event reused cached ownership')
+  check(s.buffs.pending==pending and not pending.confirmed and pending.prompt==nil and not pending.prompt_ready,'class event erased commit or retained readiness')
+  for _,order in ipairs({'GroupsFirst','ListFirst'})do
+   gmcp.Char.Skills.Groups[1].name=class=='Monk'and'Kaido'or'Vision'
+   gmcp.Char.Skills.List.group=class=='Monk'and'Kaido'or'Vision'
+   gmcp.Char.Skills.List.list={'Nightsight'}
+   if order=='GroupsFirst'then event('Groups');event('List')else event('List');event('Groups')end
+   check(contract_calls.groups[#contract_calls.groups].class==class and contract_calls.lists[#contract_calls.lists].class==class,'fresh in-place payload routed under wrong class')
+   check(#contract_calls.groups==groups+1 and #contract_calls.lists==lists+1,'in-place event lost or duplicated')
+   groups,lists=#contract_calls.groups,#contract_calls.lists
+   c.buff_snapshot();c.buff_snapshot()
+   check(#contract_calls.groups==groups and #contract_calls.lists==lists,'poll replayed consumed payloads')
+  end
+  local start=#sent;local runner=c.runner;runner.waiting=true;runner.pending={fixture=true};local target=s.target
+  local mode=class=='Monk'and'BASH'or'OFF';c.mode=mode;s.mode=mode;runner.mode=mode
+  check(combat_v2_buffs('audit'),'contract class audit failed')
+  local expected=contract.audit_groups(class)
+  check(#sent-start==#expected+4,'class audit query count')
+  for i,group in ipairs(expected)do check(sent[start+i]=='ab '..group,'class audit group mismatch')end
+  for i,cmd in ipairs({'tattoos','defences','firstaid','firstaid priority defence list'})do check(sent[start+#expected+i]==cmd,'common audit query mismatch')end
+  for i=#s.history-#expected-3,#s.history do check(s.history[i].kind=='buff_audit','read-only command recorded as send')end
+  check(c.runner==runner and runner.waiting and runner.pending.fixture and s.target==target and c.mode==mode and s.mode==mode and runner.mode==mode and not s.buffs.master,'audit changed executor/intent')
+ end
+ c.mode='OFF';s.mode='OFF';c.runner.mode='OFF'
+ gmcp.Char.Status.class='Shaman';handlers['gmcp.Char.Status']();local groups,lists=#contract_calls.groups,#contract_calls.lists
+ event('Groups');event('List');check(#contract_calls.groups==groups and #contract_calls.lists==lists,'unsupported class received ownership data')
+ gmcp.Char.Status.class=nil;handlers['gmcp.Char.Status']();check(s.player.class=='' and s.buffs.class=='','missing actual class retained authorization')
+ c.buff_sender=function()return false end;check(not combat_v2_buffs('audit'),'false audit transport reported success')
+ c.buff_sender=function()error('offline audit failure')end;check(not combat_v2_buffs('audit'),'throwing audit transport reported success')
+ print=realprint;print('PASS bootstrap class-contract '..n..' assertions (stub routing/provenance only; no backend artifacts loaded)')
+ return
+end
 local function tick()clock=clock+1;combat_v2_tick()end
 local function only(key)for _,e in ipairs(M.catalog)do s.buffs.wanted[e.key]=e.key==key end end
 local function def(kind,data)gmcp.Char.Defences=gmcp.Char.Defences or{};gmcp.Char.Defences[kind]=data;handlers['gmcp.Char.Defences.'..kind]()end
@@ -275,4 +340,52 @@ for _,k in ipairs({'blindness','deafness','insulation','temperance','venom_resis
  check(not combat_v2_buffs('native',k..' on'),'false native owner accepted '..k)
 end
 check(#sent==before,'unsupported native configuration sent')
+-- Composed-backend acceptance: actual class is Monk despite Archivists guild.
+-- Parent runs this normal path only after the parallel backend is complete.
+combat_v2_stop();M.reset(s);gmcp.Char.Status.class='Monk';handlers['gmcp.Char.Status']();handlers['gmcp.Char.Vitals']()
+check(s.player.class=='Monk' and M.state(s).class=='monk','guild Archivists overrode actual Monk class')
+local native_expected={courage=true,density=true,fangbarrier=true,insomnia=true,levitation=true,rebounding=true,waterbreathing=true,instawake=true,arcane=true,harmony=true,speed=true,vigor=true}
+local native_count=0
+for key in pairs(M.native_catalog)do native_count=native_count+1;check(native_expected[key],'unexpected native setter '..key)end
+check(native_count==12,'native twelve schema changed')
+for _,order in ipairs({'GroupsFirst','ListFirst'})do
+ -- Seed a precise Monk list and independent native/ink/DEF observations.
+ skills('Groups',{{name='Kaido',rank='Transcendent'},{name='Vision',rank='Transcendent'},{name='Survival',rank='Transcendent'}})
+ skills('List',{group='Kaido',list={'Weathering','Regeneration'}})
+ priorities({[3]='speed'});def('List',{})
+ text('You have the following tattoos:');text('Left arm: Cloak Uses left: 2');prompt()
+ check(s.buffs.known.weathering and M.native_priority(s,'speed')==3 and M.availability(s,'cloak'),'class freshness fixture failed')
+ local start=#sent
+ gmcp.Char.Status.class='Archivist';handlers['gmcp.Char.Status']();tick()
+ check(s.player.class=='Archivist' and not s.buffs.known.weathering and not s.buffs.master and not s.buffs.sequence and #sent==start,'Archivist switch reused Monk authorization or armed execution')
+ check(M.native_priority(s,'speed')==nil and next(s.buffs.tattoos)==nil and not s.buffs.defs_known,'class switch reused native/ink/DEF evidence')
+ -- Fresh but foreign Groups/List must not grant Kaido to an Archivist.
+ local groups={{name='Kaido',rank='Transcendent'},{name='Vision',rank='Transcendent'},{name='Survival',rank='Transcendent'}}
+ local list={group='Kaido',list={'Weathering','Regeneration'}}
+ if order=='GroupsFirst'then skills('Groups',groups);skills('List',list)else skills('List',list);skills('Groups',groups)end
+ check(not s.buffs.known.weathering and not M.availability(s,'weathering'),'fresh foreign Kaido granted Archivist ownership')
+ -- Injected legacy ownership/active state cannot authorize a foreign OFF cast.
+ s.buffs.known.regeneration=true;s.buffs.have.regeneration=true;s.buffs.wanted.regeneration=true
+ M.toggle(s,'regeneration',false);tick()
+ check(#sent==start and not s.buffs.pending,'foreign injected OFF sent a Monk cancellation')
+ s.buffs.known.regeneration=nil;s.buffs.have.regeneration=nil
+ -- In-place current-class shared Lists are consumed by their registered events.
+ list.group='Vision';list.list={'Nightsight'};skills('List',list)
+ check(M.availability(s,'nightsight'),'Archivist shared Vision unavailable')
+ list.group='Survival';list.list={'Clarity'};skills('List',list)
+ check(M.availability(s,'clarity'),'Archivist shared Survival unavailable')
+ priorities({[3]='speed'});def('List',{})
+ text('You have the following tattoos:');text('Left arm: Cloak Uses left: 2');prompt()
+ check(M.native_priority(s,'speed')==3 and M.availability(s,'cloak') and s.buffs.defs_known,'fresh Archivist native/ink/DEF reports ignored')
+ for key in pairs(native_expected)do check(M.native_priority(s,key)==(key=='speed'and 3 or 26),'native priority choices altered for '..key)end
+ for _,row in ipairs(M.rows(s))do
+  if row.owner=='ARCHIVIST'then check(row.control~='class'or row.can_toggle==false or row.available==false,'unvalidated Archivist row exposed an executable toggle')end
+ end
+ gmcp.Char.Status.class='Monk';handlers['gmcp.Char.Status']();tick()
+ check(not s.buffs.known.weathering and not s.buffs.known.clarity and not M.availability(s,'cloak') and M.native_priority(s,'speed')==nil,'return to Monk reused cached class evidence')
+ -- A fresh in-place List can restore only its explicitly observed current class.
+ list.group='Kaido';list.list={'Weathering'};skills('List',list)
+ check(s.buffs.known.weathering and not s.buffs.known.regeneration,'fresh return-to-Monk List failed or broadened ownership')
+ check(#sent==start and c.mode=='OFF' and c.runner.mode=='OFF' and not s.buffs.master,'class discovery sent casts or enabled execution')
+end
 print=realprint;print('PASS buffs integration '..n..' assertions: aliases, snapshots, prompt/EQ, opt-in/cancel, preferences, modes, class/session ownership and fresh skill events')

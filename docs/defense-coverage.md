@@ -1,5 +1,111 @@
 # Source-backed defense coverage
 
+## Phase 1: Monk/Archivist framework and current official coverage
+
+This is working **tracking plus a class-scoped framework**, not automatic
+Archivist readiness. The observed character is Monk; Archivists is a guild, not
+proof of the current class. No class switch, arming, live action or deployment
+is authorized by these source changes. Root execution and combat remain OFF.
+
+Public integration contract:
+- `supported_class(classString)` accepts case-insensitive Monk/Archivist only.
+- `audit_groups(classString)` returns a fresh lowercase ordered array: Monk
+  Kaido/Telepathy plus Survival/Vision/Avoidance; Archivist
+  Geometrics/Numerology/Bioessence plus the same shared groups.
+- `rows` exposes `class`, `relevant`, `tracking_only`, `owner`, `control`,
+  `available` and `availability`. Foreign rows remain visible for audit, but
+  cannot execute ON or OFF even with a poisoned cached known map. Class owners
+  are MONK/ARCHIVIST, shared skills SKILL, ink TATTOO, native FIRSTAID;
+  Daydream is CURATIVE MANUAL. Unavailable is not permission to send.
+- `archivist_catalog` has fourteen canonical class DEF IDs below.
+  `curative_catalog` is an array of fifteen `{key,source,producer,delivery,
+  class,owner}` metadata records, with **no command or consumption executor**.
+
+Class changes revoke learned skills, ink and native proof, disarm intent and
+invalidate old confirmation/prompt evidence, but preserve a committed resource
+barrier. Discovery requests only a selected class-appropriate AB group, once,
+with a bounded wait. Completion is per group, not a global known-ready shortcut.
+`set_known` remains the Kaido-only compatibility wrapper. Precise Lists still
+beat rank inference. Shared Vision Telesense works for Archivist without
+accepting the Monk Telepathy route.
+
+All fourteen Archivist entries default NOT wanted and contain **no executable
+ON/OFF command**. AB descriptions do not establish a fresh observable energy or
+number-state protocol. The availability reason is either
+`Missing verified Archivist energy/number state; tracking only` (with a specific
+qualification where needed) or an explicit class-specific manual hazard.
+There is no invented energy field or public setter claiming learned resources.
+
+### Official Archivist set: 15 dispositions
+
+The exact public own DEF messages below come from the private native audit's
+identity detail captures; only public mechanic strings are included here.
+The five supplied fade/end messages are tracked exactly. A dash means **no
+own fade/end supplied**, not an invented one; GMCP Remove/authoritative List
+and exact named own loss events still clear the canonical row.
+
+| Canonical DEF | Archivist producer | Exact own status | Exact supplied fade/end | Disposition |
+|---|---|---|---|---|
+| `adaptation` | Bioessence Adaptation | You have adapted new racial qualities. | — | Manual: player corpse required. |
+| `ameliorate` | Bioessence Ameliorate | You have heightened your ability to repair tissue and organs. | — | Tracking only: energy; periodic affliction repair; endurance drain. |
+| `anchored` | Numerology Fix | You are anchored to the ground. | — | Manual PvP only: prevents movement. |
+| `catabolism` | Bioessence Catabolism | Your internal core is in a state of hyper production. | — | Manual: lowers max HP and MP by 10%; endurance drain. |
+| `conjoin` | Geometrics Conjoin | You have recognised the potential of the geometric shapes. | The recognition you had of the world geometries finally escapes you. | Manual PvP: damage component and temporary shape concealment. |
+| `dilation` | Numerology Dilation | The effects of the stars are magnified upon you. | You feel the effect of the stars weaken upon you. | Manual: doubles bad as well as good stars. |
+| `ethereal` | Bioessence Ethereal | Your physical form is partly ethereal. | Your body loses its ethereal form as the essence wears off. | Tracking only: energy; rapidly diminishing protection, not a permanent loop. |
+| `linked` | Numerology Link | The states of your body and mind are joined. | — | Tracking only: verified numbers and explicit percentage/mana policy missing. |
+| `nexus` | Bioessence Nexus | You are wreathed in an aura of toxicity. | — | Manual: offensive mutagen/contact policy; endurance and willpower drains. |
+| `oneness` | Numerology Oneness | You embrace your core oneness. | You lose your inner focus upon yourself as fatigue wins over. | Tracking only: numbers; mana 40 / willpower 8 drain. |
+| `recognition` | Bioessence Malignant (metadata only) | You are recognizing masking afflictions. | — | Manual: ambiguous producer, AB describes mutation not activation; mana 20 / willpower 4 drain. |
+| `spheres` | Numerology Spheres | You are attuned to the music of the spheres. | The music of the spheres fades, leaving you weak and unsteady. | Manual: committed channel penalizes interruption; willpower 15 drain. |
+| `sublimation` | Numerology Sublimation | Your mind is dampened against psychic attack. | — | Tracking only: verified number state missing. |
+| `veiled` | Numerology Veil | You are veiled. | — | Tracking only: verified number state missing; movement loses veil. |
+| `speed` | Apothecary Speed / Bioessence Jolt | Your sense of time is heightened, and your reactions are speeded. | — | FIRSTAID sole owner. Never a second BIO JOLT sender. |
+
+Vision Recognition is **voice identification**, represented separately as
+`voice_recognition`, ability `recognition`, label `Voice Recognition (passive)`.
+It has no canonical DEF `recognition` alias. The latter belongs only to the
+Archivist manual tracking row. Migration clears ambiguous saved Recognition
+intent instead of arming either meaning. Bioessence Knitting is AB healing but
+is absent from the official fifteen: no invented canonical Knitting DEF row.
+
+### Official curative set: 15 dispositions
+
+Herbalism manufacturing Known: No is not a ban on consuming a supplied curative.
+No consumption capability is inferred from manufacturing ownership. Cached
+supply quantities do not grant an activation path. Deathsight and Thirdeye keep
+one Vision owner each, not duplicate pill senders. Native twelve is unchanged.
+
+| Canonical DEF | Source | Producer/delivery | Sole owner |
+|---|---|---|---|
+| courage | Herbalism | Pluck, consumed | FIRSTAID |
+| daydream | Herbalism | Somnium, consumed | CURATIVE MANUAL |
+| deathsight | Herbalism | Thanatonin, consumed | SKILL (Vision) |
+| fangbarrier | Herbalism | Paste, **applied**, not eaten | FIRSTAID |
+| insomnia | Herbalism | Kawhe, consumed | FIRSTAID |
+| instawake | Herbalism | Stimulant, consumed | FIRSTAID |
+| rebounding | Herbalism | Reishi, **smoked** | FIRSTAID |
+| thirdeye | Herbalism | Acuity, consumed | SKILL (Vision) |
+| waterbreathing | Herbalism | Waterbreathing, consumed | FIRSTAID |
+| arcane | Apothecary | Arcane elixir | FIRSTAID |
+| density | Apothecary | Mass, **apply torso** | FIRSTAID |
+| harmony | Apothecary | Harmony elixir | FIRSTAID |
+| levitation | Apothecary | Levitation elixir | FIRSTAID |
+| speed | Apothecary | Speed elixir | FIRSTAID |
+| vigor | Apothecary | Vigor elixir | FIRSTAID |
+
+Daydream is optional cosmetic/under-specified waking-dream tracking, shared by
+both classes, never an activation loop. Exact own status:
+`Your mind is filled with distant thoughts.` Exact fade:
+`Your mind focuses back on the tasks at hand.`
+
+Current `antivenin` is a separate trackable DEF with no supplied producer;
+`temperance` and `venom_resistance` are invalid current DEF IDs retained only
+as unavailable legacy audit rows. Current Insulation producers are Illumination
+Warmth and Tectonics Insulation, not permission to guess a frost sip. Blind/deaf
+are not beneficial curative-loop entries. Current Mindseye AB one-time protection
+takes precedence over the generic DEF description's stale blind-vision wording.
+
 ## Safety and ownership
 
 This code-only audit maps every deduplicated Fallout source key. It contains no
@@ -32,11 +138,12 @@ is not a learned ability. A source key is not itself permission to send.
 - Correcting the native catalog invalidates old confirmation. A fresh complete
   unique 25-row transaction plus footer is required. Pending uncertainty,
   conflicting-ACK fencing and last-active restoration memory are retained.
-- The client catalog has 33 entries: courage is native-owned, Recognition is
-  passive, and the remaining 31 are capability-gated executable preparations.
+- The client catalog has 47 entries: the prior 33 preparation/passive entries
+  (with Voice Recognition renamed) plus fourteen read-only Archivist entries.
+  Courage remains native-owned; class tracking is not an activation permission.
   There is one skill owner for deathsight/thirdeye, not duplicate curative pills.
-- Knowledge is scoped to curated Kaido, Telepathy, Survival, Vision and Avoidance
-  entries. Telesense accepts either verified skill group but has one executor.
+- Knowledge is scoped to the current class: Kaido/Telepathy for Monk,
+  Geometrics/Numerology/Bioessence for Archivist; Survival/Vision/Avoidance shared. Telesense accepts either verified skill group but has one executor.
   Nightsight uses Vision. Group inference never grants tattoo ink or artifacts.
   Precise ability Lists beat cached rank inference. Class/session changes revoke
   capabilities; reload does not treat cached Groups/List as fresh evidence.
@@ -97,7 +204,7 @@ not become persistent defense loops.
 Before activation, keep MASTER OFF until review and fresh capability/native/ink
 readback. Mindseye is one-time protection, not a blind-vision prerequisite; do not
 self-blind/deaf as a BASH experiment. Class skill and tattoo controls retain their
-learned/ink and physical recovery gates. No curative owner is enabled or shipped.
+learned/ink and physical recovery gates. No new curative consumption executor is enabled or shipped; the fifteen-row coverage catalog is read-only metadata.
 `python3 tests/run.py` already includes `tests/curative_defenses.lua` in its test
 manifest. It may also be run directly with
 `lua tests/curative_defenses.lua "$PWD/combat_v2/"` for current-mechanic safety and
@@ -112,7 +219,11 @@ this release. Newly added optional drains are not automatically armed.
 
 ## Complete source-key disposition
 
-Programmatically deduplicated: **304** source rows. **189 excluded**, **6 passive**, **36 supported**, **73 unknown**.
+Historical Fallout baseline (unchanged source manifest): **304** deduplicated rows,
+originally **189 excluded**, **6 passive**, **36 supported**, **73 unknown**.
+The table below preserves that original audit disposition; the phase-1 official
+Archivist/curative tables above supersede overlapping current-mechanic meanings.
+New official rows are not silently counted as new members of that old manifest.
 
 SUPPORTED means implementation coverage, not live ownership or armed state.
 PASSIVE is read-only capability/status coverage. EXCLUDED is a deliberate safety

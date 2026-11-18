@@ -22,7 +22,7 @@ function registerAnonymousEventHandler()return 1 end
 function killAnonymousEventHandler()end
 local path=assert(arg[1], 'installed module path required')
 local state=dofile(path..'state.lua').new()
-state.player.balance='0';state.target.name='<test>';state.connected=true;state.player.stance='scorpion';state.player.kai=12
+state.player.class='Monk';state.player.balance='0';state.target.name='<test>';state.connected=true;state.player.stance='scorpion';state.player.kai=12
 combat_v2={current=state,runner={mode='OFF'},cure={enabled=false}}
 local gui=dofile(path..'gui.lua');combat_v2.gui=gui
 gui.create();gui.refresh(state,combat_v2.runner,combat_v2.cure)
@@ -204,7 +204,7 @@ assert(manager.page==4 and manager.rows[1].key=='def_43' and manager.rows[6].inf
 assert(manager.rows[6].toggle.click()==false and #calls==dispatched)
 manager.buttons.FIRSTAID.click();assert(manager.page==1 and manager.filter=='FIRSTAID' and manager.rows[1].key=='speed' and manager.rows[4].info.hidden)
 manager.buttons.ACTIVE.click();for _,row in ipairs(manager.rows)do if not row.info.hidden then contains(row.info,'ACTIVE')end end
-manager.buttons.MONK.click();for _,row in ipairs(manager.rows)do if not row.info.hidden then contains(row.info,'MONK')end end
+manager.buttons.CLIENT.click();for _,row in ipairs(manager.rows)do if not row.info.hidden then contains(row.info,'MONK')end end
 manager.buttons.ALL.click();manager.page=2
 assert(manager.rows[1].toggle.click()==false and #calls==dispatched,'stale page dispatched')
 rebuilt.refresh_defenses(state)
@@ -239,12 +239,63 @@ reloaded.refresh_defenses(state);assert(manager.rows[1].toggle.hidden,'unavailab
 contains(manager.rows[1].info,'NOT LEARNED');contains(manager.rows[1].info,'REQUIRED');contains(manager.rows[1].info,'full resources');contains(manager.rows[1].info,'loss cooldown');contains(manager.rows[1].info,'activation cooldown 120s');contains(manager.rows[1].info,'verified cancel')
 assert(manager.rows[1].toggle.click()==false and #calls==safe_calls,'hidden stale capability dispatched')
 entries[1].available=true;entries[1].availability='AVAILABLE';reloaded.refresh_defenses(state)
+-- Current class (not guild) defines CLIENT; shared skills/tattoos stay visible.
+local full_entries=entries;local class_before=state.player.class
+entries={
+ {key='archive_manual',owner='ARCHIVIST',control='class',can_toggle=false,available=true,availability='PREREQUISITES UNVALIDATED'},
+ {key='nightsight',owner='SKILL',control='class',available=true},
+ {key='cloak',owner='TATTOO',control='class',available=true},
+ {key='daydream',owner='CURATIVE MANUAL',control='observed',tracking_only=true,availability='MANUAL ONLY'},
+ {key='toughness',owner='MONK',control='class',available=false,active=true,availability='WRONG CLASS'},
+ {key='speed',owner='FIRSTAID',control='native',priority=3},
+}
+state.player.class='Archivist';state.player.guild='Monks';manager.buttons.CLIENT.click()
+assert(manager.rows[1].key=='archive_manual' and manager.rows[2].key=='nightsight' and manager.rows[3].key=='cloak' and manager.rows[4].key=='daydream' and manager.rows[5].info.hidden,'CLIENT omitted Archivist/shared/tattoo/manual or included foreign/native')
+assert(manager.rows[1].toggle.hidden and manager.rows[4].toggle.hidden and not reloaded.defense_slot(1),'read-only manual row actionable')
+assert(not reloaded.defense_action('keep','archive_manual on') and not reloaded.defense_action('keep','daydream on'),'manual direct callback dispatched')
+entries[2].known=false
+assert(not reloaded.defense_action('keep','nightsight on') and not reloaded.defense_slot(2),'known=false row actionable');entries[2].known=nil
+manager.buttons.ACTIVE.click();assert(manager.rows[1].info.hidden,'foreign active row escaped ALL')
+manager.buttons.ALL.click();contains(manager.rows[5].info,'WRONG CLASS')
+-- Same key/control at same slot is still stale across a class boundary.
+local old_shared_click=manager.rows[2].toggle.click
+state.player.class='Monk'
+assert(not reloaded.defense_slot(2) and #calls==safe_calls,'class switch accepted old shared-row click')
+reloaded.refresh_defenses(state)
+assert(not old_shared_click() and #calls==safe_calls,'queued old-class click activated repainted shared row')
+state.player.class='Archivist';manager.buttons.CLIENT.click()
+-- Simulate the cached MONK button from the previously loaded paged manager.
+local cached_button=manager.buttons.CLIENT;manager.buttons.MONK=cached_button;manager.buttons.CLIENT=nil;manager.filter='MONK'
+cached_button:echo('MONK');cached_button:setClickCallback(function()error('stale MONK callback')end)
+local popup_window=manager.window;local widget_count=created
+reloaded=dofile(path..'gui.lua');combat_v2.gui=reloaded;reloaded.create();reloaded.refresh_defenses(state)
+assert(manager.buttons.CLIENT==cached_button and manager.buttons.MONK==nil and manager.filter=='CLIENT' and manager.window==popup_window and created==widget_count,'paged MONK migration recreated widgets or lost popup')
+contains(cached_button,'CLIENT');cached_button.click();assert(manager.filter=='CLIENT' and #calls==safe_calls,'cached filter callback not rebound')
+entries=full_entries;state.player.class=class_before;manager.buttons.ALL.click()
 -- Upgrade a previously open catalog-keyed manager without touching other UI.
 local legacy={rows={old={info=obj({name='legacy_info'}),toggle=obj({name='legacy_toggle'})}},buttons={old=obj({name='legacy_button'})},window=obj({name='legacy_window'}),header=obj({name='legacy_header'})}
 combat_v2_ui.defenses=legacy
 reloaded.refresh_defenses(state);assert(reloaded.show_defenses())
 assert(legacy.rows.old.info.deleted and legacy.rows.old.toggle.deleted and legacy.buttons.old.deleted and legacy.header.deleted and legacy.window.deleted,'legacy manager children leaked')
 assert(combat_v2_ui.walk_popup==walker_before and reloaded.root==root_before and #calls==dispatched,'migration touched other UI or dispatched')
+-- Final composed backend row projection: do not assume manual owners equal SKILL.
+local actual=dofile(path..'buffs.lua');local archive_state=dofile(path..'state.lua').new()
+archive_state.player.class='Archivist';actual.set_class(archive_state,'Archivist')
+local saved_core=combat_v2.buffs;combat_v2.buffs=actual;combat_v2.current=archive_state
+reloaded.defense_page(0,'CLIENT');local archive_manager=combat_v2_ui.defenses
+local seen_rows={};local archives=0
+repeat
+ for slot,row in ipairs(archive_manager.rows)do if not row.info.hidden then
+  seen_rows[row.key]=true
+  if row.info.html:find('ARCHIVIST',1,true)then archives=archives+1;assert(row.toggle.hidden and not reloaded.defense_slot(slot),'actual Archivist manual row actionable')end
+  if row.key=='daydream'then assert(row.toggle.hidden and not reloaded.defense_slot(slot),'actual Daydream manual row actionable')end
+ end end
+ local page=archive_manager.page;reloaded.defense_page(1)
+ if archive_manager.page==page then break end
+until false
+assert(archives==14 and seen_rows.daydream and seen_rows.cloak and seen_rows.nightsight and seen_rows.clarity and not seen_rows.weathering and not seen_rows.speed,'actual CLIENT projection lost Archivist/shared/tattoo/manual or included foreign/native')
+assert(not reloaded.defense_action('keep','daydream on') and #calls==dispatched and sends==0,'actual manual row dispatched')
+combat_v2.current=state;combat_v2.buffs=saved_core
 print('PASS GUI defenses: 14 reusable slots, 2000 rows, paging/filter/clamp, native/class dispatch, unknown-priority/stale-slot rejection, read-only rows, escaped/color states, no sends, unchanged executor/UI, legacy migration')
 
 print('PASS GUI: reusable root, escaping, flags, separate large affliction panels, counts, independent paging, cure page clamp, responsive bounds at three resolutions; widgets='..created)

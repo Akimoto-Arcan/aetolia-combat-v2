@@ -30,8 +30,8 @@ end
 buff_invalidate() -- cached pre-reload skill payloads are not fresh ownership
 local function buff_snapshot(source)
  local g=gmcp or {};local v=g.Char and g.Char.Vitals or {};local status=g.Char and g.Char.Status or {}
- local name=status.class
- if name and name~=c.buff_class_seen then
+ local name=tostring(status.class or "")
+ if name~=c.buff_class_seen then
   if c.buff_class_seen~=nil then buff_invalidate()end
   c.buff_class_seen=name;c.buffs.set_class(c.current,name);c.current.player.class=name
  end
@@ -43,7 +43,7 @@ local function buff_snapshot(source)
  local fresh_groups=source=="gmcp.Char.Skills.Groups" or groups~=c.buff_groups_seen
  local fresh_list=source=="gmcp.Char.Skills.List" or list~=c.buff_list_seen
  c.buff_groups_seen=groups;c.buff_list_seen=list
- if c.buffs.state(c.current).class~="monk"then return end
+ if not c.buffs.supported_class(c.current.player.class)then return end
  if fresh_groups then c.buffs.set_groups(c.current,groups) end
  if fresh_list and type(list)=="table" and type(list.group)=="string" and type(list.list)=="table" then
   c.buffs.set_group_known(c.current,list.group,list.list)
@@ -78,7 +78,9 @@ local function buff_timer()
  end
 end
 local function buff_dispatch(command)
- c.state.record(c.current,(command=="defences"or command=="ab kaido")and"buff_audit"or"buff_send",command)
+ local audit=command=="defences"or command=="tattoos"or command=="firstaid"or command=="firstaid priority defence list"
+ for _,group in ipairs(c.buffs.audit_groups(c.current.player.class)or{})do if command=="ab "..group then audit=true end end
+ c.state.record(c.current,audit and"buff_audit"or"buff_send",command)
  return (c.buff_sender or send)(command)
 end
 local function buff_wake()
@@ -112,7 +114,14 @@ function combat_v2_buffs(action,rest)
  if action=="audit"then
   if not c.current.connected or c.current.player.dead then return false,"Disconnected: defense audit unavailable"end
   if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return false,"Disconnected"end end
-  send("ab kaido");send("ab telepathy");send("ab survival");send("ab vision");send("ab avoidance");send("tattoos");send("defences");send("firstaid");send("firstaid priority defence list");return true,"Read-only defense/ability/tattoo/native FIRSTAID audit requested"
+  local commands={}
+  for _,group in ipairs(c.buffs.audit_groups(c.current.player.class)or{})do commands[#commands+1]="ab "..group end
+  for _,command in ipairs({"tattoos","defences","firstaid","firstaid priority defence list"})do commands[#commands+1]=command end
+  for _,command in ipairs(commands)do
+   local sent,result=pcall(buff_dispatch,command)
+   if not sent or result==false then return false,"Audit request failed: "..tostring(result)end
+  end
+  return true,"Read-only defense/ability/tattoo/native FIRSTAID audit requested"
  elseif action=="native"then
    local key,value=rest:match("^([%a_]+)%s+(%a+)$")
    if not key or not c.buffs.native_catalog or not c.buffs.native_catalog[key] or (value~="on"and value~="off")then return false,"Native defense requires a supported name and on|off"end
@@ -407,7 +416,8 @@ function combat_v2_trace(n)
 end
 c.handlers={}
 local function handler(event,fn) c.handlers[#c.handlers+1]=registerAnonymousEventHandler(event,fn) end
-handler("gmcp.Char.Vitals",function() c.state.sync_gmcp(c.current,gmcp);c.buffs.vitals(c.current,gmcp.Char.Vitals or {});combat_v2_tick() end)
+handler("gmcp.Char.Status",function()buff_snapshot("gmcp.Char.Status");combat_v2_tick()end)
+handler("gmcp.Char.Vitals",function() buff_snapshot("gmcp.Char.Vitals");c.state.sync_gmcp(c.current,gmcp);c.buffs.vitals(c.current,gmcp.Char.Vitals or {});combat_v2_tick() end)
 for _,kind in ipairs({"Groups","List"})do
  local event="gmcp.Char.Skills."..kind
  handler(event,function()buff_snapshot(event);combat_v2_tick()end)
@@ -426,7 +436,7 @@ handler("gmcp.Room.AddPlayer",function() c.policy.player_add(c.current,gmcp.Room
 handler("gmcp.Room.RemovePlayer",function() c.policy.player_remove(c.current,gmcp.Room.RemovePlayer);combat_v2_tick() end)
 local function collection(kind)
  handler("gmcp.Char."..kind..".List",function()
-  if kind=="Defences"then c.buffs.sync(c.current,"List",gmcp.Char[kind].List)end
+  if kind=="Defences"then buff_snapshot();c.buffs.sync(c.current,"List",gmcp.Char[kind].List)end
   if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"List",gmcp.Char[kind].List)end
   local dest=kind=="Afflictions" and "afflictions" or "defences";local t={}
   for _,a in ipairs(gmcp.Char[kind].List or {}) do local n=type(a)=="table" and a.name or a;if n then t[c.defense.key(n)]=true end end
@@ -435,7 +445,7 @@ local function collection(kind)
   combat_v2_tick()
  end)
  handler("gmcp.Char."..kind..".Add",function()
-  if kind=="Defences"then c.buffs.sync(c.current,"Add",gmcp.Char[kind].Add)end
+  if kind=="Defences"then buff_snapshot();c.buffs.sync(c.current,"Add",gmcp.Char[kind].Add)end
   if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"Add",gmcp.Char[kind].Add)end
   local a=gmcp.Char[kind].Add;local n=type(a)=="table" and a.name or a
   if n then n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=true end
@@ -443,7 +453,7 @@ local function collection(kind)
   combat_v2_tick()
  end)
  handler("gmcp.Char."..kind..".Remove",function()
-  if kind=="Defences"then c.buffs.sync(c.current,"Remove",gmcp.Char[kind].Remove)end
+  if kind=="Defences"then buff_snapshot();c.buffs.sync(c.current,"Remove",gmcp.Char[kind].Remove)end
   if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"Remove",gmcp.Char[kind].Remove)end
   local a=gmcp.Char[kind].Remove;local values=type(a)=="table" and (a.name and {a.name} or a) or {a}
   for _,n in ipairs(values) do
@@ -487,6 +497,7 @@ handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
 end)
 c.line_trigger=tempRegexTrigger("^.*$",function()
  local text=line or matches[1]
+ buff_snapshot()
  c.buffs.text(c.current,text)
  c.defense.text(c.current,text)
  c.mental.text(c.current,text)
@@ -496,6 +507,7 @@ c.line_trigger=tempRegexTrigger("^.*$",function()
 end)
 if type(tempPromptTrigger)=="function" then
  c.prompt_trigger=tempPromptTrigger(function()
+  buff_snapshot()
   c.buffs.on_prompt(c.current);if c.buffs.has_work(c.current)then combat_v2_tick()end
   if c.gui.render_prompt then c.gui.render_prompt(c.current,c.runner) end
  end)

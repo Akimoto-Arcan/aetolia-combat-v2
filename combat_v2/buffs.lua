@@ -1,8 +1,21 @@
--- Shared defence observations/native metadata; only Monk preparations may cast.
+-- Class-scoped Monk/shared preparations and read-only Archivist defence tracking.
 -- No IO, global sender, generic consumption, emergency abilities or ENEMY changes.
 -- Intent is revocable; an already dispatched action is a physical barrier until
 -- confirmed AND followed by a real ready prompt. Only reset may waive that barrier.
 local M={}
+local class_groups={monk={'kaido','telepathy','survival','vision','avoidance'},archivist={'geometrics','numerology','bioessence','survival','vision','avoidance'}}
+local function class_name(x) return tostring(x or ''):lower() end
+function M.supported_class(name) return class_groups[class_name(name)]~=nil end
+function M.audit_groups(name)
+ local result={};for _,g in ipairs(class_groups[class_name(name)] or {}) do result[#result+1]=g end;return result
+end
+local function allowed_group(class,group)
+ for _,g in ipairs(M.audit_groups(class)) do if g==group then return true end end
+ return false
+end
+local function in_class(b,e)
+ return M.supported_class(b.class) and e and (e.tattoo or e.class=='shared' or e.class==b.class or allowed_group(b.class,e.group) or e.also_group and allowed_group(b.class,e.also_group))
+end
 M.catalog={
  {key='vitality',label='Vitality',command='vitality',default=true,requires_full=true,cooldown_loss=180},
  {key='weathering',label='Weathering',command='weathering',default=true},
@@ -38,13 +51,41 @@ local additions={
  {key='eagleeye',group='vision',command='eagleeye on',off='eagleeye off',drain=true},
  {key='dodgemelee',label='Dodging (all)',group='avoidance',ability='dodging',command='dodge all',ids={'dodge'}},
  {key='divertmelee',label='Diversion (all)',group='avoidance',ability='diversion',command='divert all',ids={'diverting','diversion'}},
- {key='recognition',group='vision',passive=true},
+ {key='voice_recognition',label='Voice Recognition (passive)',ability='recognition',group='vision',passive=true},
  {key='cloak',group='tattoos',tattoo=true,command='touch cloak'},
  {key='mindseye',label='Mindseye (one-time sensory protection)',group='tattoos',tattoo=true,default=true,command='touch mindseye',ids={'allsight'}}
 }
 for _,e in ipairs(additions) do
  e.label=e.label or e.key:sub(1,1):upper()..e.key:sub(2)
  e.default=e.default==true;M.catalog[#M.catalog+1]=e
+end
+-- Current native DEF LIST CLASS ARCHIVIST: fourteen class rows plus shared speed.
+-- Deliberately no commands: AB syntax alone cannot verify energy/number protocol.
+M.archivist_catalog={
+ {key='adaptation',group='bioessence',ability='adaptation',reason='Class-specific manual: requires a player corpse'},
+ {key='ameliorate',group='bioessence',ability='ameliorate',drain=true},
+ {key='anchored',group='numerology',ability='fix',reason='Class-specific manual PvP only: Fix prevents movement'},
+ {key='catabolism',group='bioessence',ability='catabolism',drain=true,reason='Class-specific manual: lowers maximum health and mana by 10%'},
+ {key='conjoin',group='geometrics',ability='conjoin',reason='Class-specific manual PvP: includes offensive psychic damage'},
+ {key='dilation',group='numerology',ability='dilation',reason='Class-specific manual: doubles negative as well as positive star effects'},
+ {key='ethereal',group='bioessence',ability='ethereal',reason='Missing verified Archivist energy/number state; tracking only; rapidly diminishing temporary protection, not permanent upkeep'},
+ {key='linked',group='numerology',ability='link',reason='Missing verified Archivist energy/number state; tracking only; redirects health damage into mana with an explicit percentage policy'},
+ {key='nexus',group='bioessence',ability='nexus',drain=true,reason='Class-specific manual: offensive mutagen contact/room policy and endurance/willpower drains'},
+ {key='oneness',group='numerology',ability='oneness',drain=true},
+ {key='recognition',group='bioessence',ability='malignant',drain=true,reason='Class-specific manual: native Malignant producer metadata is ambiguous; no verified activation; mana/willpower drain'},
+ {key='spheres',group='numerology',ability='spheres',drain=true,reason='Class-specific manual: committed channel penalizes interruption and drains willpower'},
+ {key='sublimation',group='numerology',ability='sublimation'},
+ {key='veiled',group='numerology',ability='veil'}
+}
+for _,e in ipairs(M.catalog) do
+ e.class=(e.group=='kaido' or e.group=='telepathy') and 'monk' or 'shared'
+ if e.key=='telesense' then e.class='shared' end
+end
+for _,e in ipairs(M.archivist_catalog) do
+ e.class='archivist';e.tracking_only=true;e.default=false
+ e.label=e.key:sub(1,1):upper()..e.key:sub(2)
+ e.reason=e.reason or 'Missing verified Archivist energy/number state; tracking only'
+ M.catalog[#M.catalog+1]=e
 end
 local passive_tattoos={boar=true,moon=true,moss=true,owl=true,mountain=true}
 local function now() return getEpoch and getEpoch() or os.clock() end
@@ -57,7 +98,7 @@ end
 -- Native FIRSTAID owns these IDs even when disabled. No commands in this catalog.
 M.native_catalog={}
 local native_order={'courage','density','fangbarrier','insomnia','levitation','rebounding','waterbreathing','instawake','arcane','harmony','speed','vigor'}
-local general_order={'blindness','deafness','insulation','temperance','venom_resistance','cloak','clarity','deathsight','divertmelee','dodgemelee','divine_speed','hypersight','irongrip','metawake','thirdeye','shielded','vigilance','skywatch','tremorsense','recognition','selfishness','alertness','telesense','bolstered','safeguard','flame','firefly','mindseye','starburst','boar','moon','moss','owl'}
+local general_order={'blindness','deafness','insulation','temperance','venom_resistance','antivenin','daydream','cloak','clarity','deathsight','divertmelee','dodgemelee','divine_speed','hypersight','irongrip','metawake','thirdeye','shielded','vigilance','skywatch','tremorsense','recognition','selfishness','alertness','telesense','bolstered','safeguard','flame','firefly','mindseye','starburst','boar','moon','moss','owl'}
 local metadata={}
 for _,k in ipairs(native_order) do
  local e={key=k,label=k:sub(1,1):upper()..k:sub(2)}
@@ -75,6 +116,25 @@ general_order[#general_order+1]='mountain'
 for _,k in ipairs({'fitness','kai_recursion','numbness','hold_breath','guarding'}) do
  metadata[k]={key=k,label=k:gsub('_',' '),reason=k=='hold_breath' and 'Excluded: blocks all actions and drains health' or k=='numbness' and 'Excluded: deferred damage hazard' or k=='guarding' and 'Manual PvP limb policy; not automated' or 'Current ownership unverified; not automated'}
  general_order[#general_order+1]=k
+end
+metadata.daydream.reason='CURATIVE MANUAL: optional cosmetic waking dream; effect under-specified; no activation loop'
+metadata.daydream.owner='CURATIVE MANUAL'
+metadata.insulation.reason='UNAVAILABLE: current producers Illumination Warmth / Tectonics Insulation; no verified usable command'
+metadata.temperance.reason='UNAVAILABLE: not a current verified DEF ID'
+metadata.venom_resistance.reason='UNAVAILABLE: not a current verified DEF ID; antivenin is tracked separately'
+metadata.antivenin.reason='UNAVAILABLE: current DEF ID verified but no supplied producer; no guessed consumption'
+M.curative_catalog={}
+local curatives={
+ {'courage','Herbalism','pluck','consumed'}, {'daydream','Herbalism','somnium','consumed'},
+ {'deathsight','Herbalism','thanatonin','consumed'}, {'fangbarrier','Herbalism','paste','applied'},
+ {'insomnia','Herbalism','kawhe','consumed'}, {'instawake','Herbalism','stimulant','consumed'},
+ {'rebounding','Herbalism','reishi','smoked'}, {'thirdeye','Herbalism','acuity','consumed'},
+ {'waterbreathing','Herbalism','waterbreathing','consumed'}, {'arcane','Apothecary','arcane','elixir'},
+ {'density','Apothecary','mass','apply torso'}, {'harmony','Apothecary','harmony','elixir'},
+ {'levitation','Apothecary','levitation','elixir'}, {'speed','Apothecary','speed','elixir'}, {'vigor','Apothecary','vigor','elixir'}
+}
+for _,c in ipairs(curatives) do
+ M.curative_catalog[#M.curative_catalog+1]={key=c[1],source=c[2],producer=c[3],delivery=c[4],class='shared',owner=M.native_catalog[c[1]] and 'FIRSTAID' or c[1]=='daydream' and 'CURATIVE MANUAL' or 'SKILL'}
 end
 aliases.blind='blindness';aliases.deaf='deafness'
 local function key(x)
@@ -109,6 +169,10 @@ function M.state(s)
    defs_known=false,cancel={},cooldown={},retry={},prompt=0,status='disarmed'}
  end
  local b=s.buffs
+ if b.class_schema~='monk-archivist-v1' then
+  b.class_schema='monk-archivist-v1';b.wanted.recognition=false;b.wanted.voice_recognition=false
+  for _,e in ipairs(M.archivist_catalog) do b.wanted[e.key]=false end
+ end
  b.observed=b.observed or {};b.native_priorities=b.native_priorities or {};b.native_last_active=b.native_last_active or {}
  b.groups=b.groups or {};b.tattoos=b.tattoos or {};b.vitals_flags=b.vitals_flags or {};b.flag_sources=b.flag_sources or {}
  for _,e in ipairs(M.catalog) do if b.wanted[e.key]==nil then b.wanted[e.key]=e.default end end
@@ -149,14 +213,14 @@ function M.rows(s)
   local available,reason=M.availability(s,k)
   local tattoo=b.tattoos[k]
   if tattoo and tattoo.active then active=true end
-  if e and e.passive and b.known[k] then active=true end
+  if e and e.passive and in_class(b,e) and b.known[k] then active=true end
   local pri=M.native_priority(s,k);local wanted
   if native then if pri then wanted=pri<26 end elseif class then wanted=b.wanted[k] end
   rows[#rows+1]={key=k,label=e and e.label or k,active=active,wanted=wanted,
-   owner=e and e.self_afflicted and 'SELF-AFFLICTED' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or class and (e.group=='kaido' and 'MONK' or 'SKILL') or tattoo and 'TATTOO' or 'UNAVAILABLE',
-   control=native and 'native' or class and not e.passive and 'class' or 'observed',priority=pri,drain=e and e.drain==true or false,
+   owner=e and e.self_afflicted and 'SELF-AFFLICTED' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or e and e.owner or class and (e.class=='archivist' and 'ARCHIVIST' or e.class=='monk' and 'MONK' or 'SKILL') or tattoo and 'TATTOO' or 'UNAVAILABLE',
+   control=native and 'native' or class and not e.passive and not e.tracking_only and 'class' or 'observed',priority=pri,drain=e and e.drain==true or false,
    available=available,availability=reason,group=e and e.group,passive=e and e.passive or tattoo and tattoo.active,
-   required=k=='mindseye',
+   required=k=='mindseye',class=e and e.class or 'shared',relevant=not class or in_class(b,e),tracking_only=e and e.tracking_only or k=='daydream',
    off=e and e.off,requires_full=e and e.requires_full,cooldown_loss=e and e.cooldown_loss,cooldown_activation=e and e.cooldown_activation}
  end
  for _,e in ipairs(M.catalog) do add(e.key,e) end
@@ -189,8 +253,8 @@ function M.set_class(s,name)
   M.invalidate(s);b.listing=nil;b.ability_listing=nil
   if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false end
  end
- if class~='monk' then M.stop(s,'Monk class required') end
- return class=='monk'
+ if not M.supported_class(class) then M.stop(s,'Supported class required (Monk/Archivist)') end
+ return M.supported_class(class)
 end
 local function each_name(payload,fn)
  if type(payload)=='string' then fn(payload);return end
@@ -205,6 +269,7 @@ local function each_name(payload,fn)
 end
 function M.set_group_known(s,group,names,inferred)
  local b=M.state(s);group=norm(group)
+ if not allowed_group(b.class,group) then return false end
  local prior=b.groups[group]
  -- Precise Lists remain authoritative over later rank inference.
  if inferred==true and prior and prior.list then return false end
@@ -214,15 +279,15 @@ function M.set_group_known(s,group,names,inferred)
   supplied[norm(name)]=true
  end)
  for _,e in ipairs(M.catalog) do
-  if (e.group==group or e.also_group==group) and not e.tattoo and (supplied[norm(e.ability or e.key)] or supplied[norm(e.key)]) then known[e.key]=true end
+  if in_class(b,e) and (e.group==group or e.also_group==group) and not e.tattoo and (supplied[norm(e.ability or e.key)] or supplied[norm(e.key)]) then known[e.key]=true end
  end
  local precise=not inferred
  if inferred=='revoke' then precise=prior and prior.list or false end
  b.groups[group]={known=known,list=precise};b.known={}
- for _,g in pairs(b.groups) do for k in pairs(g.known) do b.known[k]=true end end
+ for group,g in pairs(b.groups) do if allowed_group(b.class,group) then for k in pairs(g.known) do if in_class(b,index[k]) then b.known[k]=true end end end end
  for k,t in pairs(b.tattoos) do if index[k] and (t.charges or 0)>0 then b.known[k]=true end end
  b.known_ready=true
- if b.query and b.query.kind=='skills' then b.query=nil end
+ if b.query and b.query.kind=='skills' and b.query.group==group then b.query=nil end
  return true
 end
 function M.set_known(s,names) return M.set_group_known(s,'kaido',names) end
@@ -249,12 +314,20 @@ end
 function M.availability(s,k)
  local b=M.state(s);local e=index[k]
  if M.native_catalog[k] then return true,'NATIVE' end
+ if e and not in_class(b,e) then return false,'CLASS-SPECIFIC: '..tostring(e.class)..' only' end
+ if e and e.tracking_only then return false,e.reason end
  if e and e.passive then return false,b.known[k] and 'PASSIVE' or 'NOT LEARNED' end
  if e and e.tattoo then
   local t=b.tattoos[k]
   return t~=nil and (t.charges or 0)>0,b.tattoos_ready and (t and (t.charges or 0)>0 and 'AVAILABLE' or 'UNAVAILABLE: no charged tattoo') or 'UNKNOWN: fresh TATTOOS required'
  end
- if e then return b.known[k]==true,b.known[k] and 'AVAILABLE' or b.groups[e.group] and 'NOT LEARNED' or 'UNKNOWN: fresh '..e.group..' abilities required' end
+ if e then
+  local proof=false;local complete=false
+  for _,group in ipairs({e.group,e.also_group}) do
+   local g=b.groups[group];if allowed_group(b.class,group) and g then complete=true;if g.known[k] then proof=true end end
+  end
+  return proof,proof and 'AVAILABLE' or complete and 'NOT LEARNED' or 'UNKNOWN: fresh class-appropriate abilities required'
+ end
  local t=b.tattoos[k]
  if t and t.active then return false,'PASSIVE' end
  if k=='shielded' then return false,'MANUAL ONLY: shield breaks on offense' end
@@ -369,7 +442,7 @@ local up={
  harmony={'Your thoughts are harmonized.'},vigor={'You have been invigorated with strength.'},
  blindness={'You are blind.'},deafness={'You are deaf.','The world around fades to silence as you lose your hearing.'},
  insulation={'You are insulated against the harsh cold.','You are coated in an insulating caloric salve.'},
- temperance={'You are tempered against fire damage.'},venom_resistance={'Your resistance to damage by poison has been increased.'},
+ temperance={'You are tempered against fire damage.'},antivenin={'Your resistance to damage by poison has been increased.'},
  cloak={'You are surrounded by a cloak of protection.'},clarity={'Your mind is filled with clarity.'},
  deathsight={'Your mind has been touched by the essence of the Underking.'},divertmelee={'You are diverting melee attacks.'},
  dodgemelee={'You are dodging melee attacks.'},divine_speed={'You have been granted the speed of the Divine.'},
@@ -395,7 +468,7 @@ local losses={
  ['Your speed defence defence erodes away.']='speed',
  ['Your waterbreathing defence has been washed away.']='waterbreathing',
  ['Your protective coating rots away under the noxious attack.']='fangbarrier',
- ['You feel your defense against venoms weaken and fade.']='venom_resistance',
+ ['You feel your defense against venoms weaken and fade.']='antivenin',
  ['You cease to concentrate on hypersight.']='hypersight',
  ['Your magical shield is sheared straight through.']='shielded',
  ['You allow your muscles to relax once more as you cease to bolster them.']='bolstered'
@@ -436,6 +509,42 @@ local extra_down={
  mindseye={'You are blind and can see nothing but darkness.'}
 }
 for k,lines in pairs(extra_down) do for _,line in ipairs(lines) do losses[line]=k end end
+-- Public native DEF details: own status/fade/end only, not activation proof.
+confirmations['You embrace your core oneness.']='oneness'
+confirmations['You are recognizing masking afflictions.']='recognition'
+confirmations['You are anchored to the ground.']='anchored'
+confirmations['Your mind is dampened against psychic attack.']='sublimation'
+confirmations['Your physical form is partly ethereal.']='ethereal'
+confirmations['Your internal core is in a state of hyper production.']='catabolism'
+confirmations['You have heightened your ability to repair tissue and organs.']='ameliorate'
+confirmations['The states of your body and mind are joined.']='linked'
+confirmations['You are attuned to the music of the spheres.']='spheres'
+confirmations['You have recognised the potential of the geometric shapes.']='conjoin'
+confirmations['You are veiled.']='veiled'
+confirmations['You have adapted new racial qualities.']='adaptation'
+confirmations['The effects of the stars are magnified upon you.']='dilation'
+confirmations['You are wreathed in an aura of toxicity.']='nexus'
+confirmations['Your sense of time is heightened, and your reactions are speeded.']='speed'
+confirmations['Your resistance to damage by poison has been increased.']='antivenin'
+confirmations['You are extremely heavy and difficult to move.']='density'
+confirmations['You are protected from the fangs of serpents.']='fangbarrier'
+confirmations['You have insomnia, and cannot easily go to sleep.']='insomnia'
+confirmations['You are feeling extremely energetic.']='instawake'
+confirmations['You possess the sight of the third eye.']='thirdeye'
+confirmations['Your mind is filled with distant thoughts.']='daydream'
+confirmations['Your mind has been touched by the essence of the Underking.']='deathsight'
+confirmations['Your thoughts are harmonized.']='harmony'
+confirmations['You are protected from hand-held weapons with an aura of rebounding.']='rebounding'
+confirmations['You are surrounded by a pocket of air.']='waterbreathing'
+losses['You lose your inner focus upon yourself as fatigue wins over.']='oneness'
+losses['Your body loses its ethereal form as the essence wears off.']='ethereal'
+losses['The music of the spheres fades, leaving you weak and unsteady.']='spheres'
+losses['The recognition you had of the world geometries finally escapes you.']='conjoin'
+losses['You feel the effect of the stars weaken upon you.']='dilation'
+losses['You feel your density return to normal.']='density'
+losses['Your mind focuses back on the tasks at hand.']='daydream'
+losses['The harmony you felt settles out into stillness.']='harmony'
+losses['The bubble of air around you dissipates as water floods in.']='waterbreathing'
 local function priority_set(b,k,pri)
  b.native_priorities[k]=pri
  if b.native_pending then b.native_pending[k]=nil end
@@ -572,7 +681,7 @@ function M.affliction_flags(s,kind,payload)
 end
 function M.start(s)
  local b=M.state(s)
- if b.class~='monk' then return false,'Monk class required' end
+ if not M.supported_class(b.class) then return false,'Supported class required (Monk/Archivist)' end
  if b.fault then return false,b.fault end
  if b.pending then return false,'Buff action unresolved; await confirmation/recovery or reviewed reset' end
  b.sequence=true;b.todo={};for _,e in ipairs(M.catalog) do if b.wanted[e.key] then b.todo[e.key]=true end end
@@ -584,7 +693,7 @@ function M.master(s,on)
   b.master=false;b.status='maintenance paused; active defences retained'
   return true,b.status -- Explicit off queue and one-shot intent are independent.
  end
- if b.class~='monk' then return false,'Monk class required' end
+ if not M.supported_class(b.class) then return false,'Supported class required (Monk/Archivist)' end
  if b.fault then return false,b.fault end
  b.master=true;b.status='maintenance armed';return true,b.status
 end
@@ -592,6 +701,7 @@ function M.toggle(s,name,on)
  local b=M.state(s);local k=key(name);local e=k and index[k]
  if not e then return false,k and metadata[k] and metadata[k].reason or 'Unknown defence' end
  if M.native_catalog[k] then return false,'Native FIRSTAID owns this defence' end
+ if not in_class(b,e) or e.tracking_only then return false,select(2,M.availability(s,k)) end
  if e.passive then return false,'Passive ability; no command' end
  if type(on)~='boolean' then return false,'Expected boolean' end
  if on and not M.availability(s,k) then return false,select(2,M.availability(s,k)) end
@@ -648,7 +758,7 @@ local function send_checked(b,sender,command)
 end
 local function service(s,runner,sender,hold)
  local b=M.state(s);local t=now()
- if b.class~='monk' or not connected(s) or s.training_battle_ended then
+ if not M.supported_class(b.class) or not connected(s) or s.training_battle_ended then
   M.stop(s,'disconnected/dead/class/training stop');M.invalidate(s)
   b.listing=nil;b.ability_listing=nil
   if b.pending then b.pending.prompt=nil;b.pending.prompt_ready=false end
@@ -677,7 +787,7 @@ local function service(s,runner,sender,hold)
  if not b.master and not b.sequence and not next(b.cancel) then return {busy=false,status=b.status} end
  local can_cancel=false
  for _,e in ipairs(M.catalog) do
-  if b.cancel[e.key] and e.off and b.known_ready and b.known[e.key] then can_cancel=true;break end
+  if b.cancel[e.key] and e.off and M.availability(s,e.key) then can_cancel=true;break end
  end
  if (hold and not can_cancel) or (s.walker and s.walker.pending) or (runner and (runner.waiting or runner.fault)) or
   (s.mental and (s.mental.eq_pending or s.mental.fault)) or not ready(s) then return {busy=false,status='waiting for safe readiness'} end
@@ -686,9 +796,18 @@ local function service(s,runner,sender,hold)
   if t-b.query.at>=12 then fault(b,'Buff '..b.query.kind..' snapshot timed out; review/reset required') end
   return {busy=false,status=b.fault or 'awaiting '..b.query.kind..' snapshot'}
  end
- if not b.known_ready then
-  b.query={kind='skills',at=t};send_checked(b,sender,'ab kaido')
-  return {busy=false,status=b.fault or 'requested Kaido abilities'}
+ -- Discover only selected class-appropriate skill routes, once per group.
+ -- A completed Kaido List never stands in for Vision/Survival/etc.
+ for _,e in ipairs(M.catalog) do
+  local selected=b.cancel[e.key] or b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
+  if selected and in_class(b,e) and not e.tattoo and not e.passive and not e.tracking_only and not M.native_catalog[e.key] then
+   local group=allowed_group(b.class,e.group) and e.group or e.also_group
+   local complete=b.groups[group] or e.also_group and allowed_group(b.class,e.also_group) and b.groups[e.also_group]
+   if not complete then
+    b.query={kind='skills',group=group,at=t};send_checked(b,sender,'ab '..group)
+    return {busy=false,status=b.fault or 'requested '..group..' abilities'}
+   end
+  end
  end
  if not b.defs_known then
   b.query={kind='defs',at=t};send_checked(b,sender,'defences')
@@ -697,7 +816,7 @@ local function service(s,runner,sender,hold)
  local chosen,off
  for _,e in ipairs(M.catalog) do
   if b.cancel[e.key] then
-   if e.off and b.known[e.key] then chosen=e;off=true;break end
+   if e.off and M.availability(s,e.key) then chosen=e;off=true;break end
    b.cancel[e.key]=nil -- Never send unlearned syntax.
   end
  end

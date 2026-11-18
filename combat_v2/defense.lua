@@ -78,7 +78,15 @@ end
 function M.reset(s)local d=M.state(s);d.fault=nil;d.requested={} end
 function M.audit(s,sender)
  if not connected(s) then return false,'Disconnected: live defense audit unavailable' end
- for _,cmd in ipairs({'firstaid','firstaid priority list','firstaid elevations','defences','ab kaido heal','ab kaido transmute','ab kaido vitality','ab kaido numbness','ab kaido immunity','ab tekura kipup'})do local ok,err=pcall(sender or send,cmd);if not ok then return false,'Audit request failed: '..tostring(err) end end
+ local commands={'firstaid','firstaid priority list','firstaid elevations','defences'}
+ local class=tostring(s.player.class or ''):lower()
+ if class=='monk' then
+  for _,cmd in ipairs({'ab kaido heal','ab kaido transmute','ab kaido vitality','ab kaido numbness','ab kaido immunity','ab tekura kipup'})do commands[#commands+1]=cmd end
+ elseif class=='archivist' then
+  -- Read-only group discovery, not an Archivist emergency controller.
+  for _,group in ipairs({'geometrics','numerology','bioessence'})do commands[#commands+1]='ab '..group end
+ end
+ for _,cmd in ipairs(commands)do local ok,err=pcall(sender or send,cmd);if not ok or err==false then return false,'Audit request failed: '..tostring(err) end end
  return true,'Read-only defense audit requested; inspect server replies'
 end
 function M.setup(s,sender)

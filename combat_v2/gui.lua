@@ -115,6 +115,10 @@ local function buff_entry(key)
  local c=buff_core();if not c then return nil end
  for _,entry in ipairs(c.buffs.rows(c.current))do if entry.key==key then return entry end end
 end
+local function defense_toggleable(entry)
+ return entry.available~=false and entry.can_toggle~=false and entry.known~=false and entry.tracking_only~=true and entry.relevant~=false
+end
+local function defense_class(state)return tostring(state.player.class or ""):lower()end
 function M.defense_action(action,rest)
  local c,why=buff_core();if not c then return false,why end
  if action=="keep" or action=="native" then
@@ -123,7 +127,7 @@ function M.defense_action(action,rest)
    if not key and type(rest)=="string" then key=rest:match("^([%a][%w_]*) off$")end
    local entry=key and buff_entry(key)
    if not entry or (action=="keep" and entry.control~="class") or (action=="native" and entry.control~="native") then return false,"Unknown defense selection" end
-   if action=="keep" and entry.available==false then return false,entry.availability or "Unavailable defense" end
+   if action=="keep" and not defense_toggleable(entry) then return false,entry.availability or "Read-only / unavailable defense" end
    if action=="native" and (type(entry.priority)~="number" or entry.priority<1 or entry.priority>26 or entry.priority%1~=0) then return false,"Native priority UNKNOWN; audit FIRSTAID first" end
   end
  elseif action~="start" and action~="stop" then return false,"Unsupported defense action" end
@@ -142,10 +146,13 @@ local function defense_click(action,rest)
 end
 local function defense_rows(c,state,filter)
  local rows={};local seen={}
+ local class=defense_class(state):upper()
  for _,e in ipairs(c.buffs.rows(state))do
   if type(e.key)=="string" and e.key:match("^[%a][%w_]*$") and not seen[e.key] then
    seen[e.key]=true
-   if filter=="ALL" or filter=="ACTIVE" and e.active==true or filter=="MONK" and (e.owner=="MONK" or e.owner=="SKILL" or e.owner=="TATTOO") or e.owner==filter then rows[#rows+1]=e end
+   local foreign=e.relevant==false or (e.owner=="MONK"or e.owner=="ARCHIVIST")and e.owner~=class
+   local client=e.owner==class or e.owner=="SKILL"or e.owner=="TATTOO"or e.owner=="CURATIVE MANUAL"
+   if filter=="ALL" or not foreign and (filter=="ACTIVE" and e.active==true or filter=="CLIENT" and client or e.owner==filter) then rows[#rows+1]=e end
   end
  end
  return rows
@@ -153,19 +160,20 @@ end
 function M.defense_page(delta,filter)
  local p=combat_v2_ui and combat_v2_ui.defenses;if not p then return false end
  if filter then
-  if filter~="ALL" and filter~="MONK" and filter~="FIRSTAID" and filter~="ACTIVE" then return false end
+  if filter~="ALL" and filter~="CLIENT" and filter~="FIRSTAID" and filter~="ACTIVE" then return false end
   p.filter=filter;p.page=1
  else p.page=(p.page or 1)+delta end
  return M.refresh_defenses()
 end
-function M.defense_slot(slot)
+function M.defense_slot(slot,expected)
  local p=combat_v2_ui and combat_v2_ui.defenses;local c=buff_core()
  local row=p and p.rows[slot];if not row or not c or not row.key then return false,"Unknown defense slot" end
+ if expected and expected~=row.token then return false,"Stale defense slot"end
  local entries=defense_rows(c,c.current,p.filter)
  local e=entries[(p.page-1)*14+slot]
- if not e or e.key~=row.key or e.control~=row.control or row.toggle.hidden then return false,"Stale defense slot" end
+ if not e or e.key~=row.key or e.control~=row.control or row.class~=defense_class(c.current) or row.toggle.hidden then return false,"Stale defense slot" end
  if e.control~="class" and e.control~="native" then return false,"Read-only observation" end
- if e.control=="class" and e.available==false then return false,e.availability or "Unavailable defense" end
+ if e.control=="class" and not defense_toggleable(e) then return false,e.availability or "Read-only / unavailable defense" end
  return M.defense_action(e.control=="native" and "native" or "keep",e.key..(e.wanted==true and " off" or " on"))
 end
 function M.show_defenses()
@@ -192,7 +200,7 @@ function M.show_defenses()
    b:echo(html("<center>"..spec[2].."</center>"))
    b:setClickCallback(function()if action then defense_click(action,rest)else combat_v2.gui.refresh_defenses(combat_v2.current)end end)
   end
-  for i,filter in ipairs({"ALL","MONK","FIRSTAID","ACTIVE"})do
+  for i,filter in ipairs({"ALL","CLIENT","FIRSTAID","ACTIVE"})do
    local f=filter;local b=defense_label(p,"filter_"..f,12+(i-1)*120,134,110,26);p.buttons[f]=b
    b:echo(html("<center>"..f.."</center>"));b:setClickCallback(function()return combat_v2.gui.defense_page(0,f)end)
   end
@@ -223,6 +231,18 @@ function M.refresh_defenses(state)
   return false,why
  end
  state=state or c.current
+ -- Rebind an already-open paged manager without replacing its window or slots.
+ if p.buttons.MONK then
+  if p.buttons.CLIENT and p.buttons.CLIENT~=p.buttons.MONK then p.buttons.MONK:delete()
+  else p.buttons.CLIENT=p.buttons.MONK end
+  p.buttons.MONK=nil
+ end
+ if p.filter=="MONK"then p.filter="CLIENT"end
+ for _,f in ipairs({"ALL","CLIENT","FIRSTAID","ACTIVE"})do
+  local filter=f;local button=p.buttons[f]
+  button:echo(html("<center>"..filter.."</center>"))
+  button:setClickCallback(function()return combat_v2.gui.defense_page(0,filter)end)
+ end
  -- Do not initialize the service or infer upkeep observations from native defences.
  local b=state.buffs or {}
  local status=c.buff_status
@@ -232,10 +252,16 @@ function M.refresh_defenses(state)
  local entries=defense_rows(c,state,p.filter);local pages=math.max(1,math.ceil(#entries/14))
  p.page=math.max(1,math.min(p.page,pages))
  p.page_label:echo(html("Page "..p.page.." / "..pages.." · "..#entries.." rows"))
- for _,f in ipairs({"ALL","MONK","FIRSTAID","ACTIVE"})do p.buttons[f]:setStyleSheet("background-color:"..(p.filter==f and "#315b46" or "#233c51")..";color:"..C.text..";padding:3px;")end
+ for _,f in ipairs({"ALL","CLIENT","FIRSTAID","ACTIVE"})do p.buttons[f]:setStyleSheet("background-color:"..(p.filter==f and "#315b46" or "#233c51")..";color:"..C.text..";padding:3px;")end
  for slot,row in ipairs(p.rows)do
   local entry=entries[(p.page-1)*14+slot]
-  row.key=entry and entry.key;row.control=entry and entry.control
+  row.key=entry and entry.key;row.control=entry and entry.control;row.class=defense_class(state)
+  -- A queued click retains the painted identity even after a class/filter repaint.
+  local token={key=row.key,control=row.control,class=row.class};row.token=token
+  local index=slot
+  row.toggle:setClickCallback(function()
+   local ok,message=combat_v2.gui.defense_slot(index,token);if ok==false and message then print(message)end;return ok,message
+  end)
   if not entry then row.info:hide();row.toggle:hide()
   else
    row.info:show()
@@ -253,7 +279,7 @@ function M.refresh_defenses(state)
    if entry.cooldown_activation then notes[#notes+1]="activation cooldown "..entry.cooldown_activation.."s"end
    notes[#notes+1]=entry.off and "OFF: verified cancel" or "OFF: upkeep only"
    row.info:echo(html("<span style='font-size:12px;'><b>"..esc(entry.label or entry.key).."</b> · <span style='color:"..color..";'>"..observed.."</span> · "..esc(table.concat(notes," · ")).."</span>"))
-   if entry.control=="class" and entry.available~=false or entry.control=="native" then
+   if entry.control=="class" and defense_toggleable(entry) or entry.control=="native" then
     row.toggle:show()
     row.toggle:setStyleSheet("background-color:"..(entry.wanted==true and "#315b46" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:4px;")
     row.toggle:echo(html("<center>WANTED "..(entry.wanted==true and "ON" or entry.wanted==false and "OFF" or "UNKNOWN").."</center>"))

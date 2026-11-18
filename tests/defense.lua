@@ -40,7 +40,20 @@ s=fresh();M.state(s);clock=clock+1;M.text(s,'Your telepathic efforts are success
 s=fresh();M.state(s);clock=clock+1;s.player.kai=50;s.player.defences.kai_trance=true;s.target.restoration={active=true,started=clock-.5};s.mental.status='acquiring';s.mental.started=clock;n=#sent;M.tick(s,send);check(#sent==n,'Kai Cripple spent reserved 20 Kai');s.player.kai=60;M.tick(s,send);check(sent[#sent]=='kai cripple Fixture','affordable Kai Cripple blocked after reserve')
 s=fresh();s.connected=false;n=#sent;check(not D.audit(s,send) and not D.setup(s,send) and #sent==n,'offline setup/audit sent commands')
 s=fresh();s.mode='OFF';n=#sent;check(D.audit(s,send) and #sent>n,'explicit read-only audit unavailable in OFF')
+for _,class in ipairs({'Monk','mOnK','Archivist','ARCHIVIST','Shaman',''})do
+ s=fresh();s.mode='OFF';s.player.class=class;s.player.guild=class:lower()=='monk'and'Archivists'or'Monks';n=#sent
+ local prior=class:lower()=='monk' and {'ab kaido heal','ab kaido transmute','ab kaido vitality','ab kaido numbness','ab kaido immunity','ab tekura kipup'}or class:lower()=='archivist'and{'ab geometrics','ab numerology','ab bioessence'}or{}
+ local expected={'firstaid','firstaid priority list','firstaid elevations','defences'}
+ for _,cmd in ipairs(prior)do expected[#expected+1]=cmd end
+ check(D.audit(s,send) and #sent-n==#expected,'class audit count '..class)
+ for i,cmd in ipairs(expected)do check(sent[n+i]==cmd,'class audit selection '..class..' '..cmd)end
+ check(s.mode=='OFF' and not s.defense,'read-only audit armed defense or offense')
+end
+check(not D.audit(s,function()return false end),'false-return audit transport failure hidden')
 n=#sent;check(D.setup(s,send) and #sent>n and sent[#sent]=='firstaid','setup did not request exact readback')
+local expected_setup={'firstaid on','firstaid curing on','firstaid heal health on','firstaid heal mana on','firstaid use anabiotic on','firstaid auto stand on','firstaid auto wake on','firstaid use focus on','firstaid use tree on','firstaid vitals priority health','firstaid forcehealth 50','firstaid forcemana 20','firstaid slickness pill on','firstaid'}
+check(#sent-n==#expected_setup,'common setup changed command count')
+for i,cmd in ipairs(expected_setup)do check(sent[n+i]==cmd,'common setup changed '..cmd)end
 for i=n+1,#sent do check(not sent[i]:find('priority reset',1,true) and not sent[i]:find('cureset',1,true),'setup overwrote priorities/cureset')end
 check(D.state(s).setup=='requested; server readback required','unconfirmed setup falsely declared verified')
 local slick_setup=false;for i=n+1,#sent do if sent[i]=='firstaid slickness pill on' then slick_setup=true end end;check(slick_setup,'setup omitted verified alternate slickness cure')

@@ -42,7 +42,7 @@ end
 test('catalog safe defaults, no emergency or arbitrary commands',function()
  local s,sent,tick=fixture();local n=0
  for i,e in ipairs(B.catalog) do eq(e.default,i<=8 or e.key=='immunity' or e.key=='mindseye',e.key);if e.default then n=n+1 end end
- eq(n,10);eq(#B.catalog,33);eq(B.state(s).master,false);eq(B.state(s).sequence,false)
+ eq(n,10);eq(#B.catalog,47);eq(B.state(s).master,false);eq(B.state(s).sequence,false)
  eq(tick().busy,false);eq(#sent,0)
  eq(B.toggle(s,'regeneration on;kill',true),false);eq(B.toggle(s,'numbness',true),false)
  eq(B.toggle(s,'vitality','on'),false);eq(#sent,0)
@@ -400,12 +400,12 @@ test('rows ordered deduplicated tri-state metadata and actual extras',function()
   if i<=#B.catalog then eq(e.key,B.catalog[i].key) end
  end
  for _ in pairs(B.native_catalog) do count=count+1 end
- eq(count,12);eq(#rows,68);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
+ eq(count,12);eq(#rows,84);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
  eq(row(s,'courage').wanted,nil);eq(row(s,'weathering').owner,'MONK');eq(row(s,'regeneration').drain,true)
  eq(row(s,'blindness').wanted,nil);eq(row(s,'blindness').control,'observed')
  s.player.defences['blind']=true;s.player.defences.deaf=true;s.player.defences.new_power=true
  eq(row(s,'blindness').active,true);eq(row(s,'deafness').active,true);eq(row(s,'new_power').owner,'UNAVAILABLE')
- eq(#B.rows(s),69);eq(#sent,0);eq(B.state(s).master,false)
+ eq(#B.rows(s),85);eq(#sent,0);eq(B.state(s).master,false)
  B.sync(s,'List',{'regeneration','insomnia','unlisted_power'})
  -- Simulate bootstrap replacing canonical state after our sync.
  s.player.defences={}
@@ -459,7 +459,7 @@ test('general exact own up down evidence no consumption or affliction mutation',
  {'speed','Your sense of time is heightened, and your reactions are speeded.','Your speed defence defence erodes away.'},
  {'waterbreathing','You are surrounded by a pocket of air.','Your waterbreathing defence has been washed away.'},
  {'fangbarrier','The paste solidifies into a thick, hardened shell.','Your protective coating rots away under the noxious attack.'},
- {'venom_resistance','Your resistance to damage by poison has been increased.','You feel your defense against venoms weaken and fade.'},
+ {'antivenin','Your resistance to damage by poison has been increased.','You feel your defense against venoms weaken and fade.'},
  {'hypersight','You are utilising hypersight.','You cease to concentrate on hypersight.'},
  {'shielded','You are surrounded by a nearly invisible magical shield.','Your magical shield is sheared straight through.'},
  {'bolstered','You have prepared yourself for incoming attacks.','You allow your muscles to relax once more as you cease to bolster them.'}

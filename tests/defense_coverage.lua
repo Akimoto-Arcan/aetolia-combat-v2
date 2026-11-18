@@ -134,7 +134,7 @@ do
  local s=fresh();check(not B.availability(s,'cloak'));ink(s);check(B.availability(s,'cloak') and B.availability(s,'mindseye'))
  B.sync(s,'List',{});for _,k in ipairs({'boar','moon','moss','owl','mountain'})do check(row(s,k).active and row(s,k).availability=='PASSIVE')end
  check(not B.toggle(s,'shielded',true) and not B.toggle(s,'starburst',true))
- check(row(s,'recognition').passive and not B.toggle(s,'recognition',true))
+ check(row(s,'voice_recognition').passive and not row(s,'recognition').passive and not B.toggle(s,'recognition',true))
  B.text(s,'You have the following tattoos:');B.text(s,'Head: Cloak Uses left: 0');B.on_prompt(s)
  check(not B.availability(s,'cloak') and not B.availability(s,'mindseye'),'new report failed to revoke ink')
  ink(s);B.set_class(s,'Shaman');check(not B.availability(s,'cloak') and next(s.buffs.tattoos)==nil)
@@ -145,5 +145,77 @@ do
  s.player.afflictions.dementia=true;B.start(s);local sent={};B.service(s,{},function(c)sent[#sent+1]=c end)
  check(#sent==0 and not s.buffs.pending)
  s.player.afflictions={};B.start(s);B.service(s,{},function(c)sent[#sent+1]=c end);check(sent[1]=='clarity')
+end
+local arch_messages={
+ {'adaptation','You have adapted new racial qualities.',nil},
+ {'ameliorate','You have heightened your ability to repair tissue and organs.',nil},
+ {'anchored','You are anchored to the ground.',nil},
+ {'catabolism','Your internal core is in a state of hyper production.',nil},
+ {'conjoin','You have recognised the potential of the geometric shapes.','The recognition you had of the world geometries finally escapes you.'},
+ {'dilation','The effects of the stars are magnified upon you.','You feel the effect of the stars weaken upon you.'},
+ {'ethereal','Your physical form is partly ethereal.','Your body loses its ethereal form as the essence wears off.'},
+ {'linked','The states of your body and mind are joined.',nil},
+ {'nexus','You are wreathed in an aura of toxicity.',nil},
+ {'oneness','You embrace your core oneness.','You lose your inner focus upon yourself as fatigue wins over.'},
+ {'recognition','You are recognizing masking afflictions.',nil},
+ {'spheres','You are attuned to the music of the spheres.','The music of the spheres fades, leaving you weak and unsteady.'},
+ {'sublimation','Your mind is dampened against psychic attack.',nil},
+ {'veiled','You are veiled.',nil},
+}
+check(B.supported_class('Monk') and B.supported_class('ARCHIVIST') and not B.supported_class('Archivists'))
+check(table.concat(B.audit_groups('Archivist'),',')=='geometrics,numerology,bioessence,survival,vision,avoidance')
+check(#B.archivist_catalog==14)
+do
+ local s=fresh();B.set_class(s,'Archivist');B.sync(s,'List',{})
+ B.set_groups(s,{{name='Geometrics',rank='Transcendent'},{name='Numerology',rank='Transcendent'},{name='Bioessence',rank='Transcendent'},{name='Vision',rank='Transcendent'}})
+ check(not s.buffs.master and not s.buffs.sequence)
+ for _,c in ipairs(arch_messages) do
+  local k=c[1];local e=row(s,k)
+  check(e.owner=='ARCHIVIST' and e.control=='observed' and not e.available and not e.wanted,k..' not read-only')
+  check(e.availability:match('tracking only') or e.availability:match('Class%-specific manual'),k..' missing reason')
+  check(not B.toggle(s,k,true) and not B.toggle(s,k,false),k..' manual toggle')
+  B.text(s,'Reporter says, "'..c[2]..'"');check(not row(s,k).active,'speech '..k)
+  B.text(s,c[2]);check(row(s,k).active,'own up '..k)
+  if c[3] then B.text(s,c[3]) else B.sync(s,'Remove',k) end
+  check(row(s,k).active==false,'own loss '..k)
+  B.sync(s,'Add',k);check(row(s,k).active,'canonical '..k)
+  B.sync(s,'List',{});check(row(s,k).active==false,'complete absence '..k)
+ end
+ check(row(s,'voice_recognition').active and not row(s,'recognition').active,'Vision conflated with Bioessence')
+ B.sync(s,'Add','recognition');check(row(s,'recognition').active and row(s,'voice_recognition').active)
+ B.set_group_known(s,'vision',{});check(not row(s,'voice_recognition').active and row(s,'recognition').active,'DEF depends on voice passive')
+ check(row(s,'speed').owner=='FIRSTAID' and not B.toggle(s,'speed',true))
+ for k in pairs(s.buffs.wanted)do s.buffs.wanted[k]=false end
+ for _,e in ipairs(B.archivist_catalog)do s.buffs.wanted[e.key]=true;s.buffs.known[e.key]=true;s.buffs.cancel[e.key]=true end
+ B.master(s,true);local sent={};B.service(s,{},function(c)sent[#sent+1]=c end)
+ check(#sent==0 and not s.buffs.pending,'tracking-only Archivist leaked sender despite injected known/wanted/OFF')
+end
+-- Both switch directions revoke authorization but retain unresolved resource barrier.
+for _,class in ipairs({'Archivist','Monk'}) do
+ local s=fresh();ink(s);local barrier={key='weathering',at=clock,confirmed=true,prompt=5,prompt_ready=true}
+ s.buffs.pending=barrier;B.set_class(s,class=='Monk' and 'Archivist' or 'Monk');B.set_class(s,class)
+ check(s.buffs.pending==barrier and not barrier.confirmed and not barrier.prompt and not barrier.prompt_ready)
+ check(not s.buffs.master and next(s.buffs.known)==nil and next(s.buffs.tattoos)==nil and s.buffs.native_full_required)
+ -- Deliberately poisoned foreign known/group caches cannot authorize OFF.
+ s.buffs.pending=nil;B.sync(s,'List',{})
+ local foreign=class=='Archivist' and 'regeneration' or 'ameliorate'
+ local group=class=='Archivist' and 'kaido' or 'bioessence'
+ s.buffs.known[foreign]=true;s.buffs.groups[group]={known={[foreign]=true},list=true}
+ s.buffs.cancel[foreign]=true;s.buffs.wanted[foreign]=true
+ check(not B.set_group_known(s,group,{foreign}) and not B.toggle(s,foreign,false) and not B.availability(s,foreign))
+ for k in pairs(s.buffs.wanted)do s.buffs.wanted[k]=k==foreign end
+ B.master(s,true);local sent={};B.service(s,{},function(c)sent[#sent+1]=c end,true)
+ check(#sent==0,'foreign cancellation bypassed survival hold')
+ B.service(s,{},function(c)sent[#sent+1]=c end);check(#sent==0,'foreign cached capability cast')
+end
+-- Shared Vision route works without the Monk Telepathy capability.
+do
+ local s=fresh();B.set_class(s,'Archivist');B.sync(s,'List',{})
+ for k in pairs(s.buffs.wanted)do s.buffs.wanted[k]=k=='telesense' end
+ B.master(s,true);local sent={};local function tick()B.service(s,{},function(c)sent[#sent+1]=c end)end
+ tick();check(sent[1]=='ab vision');tick();check(#sent==1,'duplicate discovery')
+ check(not B.set_known(s,{'Telesense'}),'Kaido wrapper changed meaning')
+ B.set_group_known(s,'vision',{'Telesense'});check(B.availability(s,'telesense'));tick()
+ check(sent[2]=='telesense on','shared route did not cast')
 end
 print('PASS defense coverage '..n..' assertions: all catalog owners, canonical own evidence, group/ink revocation, activation cooldown/rejection, native migration, fresh blind/deaf provenance, passive/hazard gates')
