@@ -2,9 +2,9 @@ local root=getMudletHomeDir().."/combat_v2/"
 combat_v2=combat_v2 or {};local c=combat_v2
 for _,key in ipairs({"gmcp_handler","text_handler"}) do if c[key] then killAnonymousEventHandler(c[key]);c[key]=nil end end
 for _,id in ipairs(c.handlers or {}) do killAnonymousEventHandler(id) end
-for _,key in ipairs({"line_trigger","prompt_trigger"}) do if c[key] then killTrigger(c[key]) end end
+for _,key in ipairs({"line_trigger","prompt_trigger","buff_prompt_trigger"}) do if c[key] then killTrigger(c[key]) end end
 for _,key in ipairs({"alias","target_alias"}) do if c[key] then killAlias(c[key]) end end
-for _,key in ipairs({"retry_timer","watch_timer","ih_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
+for _,key in ipairs({"retry_timer","watch_timer","ih_timer","buff_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
 c.state=dofile(root.."state.lua");c.current=c.state.upgrade(c.current)
 c.tracker=dofile(root.."tracker.lua");c.bashing=dofile(root.."bashing.lua");c.bashing.bind(c.state);c.mobs=dofile(root.."mobs.lua");c.bashing.bind_mobs(c.mobs)
 c.monk=dofile(root.."monk.lua");c.monk.bind(c.tracker)
@@ -16,6 +16,120 @@ c.defense=dofile(root.."defense.lua");c.runner_module.bind_defense(c.defense.hol
 c.mental=dofile(root.."mental.lua");c.mental.bind_defense(c.defense);c.current.mental=nil;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
 c.mode="OFF";c.current.mode="OFF";c.current.hunting.active=false;c.current.stop_reason=nil
 local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
+-- Buff preparation/upkeep is separate from FIRSTAID's survival governor.
+c.buffs=dofile(root.."buffs.lua");c.buffs.stop(c.current,"reload; upkeep disarmed");c.buff_class_seen=nil;c.buff_skill_seen=nil
+local function buff_invalidate()
+ local b=c.buffs.state(c.current);b.known={};b.known_ready=false;c.buff_skill_seen=nil
+ if b.query and b.query.kind=="skills"then b.query=nil end
+ if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false end
+ -- Fence cached payloads across class/session boundaries, including in-place GMCP tables.
+ local skills=gmcp and gmcp.Char and gmcp.Char.Skills or {}
+ c.buff_groups_seen=skills.Groups;c.buff_list_seen=skills.List
+end
+buff_invalidate();c.buff_groups_seen=nil;c.buff_list_seen=nil
+local function buff_snapshot(source)
+ local g=gmcp or {};local v=g.Char and g.Char.Vitals or {};local status=g.Char and g.Char.Status or {}
+ local name=status.class
+ if name and name~=c.buff_class_seen then
+  if c.buff_class_seen~=nil then buff_invalidate()end
+  c.buff_class_seen=name;c.buffs.set_class(c.current,name);c.current.player.class=name
+ end
+ for key,field in pairs({wp="willpower",maxwp="maxwillpower"})do if tonumber(v[key])then c.current.player[field]=tonumber(v[key])end end
+ local skills=g.Char and g.Char.Skills or {}
+ local groups,list=skills.Groups,skills.List
+ -- Events also recognize payloads updated in place. Polling consumes new identities
+ -- once only; a cached group cannot re-infer all after a restrictive List.
+ local fresh_groups=source=="gmcp.Char.Skills.Groups" or groups~=c.buff_groups_seen
+ local fresh_list=source=="gmcp.Char.Skills.List" or list~=c.buff_list_seen
+ c.buff_groups_seen=groups;c.buff_list_seen=list
+ if c.buffs.state(c.current).class~="monk"then return end
+ if fresh_groups then
+  local all=false
+  for _,group in pairs(type(groups)=="table"and groups or {})do
+   if type(group)=="table"and tostring(group.name):lower()=="kaido"then all=tostring(group.rank):lower():match("^transcendent")~=nil;break end
+  end
+  if all and c.buff_skill_seen~="kaido-list"then
+   local names={};for _,entry in ipairs(c.buffs.catalog)do names[#names+1]=entry.key end
+   c.buffs.set_known(c.current,names);c.buff_skill_seen="all-kaido"
+  elseif not all and c.buff_skill_seen=="all-kaido"then
+   local b=c.buffs.state(c.current);b.known={};b.known_ready=false;c.buff_skill_seen=nil
+  end
+ end
+ if fresh_list and type(list)=="table"and tostring(list.group):lower()=="kaido"and type(list.list)=="table"then
+  c.buffs.set_known(c.current,list.list);c.buff_skill_seen="kaido-list"
+ end
+end
+-- Explicit event source is also the narrow hook for a handler-only loader.
+c.buff_snapshot=buff_snapshot
+local function buff_preferences(save)
+ local path=root.."defup-settings.json";local d=c.buffs.state(c.current)
+ if not yajl or not yajl.to_value or not yajl.to_string then return false,"JSON support unavailable; preferences not saved" end
+ if not save then
+  local file=io.open(path,"r");if not file then return true end
+  local content=file:read("*a");file:close();local ok,data=pcall(yajl.to_value,content)
+  if not ok or type(data)~="table"or data.version~=1 or type(data.wanted)~="table"then return false,"Invalid defense settings; safe defaults used" end
+  for _,entry in ipairs(c.buffs.catalog)do if type(data.wanted[entry.key])=="boolean"then d.wanted[entry.key]=data.wanted[entry.key]end end
+  return true
+ end
+ local wanted={};for _,entry in ipairs(c.buffs.catalog)do wanted[entry.key]=d.wanted[entry.key]==true end
+ local encoded=yajl.to_string({version=1,wanted=wanted});local file,err=io.open(path..".new","w");if not file then return false,err end
+ local wrote,why=file:write(encoded);file:close();if not wrote then return false,why end
+ local ok,reason=os.rename(path..".new",path);if not ok then return false,reason end
+ local check=io.open(path,"r");if not check then return false,"settings readback failed"end;local actual=check:read("*a");check:close()
+ if actual~=encoded then return false,"settings readback mismatch"end
+ return true
+end
+buff_snapshot();local prefs_ok,prefs_error=buff_preferences(false);if not prefs_ok then print(prefs_error)end
+local function buff_timer()
+ c.buff_timer=nil
+ if c.buffs.has_work(c.current)then
+  if not c.watch_timer then combat_v2_tick()end
+  c.buff_timer=tempTimer(1,buff_timer)
+ end
+end
+local function buff_dispatch(command)
+ c.state.record(c.current,(command=="defences"or command=="ab kaido")and"buff_audit"or"buff_send",command)
+ return (c.buff_sender or send)(command)
+end
+local function buff_wake()
+ if c.buffs.has_work(c.current) and not c.buff_timer then c.buff_timer=tempTimer(1,buff_timer)end
+end
+function combat_v2_buffs(action,rest)
+ action=(action or "status"):lower();rest=(rest or ""):lower():match("^%s*(.-)%s*$")
+ if action=="defup"then action=rest~="" and rest or "start";rest=""end
+ local ok,why=true,nil
+ buff_snapshot()
+ if action=="show"then return c.gui.show_defenses()end
+ if action=="save"then local ok,why=buff_preferences(true);if ok then print("Defense choices saved; upkeep arm state is never saved")end;return ok,why end
+ if action=="audit"then
+  if not c.current.connected or c.current.player.dead then return false,"Disconnected: defense audit unavailable"end
+  if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return false,"Disconnected"end end
+  send("ab kaido");send("defences");return true,"Read-only defense/ability audit requested"
+ elseif action=="status"then
+  local d=c.buffs.state(c.current);print("DEFUP: "..tostring(c.buff_status or d.status or "idle").."; upkeep="..tostring(d.master))
+  for _,entry in ipairs(c.buffs.catalog)do print(entry.key.." wanted="..tostring(d.wanted[entry.key]).." active="..tostring(d.have and d.have[entry.key]or false)..(entry.drain and " [DRAIN / OPT-IN]"or""))end;return true
+ elseif action=="stop"then c.buffs.stop(c.current,"defup/upkeep stopped; committed action still acknowledged")
+ elseif action=="reset"then combat_v2_stop("reviewed defup reset");c.buffs.reset(c.current);c.buff_status="Reviewed reset; combat/upkeep OFF"
+ elseif action=="start"then
+  if c.mode=="SHADOW"then return false,"SHADOW is read-only; use cv2 off before defup"end
+  ok,why=c.buffs.start(c.current)
+ elseif action=="keep"then
+  if rest=="on"or rest=="off"then
+   if rest=="on"and c.mode=="SHADOW"then return false,"SHADOW is read-only; use cv2 off first"end
+   ok,why=c.buffs.master(c.current,rest=="on")
+   if rest=="off"then print("Upkeep paused; active drains remain. Use defkeep NAME off to cancel a specific supported defense.")end
+  else
+   local key,value=rest:match("^([%a_]+)%s+(%a+)$")
+   if not key or (value~="on"and value~="off")then return false,"defkeep on|off|NAME on|off"end
+   if c.mode=="SHADOW"then return false,"SHADOW is read-only; use cv2 off first"end
+   ok,why=c.buffs.toggle(c.current,key,value=="on")
+   if ok then local saved,err=buff_preferences(true);if not saved then print("Defense choice applied but NOT saved: "..tostring(err))end end
+  end
+ else return false,"defup [status|stop|audit|reset]; defkeep on|off|NAME on|off; cv2 defs"end
+ if not ok then return false,why end
+ buff_wake();combat_v2_tick();if why then print(why)end;return true,why
+end
+
 local function cancel_ih()
  if c.ih_timer then killTimer(c.ih_timer);c.ih_timer=nil end
  local scan=c.current.hunting.ih;if scan then scan.active=false;scan.pending=false end
@@ -75,6 +189,7 @@ function combat_v2_start_ih(reason,force)
  return combat_v2_request_ih()
 end
 function combat_v2_stop(reason)
+ c.buffs.stop(c.current,reason or "OFF; upkeep disarmed")
  cancel_ih();c.current.hunting.watch=nil
  if c.current.training_battle_ended then
   local m=c.current.mental
@@ -108,7 +223,7 @@ local function area_prompt()
  end
 end
 function combat_v2_tick()
- local s=c.current
+ local s=c.current;buff_snapshot()
  if s.stop_reason then
   if s.stop_reason=="training battle ended" then combat_v2_stop(s.stop_reason);return false,"training battle ended" end
   if s.stop_reason=="target slain" and c.mode=="BASH" and s.hunting.active then
@@ -123,6 +238,9 @@ function combat_v2_tick()
   else local why=s.stop_reason;combat_v2_stop(why);return false,why end
  end
  local defense=c.defense.service(s,c.defense_sender or send)
+ c.runner_module.update_balance(c.runner)
+ local buffs=c.buffs.service(s,c.runner,buff_dispatch,defense.hold);c.buff_status=buffs.status
+ if buffs.busy then c.runner.status="DEFUP: "..tostring(buffs.status);refresh();return false,c.runner.status end
  if defense.hold and (c.mode=="FULL_AUTO" or c.mode=="BASH") then c.runner_module.update_balance(c.runner);c.runner.pending=nil;c.runner.status="DEFENSE: "..defense.phase;refresh();return false,c.runner.status end
  if c.mode=="BASH" then
   c.runner_module.update_balance(c.runner);c.runner_module.watchdog(c.runner)
@@ -161,6 +279,7 @@ function combat_v2_set_mode(mode)
  cancel_ih();c.current.hunting.watch=nil
  if c.current.training_battle_ended then c.current.training_battle_ended=nil;c.current.mental=nil end
  c.current.dismount_stance=nil
+ if mode=="SHADOW"then c.buffs.stop(c.current,"SHADOW; upkeep disarmed")end
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
  if mode=="BASH" then
   local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end
@@ -259,7 +378,12 @@ end
 c.handlers={}
 local function handler(event,fn) c.handlers[#c.handlers+1]=registerAnonymousEventHandler(event,fn) end
 handler("gmcp.Char.Vitals",function() c.state.sync_gmcp(c.current,gmcp);combat_v2_tick() end)
+for _,kind in ipairs({"Groups","List"})do
+ local event="gmcp.Char.Skills."..kind
+ handler(event,function()buff_snapshot(event);combat_v2_tick()end)
+end
 handler("sysDisconnectionEvent",function()
+ c.buffs.stop(c.current,"disconnect; upkeep disarmed");buff_invalidate();local b=c.buffs.state(c.current);b.defs_known=false;b.defs_at=nil
  c.current.defense=nil;c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
  c.current.policy.players_known=false;c.current.policy.web.at=nil;cancel_ih()
  if c.mode=="BASH" then if c.runner.waiting then c.runner.fault="Disconnected during attack; cv2 reset after review" end;c.runner.status="BASH paused: disconnected";refresh()
@@ -271,6 +395,7 @@ handler("gmcp.Room.AddPlayer",function() c.policy.player_add(c.current,gmcp.Room
 handler("gmcp.Room.RemovePlayer",function() c.policy.player_remove(c.current,gmcp.Room.RemovePlayer);combat_v2_tick() end)
 local function collection(kind)
  handler("gmcp.Char."..kind..".List",function()
+  if kind=="Defences"then c.buffs.sync(c.current,"List",gmcp.Char[kind].List)end
   local dest=kind=="Afflictions" and "afflictions" or "defences";local t={}
   for _,a in ipairs(gmcp.Char[kind].List or {}) do local n=type(a)=="table" and a.name or a;if n then t[c.defense.key(n)]=true end end
   c.current.player[dest]=t
@@ -278,12 +403,14 @@ local function collection(kind)
   combat_v2_tick()
  end)
  handler("gmcp.Char."..kind..".Add",function()
+  if kind=="Defences"then c.buffs.sync(c.current,"Add",gmcp.Char[kind].Add)end
   local a=gmcp.Char[kind].Add;local n=type(a)=="table" and a.name or a
   if n then n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=true end
   if kind=="Afflictions" and (n=="prone" or n=="fallen") then c.current.player.prone=true end
   combat_v2_tick()
  end)
  handler("gmcp.Char."..kind..".Remove",function()
+  if kind=="Defences"then c.buffs.sync(c.current,"Remove",gmcp.Char[kind].Remove)end
   local a=gmcp.Char[kind].Remove;local values=type(a)=="table" and (a.name and {a.name} or a) or {a}
   for _,n in ipairs(values) do
    n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=nil
@@ -325,6 +452,7 @@ handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
 end)
 c.line_trigger=tempRegexTrigger("^.*$",function()
  local text=line or matches[1]
+ c.buffs.text(c.current,text)
  c.defense.text(c.current,text)
  c.mental.text(c.current,text)
  if c.policy.text(c.current,text) then combat_v2_tick();refresh();return end
@@ -333,9 +461,16 @@ c.line_trigger=tempRegexTrigger("^.*$",function()
 end)
 if type(tempPromptTrigger)=="function" then
  c.prompt_trigger=tempPromptTrigger(function()
+  c.buffs.on_prompt(c.current);if c.buffs.has_work(c.current)then combat_v2_tick()end
   if c.gui.render_prompt then c.gui.render_prompt(c.current,c.runner) end
  end)
 end
+for _,id in ipairs(c.buff_aliases or {})do killAlias(id)end
+c.buff_aliases={
+ tempAlias([[^defup(?:\s+(.*))?$]],function()local ok,why=combat_v2_buffs("defup",matches[2] or "");if not ok then print(why)end end),
+ tempAlias([[^defkeep(?:\s+(.*))?$]],function()local arg=matches[2]or"status";local ok,why=combat_v2_buffs(arg=="status"and"status"or"keep",arg);if not ok then print(why)end end)
+}
+
 c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  local arg=(matches[2] or ""):match("^%s*(.-)%s*$");local cmd,rest=arg:match("^(%S+)%s*(.*)$");cmd=(cmd or "status"):lower();rest=rest or ""
  local ok,why=true,nil
@@ -343,6 +478,9 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  elseif cmd=="approve" then ok,why=combat_v2_approve()
  elseif cmd=="stop" or cmd=="off" then combat_v2_stop()
  elseif cmd=="enemy" then if rest=="reset" then ok,why=combat_v2_reset_enemy_afflictions() else ok,why=false,"cv2 enemy reset" end
+ elseif cmd=="defup"then ok,why=combat_v2_buffs("defup",rest)
+ elseif cmd=="defkeep"then ok,why=combat_v2_buffs("keep",rest)
+ elseif cmd=="defs"or cmd=="defences"then ok,why=combat_v2_buffs("show",rest)
  elseif cmd=="defense" then ok,why=combat_v2_defense(rest)
  elseif cmd=="curing" then if rest=="on" or rest=="off" then ok,why=combat_v2_set_curing(rest=="on") else ok,why=false,"cv2 curing on|off" end
  elseif cmd=="reload" then dofile(root.."bootstrap.lua")

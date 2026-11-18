@@ -104,6 +104,111 @@ function M.refresh_body(state,runner)
  end
 end
 
+-- Defense-manager rendering is read-only; only explicit operator clicks dispatch.
+local function buff_core()
+ local c=combat_v2
+ if not c or not c.current or not c.buffs or type(c.buffs.catalog)~="table" or type(c.buffs.state)~="function" then return nil,"Defense manager core unavailable" end
+ return c
+end
+local function buff_entry(key)
+ if type(key)~="string" or not key:match("^[%a][%w_]*$") then return nil end
+ local c=buff_core();if not c then return nil end
+ for _,entry in ipairs(c.buffs.catalog)do if entry.key==key then return entry end end
+end
+function M.defense_action(action,rest)
+ local c,why=buff_core();if not c then return false,why end
+ if action=="keep" then
+  if rest~="on" and rest~="off" then
+   local key=type(rest)=="string" and rest:match("^([%a][%w_]*) on$")
+   -- Lua patterns have no alternation; parse OFF independently.
+   if not key and type(rest)=="string" then key=rest:match("^([%a][%w_]*) off$")end
+   if not key or not buff_entry(key) then return false,"Unknown defense selection" end
+  end
+ elseif action~="start" and action~="stop" then return false,"Unsupported defense action" end
+ if type(combat_v2_buffs)~="function" then return false,"Defense manager callback unavailable" end
+ local ok,message=combat_v2_buffs(action,rest or "")
+ M.refresh_defenses(c.current)
+ return ok,message
+end
+local function defense_label(p,key,x,y,w,h)
+ local o=Geyser.Label:new({name="cv2_defenses_"..key,x=x,y=y,width=w,height=h},p.window)
+ o:setStyleSheet("background-color:"..C.card..";color:"..C.text..";border:0;padding:3px;qproperty-alignment:'AlignTop | AlignLeft';")
+ return o
+end
+local function defense_click(action,rest)
+ local ok,why=combat_v2.gui.defense_action(action,rest);if ok==false and why then print(why)end
+end
+function M.show_defenses()
+ local c,why=buff_core();if not c then return false,why end
+ if not Geyser.UserWindow then return false,"Native user window unavailable" end
+ if not combat_v2_ui then M.create()end
+ local ui=combat_v2_ui
+ if not ui.defenses then
+  local p={rows={},buttons={}};ui.defenses=p
+  p.window=Geyser.UserWindow:new({name="Combat V2 Defenses",titleText="COMBAT V2 // DEFENSE MANAGER",x=80,y=60,width=860,height=740,autoDock=false,docked=false,restoreLayout=false})
+  p.header=defense_label(p,"header",12,10,836,42)
+  p.warning=defense_label(p,"warning",12,54,836,40)
+  for i,spec in ipairs({{"defup","DEFUP","start"},{"keep_on","UPKEEP ON","keep","on"},{"keep_off","UPKEEP OFF","keep","off"},{"refresh","REFRESH"},{"stop","STOP","stop"}})do
+   local action,rest=spec[3],spec[4];local b=defense_label(p,spec[1],12+(i-1)*168,98,158,30);p.buttons[spec[1]]=b
+   b:setStyleSheet("background-color:#233c51;color:"..C.text..";border:1px solid #507590;padding:4px;")
+   b:echo(html("<center>"..spec[2].."</center>"))
+   b:setClickCallback(function()if action then defense_click(action,rest)else combat_v2.gui.refresh_defenses(combat_v2.current)end end)
+  end
+  p.columns=defense_label(p,"columns",12,138,836,26)
+  p.columns:echo(html("<b>DEFENSE / COST &nbsp; · &nbsp; OBSERVED STATE &nbsp; · &nbsp; WANTED (click ON/OFF)</b>"))
+  p.footer=defense_label(p,"footer",12,680,836,48)
+ end
+ M.refresh_defenses(c.current)
+ ui.defenses.window:show();if raiseWindow then raiseWindow(ui.defenses.window.name)end
+ return true
+end
+function M.refresh_defenses(state)
+ local p=combat_v2_ui and combat_v2_ui.defenses;if not p then return end
+ local c,why=buff_core()
+ if not c then
+  p.header:echo(html(heading("DEFENSE MANAGER")..esc(why)))
+  for _,row in pairs(p.rows)do row.info:hide();row.toggle:hide()end
+  return false,why
+ end
+ state=state or c.current
+ -- Do not initialize the service or infer upkeep observations from native defences.
+ local b=state.buffs or {};local wanted=b.wanted or {};local have=b.have or {}
+ local status=c.buff_status
+ if type(status)=="table" then status=status.reason or status.status or status.phase end
+ p.header:echo(html(heading("DEFENSE MANAGER · MASTER "..(b.master==true and "ON" or "OFF"))..(state.connected and "LIVE" or "OFFLINE / CACHED").." · Mana "..esc(state.player.mana).." / "..esc(state.player.maxmana).." · "..esc(status or (b.sequence and "DEFUP in progress" or "idle"))))
+ p.warning:echo(html("<span style='color:"..C.warn..";'>Selecting a row ON arms upkeep. Draining defenses are opt-in.<br>UPKEEP OFF pauses maintenance; it does NOT cancel active drains.</span>"))
+ local visible={};local count=0
+ for _,entry in ipairs(c.buffs.catalog)do
+  local key=entry.key
+  if buff_entry(key) then
+   count=count+1;visible[key]=true;local row=p.rows[key]
+   if not row then
+    row={info=defense_label(p,"row_"..key,12,0,690,32),toggle=defense_label(p,"toggle_"..key,714,0,134,30)};p.rows[key]=row
+    row.toggle:setClickCallback(function()
+     local current=buff_core();if not current or not buff_entry(key)then return false,"Unknown defense selection" end
+     local latest=current.current.buffs or {};local on=latest.wanted and latest.wanted[key]==true
+     return defense_click("keep",key..(on and " off" or " on"))
+    end)
+   end
+   local y=170+(count-1)*34;row.info:move(12,y);row.toggle:move(714,y);row.info:show();row.toggle:show()
+   local observed=b.defs_known==true and (have[key]==true and "ACTIVE" or "MISSING") or "UNKNOWN"
+   local color=observed=="ACTIVE" and C.good or C.warn
+   local notes={}
+   if entry.drain then notes[#notes+1]="DRAIN: "..(type(entry.drain)=="string" and entry.drain or "resources")end
+   if entry.requires_full then notes[#notes+1]="full resources"end
+   if entry.cooldown_loss then notes[#notes+1]="loss cooldown"end
+   notes[#notes+1]=entry.off and "OFF: verified cancel" or "OFF: upkeep only"
+   row.info:echo(html("<b>"..esc(entry.label or key).."</b> · <span style='color:"..color..";'>"..observed.."</span> · <span style='font-size:11px;color:"..C.muted..";'>"..esc(table.concat(notes," · ")).."</span>"))
+   row.toggle:setStyleSheet("background-color:"..(wanted[key]==true and "#315b46" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:4px;")
+   row.toggle:echo(html("<center>WANTED "..(wanted[key]==true and "ON" or "OFF").."</center>"))
+  end
+ end
+ for key,row in pairs(p.rows)do if not visible[key]then row.info:hide();row.toggle:hide()end end
+ local bottom=174+count*34;p.footer:move(12,bottom);p.window:resize(860,bottom+66)
+ p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE/MISSING requires a service defense snapshot; wanted is not proof of activation.<br>OFF without a verified cancel command stops upkeep only. STOP disarms DEFUP/upkeep; no emergency casts.</span>"))
+ return true
+end
+
 -- Shared, observed-only stance presentation for sidebar and the console subprompt.
 function M.stance(state)
  if not state.connected then return "UNKNOWN (offline)",nil end
@@ -264,7 +369,7 @@ function M.layout()
  ui.width=rw;ui.height=rh;ui.root:move(w-rw-10,10);ui.root:resize(rw,rh);setBorderRight(rw+30)
  local y=0
  local function card(k,height) place(ui.cards[k],10,y,cw,height);y=y+height+8 end
- card("header",60);place(ui.buttons.body_scan,rw-208,12,110,30);place(ui.buttons.help,rw-90,12,70,30)
+ card("header",60);place(ui.buttons.defenses,rw-306,12,90,30);place(ui.buttons.body_scan,rw-208,12,110,30);place(ui.buttons.help,rw-90,12,70,30)
  local bw=(cw-24)/5
  for i,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do place(ui.buttons[m],10+(i-1)*(bw+6),y,bw,30) end
  y=y+38;local compact=rh<800;card("status",compact and 110 or 120);card("target",compact and 86 or 96);local limbH=compact and 90 or 102;local limbW=(cw-10)/2;place(ui.cards.limbs,10,y,limbW,limbH);place(ui.cards.self_limbs,20+limbW,y,limbW,limbH);y=y+limbH+8
@@ -324,6 +429,7 @@ function M.create()
   end
  end
  if not ui.buttons.enemy_afflictions_reset then button(ui,"enemy_afflictions_reset","RESET",function()local ok,why=combat_v2_reset_enemy_afflictions();if not ok and why then print(why)end end) end
+ if not ui.buttons.defenses then button(ui,"defenses","DEFENSES",function()local ok,why=combat_v2.gui.show_defenses();if not ok and why then print(why)end;return ok,why end) end
  if not ui.buttons.body_scan then button(ui,"body_scan","BODY SCAN",function()combat_v2.gui.show_body()end) end
  if not ui.buttons.help then button(ui,"help","HELP",function()combat_v2.gui.show_help()end) end
  M.layout();return ui.root
@@ -358,6 +464,7 @@ function M.refresh(state,runner,cure)
  M.cards.limbs:echo(html(heading("ENEMY LIMBS")..limb_rows(state,"enemy").."<br><span style='font-size:11px;'>Prone: "..(t.prone and "yes" or "no").." · Parry: "..esc(t.parry_limb or "unknown").."</span>"))
  M.cards.self_limbs:echo(html(heading("YOUR LIMBS")..limb_rows(state,"self").."<br><span style='font-size:11px;'>Prone: "..(flag(p.prone) and "yes" or "no").." · — = unreported %</span>"))
  M.refresh_body(state,runner)
+ M.refresh_defenses(state)
  affpanel(ui,"player_afflictions",p.afflictions,"YOUR AFFLICTIONS","GMCP observed",C.warn)
  affpanel(ui,"enemy_afflictions",t.afflictions,"ENEMY AFFLICTIONS","tracked / inferred",C.bad)
  local d=state.defense;local defense=not state.connected and "OFFLINE" or d and d.phase or "monitoring"
