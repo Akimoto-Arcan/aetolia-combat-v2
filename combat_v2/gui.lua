@@ -6,6 +6,29 @@ local function html(s) return "<div style='color:"..C.text..";font-family:DejaVu
 local function heading(s) return "<b style='color:"..C.accent..";'>"..s.."</b><br>" end
 local function flag(v) return v==true or tonumber(v)==1 end
 local function ready(v) return "<span style='color:"..(flag(v) and C.good or C.warn)..";'>"..(flag(v) and "READY" or "WAIT").."</span>" end
+-- Shared, observed-only stance presentation for sidebar and the console subprompt.
+function M.stance(state)
+ if not state.connected then return "UNKNOWN (offline)",nil end
+ if state.player.dead then return "NOT STANCED (dead)",false end
+ local value=state.player.stance
+ if value==nil then return "UNKNOWN",nil end
+ local n=tostring(value):lower():match("^%s*(.-)%s*$")
+ if n=="" or n=="none" or n=="0" or n=="unstanced" or n=="false" then return "NOT STANCED",false end
+ if n=="unknown" or not n:match("^[%a][%a%s_%-]*$") then return "UNKNOWN",nil end
+ if n=="scs" then n="scorpion" end
+ return n:upper(),true
+end
+function M.prompt_text(state,runner)
+ local p=state.player;local stance,stanced=M.stance(state)
+ local color=stanced==true and "green" or stanced==false and "red" or "yellow"
+ local function balance(key,tag) return "<white>"..tag..":<"..(flag(p[key]) and "green" or "yellow")..">"..(flag(p[key]) and "READY" or "WAIT") end
+ local posture=flag(p.prone) and "<red>PRONE" or "<green>STANDING"
+ local mount=flag(p.mounted) and "MOUNTED" or "ON FOOT"
+ return "<white>[<cyan>STANCE: <"..color..">"..stance.."<white>] [<cyan>Kai: <white>"..(tonumber(p.kai) or "?").."] ["..balance("balance","B").." "..balance("equilibrium","E").." "..balance("left_arm_balance","L").." "..balance("right_arm_balance","R").."<white>] ["..posture.."<white> / "..mount.."] [<cyan>"..tostring(runner.mode or "OFF"):gsub("[^%w_]", "").."<white>]"
+end
+function M.render_prompt(state,runner)
+ if cecho then cecho("\n"..M.prompt_text(state,runner).."<reset>\n") end
+end
 local function sorted(t) local a={};for k,v in pairs(t or {}) do if v then a[#a+1]=tostring(k) end end;table.sort(a);return a end
 local function label(ui,k)
  local o=Geyser.Label:new({name="cv2_live_"..k,x=10,y=0,width=600,height=50},ui.root)
@@ -27,7 +50,7 @@ function M.layout()
  card("header",60)
  local bw=(cw-24)/5
  for i,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do place(ui.buttons[m],10+(i-1)*(bw+6),y,bw,30) end
- y=y+38;local compact=rh<800;card("status",compact and 86 or 100);card("target",compact and 70 or 80);card("limbs",compact and 90 or 102)
+ y=y+38;local compact=rh<800;card("status",compact and 110 or 120);card("target",compact and 70 or 80);card("limbs",compact and 90 or 102)
  local affY=y;local affH=rh-affY-188;local aw=(cw-10)/2
  ui.per_page=math.max(1,math.floor((affH-88)/19));ui.aff_height=affH
  for i,k in ipairs({"player_afflictions","enemy_afflictions"}) do
@@ -89,7 +112,8 @@ function M.refresh(state,runner,cure)
  local ui=combat_v2_ui;local p,t=state.player,state.target
  M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; MONK / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>t &lt;target&gt; &nbsp; · &nbsp; cv2 bash / auto / assist / off</span>"))
  for _,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do M.buttons[m]:setStyleSheet("background-color:"..(m==runner.mode and "#386386" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:5px;") end
- M.cards.status:echo(html(heading("PLAYER STATUS")..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>Balance %s &nbsp; Eq %s &nbsp; Arms %s / %s<br>Executor: %s",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana),ready(p.balance),ready(p.equilibrium),ready(p.left_arm_balance),ready(p.right_arm_balance),esc(runner.status or "idle"))))
+ local stance,stanced=M.stance(state);local stance_color=stanced==true and C.good or stanced==false and C.bad or C.warn
+ M.cards.status:echo(html(heading("PLAYER STATUS").."<b style='font-size:16px;color:"..stance_color..";'>STANCE: "..esc(stance).."</b> &nbsp; Kai: "..esc(p.kai or "?").."<br>"..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>Balance %s &nbsp; Eq %s &nbsp; Arms %s / %s<br>Executor: %s",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana),ready(p.balance),ready(p.equilibrium),ready(p.left_arm_balance),ready(p.right_arm_balance),esc(runner.status or "idle"))))
  local a=runner.pending or state.last_action or {}
  M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"))
  local rows={}

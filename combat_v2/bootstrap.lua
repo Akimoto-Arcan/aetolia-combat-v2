@@ -2,7 +2,7 @@ local root=getMudletHomeDir().."/combat_v2/"
 combat_v2=combat_v2 or {};local c=combat_v2
 for _,key in ipairs({"gmcp_handler","text_handler"}) do if c[key] then killAnonymousEventHandler(c[key]);c[key]=nil end end
 for _,id in ipairs(c.handlers or {}) do killAnonymousEventHandler(id) end
-for _,key in ipairs({"line_trigger"}) do if c[key] then killTrigger(c[key]) end end
+for _,key in ipairs({"line_trigger","prompt_trigger"}) do if c[key] then killTrigger(c[key]) end end
 for _,key in ipairs({"alias","target_alias"}) do if c[key] then killAlias(c[key]) end end
 for _,key in ipairs({"retry_timer","watch_timer","ih_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
 c.state=dofile(root.."state.lua");c.current=c.state.upgrade(c.current)
@@ -260,6 +260,11 @@ c.line_trigger=tempRegexTrigger("^.*$",function()
  if c.bashing.ih_text(c.current,text) then combat_v2_ih_result();refresh();return end
  c.events.event(c.current,text);combat_v2_tick()
 end)
+if type(tempPromptTrigger)=="function" then
+ c.prompt_trigger=tempPromptTrigger(function()
+  if c.gui.render_prompt then c.gui.render_prompt(c.current,c.runner) end
+ end)
+end
 c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  local arg=(matches[2] or ""):match("^%s*(.-)%s*$");local cmd,rest=arg:match("^(%S+)%s*(.*)$");cmd=(cmd or "status"):lower();rest=rest or ""
  local ok,why=true,nil

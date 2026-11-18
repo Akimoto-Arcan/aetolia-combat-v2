@@ -20,7 +20,7 @@ function registerAnonymousEventHandler()return 1 end
 function killAnonymousEventHandler()end
 local path=assert(arg[1], 'installed module path required')
 local state=dofile(path..'state.lua').new()
-state.player.balance='0';state.target.name='<test>'
+state.player.balance='0';state.target.name='<test>';state.connected=true;state.player.stance='scorpion';state.player.kai=12
 combat_v2={current=state,runner={mode='OFF'},cure={enabled=false}}
 local gui=dofile(path..'gui.lua');combat_v2.gui=gui
 gui.create();gui.refresh(state,combat_v2.runner,combat_v2.cure)
@@ -29,6 +29,24 @@ local other=dofile(path..'gui.lua');combat_v2.gui=other;other.create();other.ref
 assert(created==n and other.root==first,'reload leaked widgets')
 assert(other.cards.target.html:find('&lt;test&gt;',1,true),'target HTML not escaped')
 assert(other.cards.status.html:find('WAIT',1,true),'string zero rendered ready')
+
+assert(other.cards.status.html:find('STANCE: SCORPION',1,true),'observed stance not visible in sidebar')
+local stance,stanced=other.stance(state);assert(stance=='SCORPION' and stanced==true,'confirmed stance presentation failed')
+local text=other.prompt_text(state,combat_v2.runner)
+assert(text:find('SCORPION',1,true) and text:find('Kai: <white>12',1,true),'subprompt missing stance/Kai')
+assert(text:find('B:<yellow>WAIT',1,true),'subprompt treated string zero as ready')
+state.player.prone='0';state.player.mounted='0';assert(other.prompt_text(state,combat_v2.runner):find('STANDING',1,true),'zero prone rendered fallen')
+state.player.prone='1';state.player.mounted='1';text=other.prompt_text(state,combat_v2.runner);assert(text:find('PRONE',1,true) and text:find('MOUNTED',1,true),'subprompt missing posture/mount')
+state.player.stance='none';stance,stanced=other.stance(state);assert(stance=='NOT STANCED' and stanced==false,'no-stance state rendered ready')
+assert(other.prompt_text(state,combat_v2.runner):find('<red>NOT STANCED',1,true),'no-stance warning not red')
+state.player.stance=nil;stance,stanced=other.stance(state);assert(stance=='UNKNOWN' and stanced==nil,'missing observation claimed not-stanced')
+state.player.stance='<red>injected';assert(other.stance(state)=='UNKNOWN','stance accepted formatting injection')
+state.player.stance='scs';assert(other.stance(state)=='SCORPION','confirmed abbreviation not expanded')
+state.connected=false;assert(other.stance(state)=='UNKNOWN (offline)','offline state showed stale stance as confirmed');state.connected=true
+local output={};function cecho(value)output[#output+1]=value end
+other.render_prompt(state,combat_v2.runner);assert(#output==1 and output[1]:find('SCORPION',1,true),'subprompt renderer failed')
+state.player.dead=true;assert(other.stance(state)=='NOT STANCED (dead)','dead player displayed stanced');state.player.dead=false
+state.player.stance='scorpion';state.player.prone=false;state.player.mounted=false
 local function bounds()
  for k,o in pairs(other.cards) do if not o.hidden then
   assert(o.p.x>=0 and o.p.x+o.p.width<=first.p.width,k..' horizontal overflow')

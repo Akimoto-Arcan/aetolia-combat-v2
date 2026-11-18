@@ -64,6 +64,10 @@ Only server text/GMCP observations or explicit corrections change enemy state. A
 
 Boosted legacy values apply only to an observed Tiger/Cobra stance. Change calibration only from controlled measurements. An exact manual `track limb` correction replaces the estimated total.
 
+## Monk subprompt
+
+An observed-only colored line appears below each server prompt, modeled on Fallout's `prompt_sub`: stance, Kai, balance/equilibrium, each arm, posture/mount state, and current execution mode. The sidebar also shows a prominent STANCE label. Confirmed stance is green, explicit no-stance red, and missing/offline information amber UNKNOWN. Sending an attack never establishes a stance. The original game prompt and BaseUI processing are preserved; display refreshes send no game commands. GUI-only hot reload preserves the execution mode, and full bootstrap reload replaces the old prompt trigger rather than duplicating it.
+
 ## Review and correction controls
 
     cv2 track limb ll 25
