@@ -46,17 +46,39 @@ function M.item_removed(s,payload)
  if type(payload)~="table" or payload.location~="room" then return end
  local raw=payload.item or payload.id;local id=type(raw)=="table" and raw.id or raw
  if not id then return end
- s.room.items[tostring(id)]=nil
+ s.room.items[tostring(id)]=nil;s.room.item_version=(s.room.item_version or 0)+1
  if s.mode=="BASH" and tostring(s.target.name)==tostring(id) and not s.target.dead then s.stop_reason="target left room; confirmation required" end
 end
+function M.item_changed(s,payload,added)
+ if type(payload)~="table" or payload.location~="room" then return false end
+ local item=type(payload.item)=="table" and payload.item or payload
+ if not item.id then return false end
+ local id=tostring(item.id);local old=s.room.items[id] or {}
+ local nextitem={name=tostring(item.name or old.name or id),attrib=tostring(item.attrib or old.attrib or ""),icon=item.icon or old.icon}
+ s.room.items[id]=nextitem;s.room.item_version=(s.room.item_version or 0)+1
+ local flags=nextitem.attrib;local living=(flags:find("m",1,true) or nextitem.icon=="monster") and not flags:find("d",1,true) and not flags:find("x",1,true)
+ if living and (added or tostring(old.attrib or ""):find("d",1,true)) and s.hunting.killed_ids then s.hunting.killed_ids[id]=nil end
+ return true
+end
+-- Fresh GMCP updates reuse the same guarded NPC selector without sending IH.
+function M.watch_select(s)
+ local watch=s.hunting.watch
+ if not watch or watch.room_id~=s.room.id then return false end
+ local old=s.hunting.ih
+ s.hunting.ih={active=true,pending=true,responded=true,room_id=s.room.id,items=s.room.items,attempts=0,source="GMCP watch"}
+ local ok,why=M.ih_select(s)
+ if ok then s.hunting.watch=nil else s.hunting.ih=old end
+ return ok,why
+end
 function M.ih_begin(s)
+ s.hunting.watch=nil
  s.hunting.active=true;s.stop_reason=nil
- s.hunting.ih={active=true,attempts=0,pending=false,room_id=s.room.id}
+ s.hunting.ih={active=true,attempts=0,pending=false,room_id=s.room.id,start_version=s.room.item_version or 0}
  return s.hunting.ih
 end
 function M.ih_request(s)
  local scan=s.hunting.ih
- if not scan or not scan.active or scan.pending then return false end
+ if not scan or not scan.active or scan.pending or scan.attempts>=3 then return false end
  scan.attempts=scan.attempts+1;scan.pending=true;scan.responded=false;scan.items=nil;scan.header=nil
  return true
 end

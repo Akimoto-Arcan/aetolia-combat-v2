@@ -20,7 +20,13 @@ local function cancel_ih()
  if c.ih_timer then killTimer(c.ih_timer);c.ih_timer=nil end
  local scan=c.current.hunting.ih;if scan then scan.active=false;scan.pending=false end
 end
--- A failed IH check schedules the next request, never an attack.
+local function enter_room_watch()
+ local s=c.current;local scan=s.hunting.ih;cancel_ih()
+ s.hunting.watch={room_id=s.room.id,checked_version=scan and scan.start_version or (s.room.item_version or 0)};s.hunting.verified_generation=nil
+ c.runner.status="BASH armed: 3 IH checks exhausted; watching GMCP room updates"
+ c.state.record(s,"ih_watch","3 checks exhausted; quiet GMCP watch");refresh();return false,c.runner.status
+end
+-- Failed IH checks retry at most three times, then wait for real room updates.
 function combat_v2_ih_result()
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active or not scan.pending or not scan.responded then return false end
@@ -30,6 +36,7 @@ function combat_v2_ih_result()
   c.runner.status="IH confirmed target "..tostring(s.target.name);c.state.record(s,"ih_found",s.target.name)
   return combat_v2_tick()
  end
+ if scan.attempts>=3 then scan.last_failure=why;return enter_room_watch() end
  scan.last_failure=why;c.state.record(s,"ih_miss",scan.attempts.."/3: "..why)
  c.runner.status="BASH armed: no matching target; IH check "..scan.attempts..", retry in 2s";refresh();return false
 end
@@ -38,6 +45,7 @@ function combat_v2_request_ih()
  if c.mode~="BASH" or not scan or not scan.active then return false end
  if not s.connected or (tonumber(s.player.hp) or 0)<=0 or s.player.dead then cancel_ih();c.runner.status="BASH paused: disconnected / dead";refresh();return false end
  local safe,reason=c.policy.allowed(s);if not safe then cancel_ih();c.runner.status=reason;refresh();return false end
+ if scan.attempts>=3 then return enter_room_watch() end
  if not c.bashing.ih_request(s) then return false end
  c.runner.status="Checking IH "..scan.attempts;c.state.record(s,"ih_request",scan.attempts.."/3")
  c.ih_timer=tempTimer(2,function()
@@ -55,8 +63,10 @@ function combat_v2_request_ih()
  if not ok then cancel_ih();c.runner.fault="IH send failed: "..tostring(why);c.runner.status=c.runner.fault;refresh();return false end
  refresh();return true
 end
-function combat_v2_start_ih(reason)
+function combat_v2_start_ih(reason,force)
  if c.mode~="BASH" then return false end
+ if force then c.current.hunting.watch=nil end
+ if c.current.hunting.watch then return false,"watching GMCP room updates" end
  local scan=c.current.hunting.ih
  if scan and scan.active then return false,"IH already pending" end
  cancel_ih();c.bashing.ih_begin(c.current);c.runner.pending=nil
@@ -65,7 +75,7 @@ function combat_v2_start_ih(reason)
  return combat_v2_request_ih()
 end
 function combat_v2_stop(reason)
- cancel_ih()
+ cancel_ih();c.current.hunting.watch=nil
  if c.current.training_battle_ended then
   local m=c.current.mental
   if m then if m.target then pcall(send,"mind cease") end;m.status="stopped";m.target=nil;m.lock_target=nil;m.eq_pending=nil end
@@ -125,6 +135,18 @@ function combat_v2_tick()
    area_prompt();refresh();return false,c.runner.status
   end
   if s.hunting.ih and s.hunting.ih.active then refresh();return false,"checking IH" end
+  local watch=s.hunting.watch
+  if watch then
+   if watch.room_id~=s.room.id then s.hunting.watch=nil
+   else
+    local version=s.room.item_version or 0
+    if version>(watch.checked_version or 0) then
+     watch.checked_version=version
+     if c.bashing.watch_select(s) then s.hunting.verified_generation=s.target_generation;c.state.record(s,"gmcp_found",s.target.name) end
+    end
+    if s.hunting.watch then c.runner.status="BASH armed: watching GMCP room updates (IH 3/3)";refresh();return false,c.runner.status end
+   end
+  end
   if not s.target.name or s.target.dead or s.hunting.verified_generation~=s.target_generation then combat_v2_start_ih("verify bashing target");return false,"checking IH" end
  end
  if c.mental.tick(s,c.mental_sender or c.runner.sender or send,c.runner.paused_health) then c.runner_module.update_balance(c.runner);refresh();return false,"Telepathy equilibrium pending" end
@@ -136,7 +158,7 @@ function combat_v2_set_mode(mode)
  mode=string.upper(mode or "OFF");if mode=="AUTO" or mode=="PVP" then mode="FULL_AUTO" end
  if not ({OFF=true,SHADOW=true,ASSIST=true,BASH=true,FULL_AUTO=true})[mode] then return false,"invalid mode" end
  if mode=="OFF" then return combat_v2_stop() end
- cancel_ih()
+ cancel_ih();c.current.hunting.watch=nil
  if c.current.training_battle_ended then c.current.training_battle_ended=nil;c.current.mental=nil end
  c.current.dismount_stance=nil
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
@@ -160,7 +182,7 @@ function combat_v2_set_target(name)
  local ok,why=c.state.set_target(c.current,name)
  if ok then
   c.runner.pending=nil
-  if c.current.target_generation~=previous then c.current.hunting.target_name=nil;c.current.hunting.killed_ids={};c.current.hunting.query=c.current.target.name end
+  if c.current.target_generation~=previous then c.current.hunting.watch=nil;c.current.hunting.target_name=nil;c.current.hunting.killed_ids={};c.current.hunting.query=c.current.target.name end
  end
  refresh();return ok,why
 end
@@ -277,13 +299,17 @@ handler("gmcp.Char.Items.List",function()
  if changed and c.mode=="BASH" and not (scan and scan.active) and s.hunting.verified_generation==s.target_generation and s.target.name and not s.room.items[tostring(s.target.name)] then
   s.stop_reason="target left room; confirmation required";combat_v2_tick()
  end
- refresh()
+ if changed then combat_v2_tick() else refresh() end
 end)
+for _,kind in ipairs({"Add","Update"})do
+ local item_kind=kind
+ handler("gmcp.Char.Items."..item_kind,function()if c.bashing.item_changed(c.current,gmcp.Char.Items[item_kind],item_kind=="Add")then combat_v2_tick()end end)
+end
 handler("gmcp.Char.Items.Remove",function() c.bashing.item_removed(c.current,gmcp.Char.Items.Remove);combat_v2_tick() end)
 handler("gmcp.Room.Info",function()
  local s=c.current;local info=gmcp.Room.Info or {};local changed=c.policy.room(s,info)
  if changed then
-  s.training=nil;s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
+  s.hunting.watch=nil;s.training=nil;s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
   if c.mode=="BASH" then c.state.set_target(s,"");c.runner.pending=nil end
  end
  combat_v2_tick()
@@ -323,7 +349,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  elseif cmd=="reset" then combat_v2_reset_wait()
  elseif cmd=="status" then combat_v2_status()
  elseif cmd=="trace" then combat_v2_trace(rest)
- elseif cmd=="ih" then ok,why=combat_v2_start_ih("manual IH verification")
+ elseif cmd=="ih" then ok,why=combat_v2_start_ih("manual IH verification",true)
  elseif cmd=="area" then if rest=="yes" or rest=="no" then ok,why=combat_v2_area_approve(c.current.policy.visit,rest=="yes") else ok,why=false,"cv2 area yes|no" end
  elseif cmd=="areas" then c.policy.request_areas(c.current);send("areas")
  elseif cmd=="web" then c.policy.request_web(c.current);send("web members")

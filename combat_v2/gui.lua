@@ -61,7 +61,7 @@ function M.help_text()
   "  cv2 approve           Approve the current ASSIST action.",
   "",
   "<cyan>BASHING, AREAS & WEB MEMBERS<white>",
-  "  BASH stays armed across rooms; empty rooms recheck IH every 2s.",
+  "  BASH stays armed: up to 3 IH checks, then quiet GMCP room watch.",
   "  Fresh room checks choose selected/queued or AC2-whitelisted mobs.",
   "  Guards, corpses and loyal/protected NPCs are excluded.",
   "  Unlisted areas ask permission; unverified players pause attacks.",
