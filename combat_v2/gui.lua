@@ -64,7 +64,7 @@ function M.show_body()
   b.subtitle=scan_label(b,"subtitle",22,53,875,25)
   b.close=scan_label(b,"close",806,18,90,28);b.close:setStyleSheet("background-color:#152e1e;color:#78f7a3;border:1px solid #4c9364;padding:3px;")
   b.close:echo(scan_html("<center>CLOSE [X]</center>"));b.close:setClickCallback(function()combat_v2_ui.body.window:hide()end)
-  for i,side in ipairs({"self","enemy"})do
+  for i,side in ipairs({"enemy","self"})do
    local x=18+(i-1)*450;local pane={layers={},rows={}};b.sides[side]=pane
    pane.frame=scan_label(b,side.."_frame",x,88,434,448);pane.frame:setStyleSheet("background-color:rgba(7,18,11,175);border:1px solid #2f6946;")
    pane.heading=scan_label(b,side.."_heading",x+14,100,406,28)
@@ -78,6 +78,12 @@ function M.show_body()
   b.legend=scan_label(b,"legend",22,551,880,54)
   b.legend:echo(scan_html("<span style='color:#78f7a3;'>■ NO INJURY SEEN</span>  <span style='color:#ffd166;'>■ CRIPPLED / TRAUMA</span>  <span style='color:#ff755f;'>■ BROKEN</span>  <span style='color:#ec83ff;'>■ MANGLED</span><br><span style='color:#70987e;font-size:11px;'>— UNKNOWN TRAUMA · ~ ESTIMATE · INJURIES REQUIRE OBSERVATION · READ-ONLY DISPLAY</span>"))
  end
+ -- Reflow reused widgets too, so an already-open scanner adopts the order.
+ for i,side in ipairs({"enemy","self"})do
+  local x=18+(i-1)*450;local p=ui.body.sides[side]
+  p.frame:move(x,88);p.heading:move(x+14,100);p.sub:move(x+14,132);p.footer:move(x+14,511)
+  for j,key in ipairs(limb_keys)do p.layers[key]:move(x+216,171);p.rows[key]:move(x+14,173+(j-1)*52)end
+ end
  M.refresh_body(combat_v2.current,combat_v2.runner)
  ui.body.window:show();if raiseWindow then raiseWindow(ui.body.window.name) end;return true
 end
@@ -87,7 +93,7 @@ function M.refresh_body(state,runner)
  b.subtitle:echo(scan_html("MONK ANATOMY SYSTEM  /  "..(state.connected and "<span style='color:#78f7a3;'>SIGNAL LIVE</span>" or "<span style='color:#ffd166;'>OFFLINE · CACHED</span>").."  /  MODE: "..esc(runner.mode)))
  for _,side in ipairs({"self","enemy"})do
   local p=b.sides[side];local actor=side=="self" and state.player or state.target
-  p.heading:echo(scan_html("<b style='font-size:19px;'>"..(side=="self" and "01 // YOUR BODY" or "02 // ENEMY: "..esc(actor.name or "NO TARGET")).."</b>"))
+  p.heading:echo(scan_html("<b style='font-size:19px;'>"..(side=="self" and "02 // YOUR BODY" or "01 // ENEMY: "..esc(actor.name or "NO TARGET")).."</b>"))
   p.sub:echo(scan_html(side=="self" and ("HP "..esc(actor.hp).." / "..esc(actor.maxhp).."  |  MANA "..esc(actor.mana)) or "TRACKED TRAUMA / CONFIRMED INJURIES"))
   for _,key in ipairs(limb_keys)do
    local d=M.limb_snapshot(state,side,key);local art=p.layers[key]
