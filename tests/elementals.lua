@@ -57,9 +57,10 @@ test('mismatched ACK and speech never authorize consumption',function()
  probe(c,3);E.text(c,'Someone says, "'..drain..'"');E.text(c,drain:gsub('water','lava'));E.prompt(c);tick(c);eq(#sent,2)
  E.text(c,drain);E.prompt(c);tick(c);E.text(c,'Someone says, "'..success..'"');E.prompt(c);tick(c);eq(E.state(c).pending.phase,'summon')
 end)
-test('probe zero permanently faults; no blind drain and rearm forbidden',function()
- local c,sent=fixture();start(c);probe(c,0);eq(#sent,1);eq(E.state(c).armed,false);eq(E.arm(c,true),false)
+test('probe zero faults without automatic retry; explicit rearm sends nothing',function()
+ local c,sent=fixture();start(c);probe(c,0);eq(#sent,1);eq(E.state(c).armed,false);eq(E.state(c).fault,'globe exhausted')
  E.text(c,failure);clock=clock+100;tick(c);eq(#sent,1)
+ eq(E.arm(c,true),true);eq(E.state(c).fault,nil);tick(c);eq(#sent,1)
 end)
 test('fresh count each independent cycle, finite globe exhausted',function()
  local c,sent=fixture();E.arm(c,true)
@@ -269,4 +270,131 @@ test('external success before drain ACK cannot settle or authorize a blind retry
  E.text(c,success);tick(c);eq(E.state(c).pending.phase,'drain')
  E.prompt(c);tick(c);eq(E.state(c).pending,nil);eq(#sent,2)
 end)
+test('native fresh and all infused counts accept only one through four',function()
+ for _,element in ipairs({'fresh','water','air','earth','fire'}) do
+  local prefix=element=='fresh' and 'This globe' or 'This globe is infused with '..element..' and'
+  for n=0,4 do
+   for _,unit in ipairs(n==1 and {'time','times'} or {'times'}) do
+    local c,sent=fixture();start(c)
+    E.text(c,prefix..' can be drained another '..n..' '..unit..'.')
+    if n==0 then
+     eq(E.state(c).fault,'globe exhausted');eq(E.state(c).armed,false)
+     E.prompt(c);tick(c);eq(#sent,1)
+    else
+     eq(E.state(c).pending.count,n);eq(E.state(c).pending.ack,true)
+     tick(c);eq(#sent,1);E.prompt(c);tick(c);eq(sent[2],'drain globe');eq(#sent,2)
+    end
+   end
+  end
+ end
+end)
+test('probe rejects numeric coercion malformed grammar unknown infusion and speech',function()
+ for _,prefix in ipairs({'This globe','This globe is infused with water and'}) do
+  for _,n in ipairs({'5','9','10','01','04','00','-1','+1','1.0','1e0','0x1',' 1','1 ','one',''}) do
+   local c,sent=fixture();start(c);local p=E.state(c).pending
+   E.text(c,prefix..' can be drained another '..n..' times.');E.prompt(c);tick(c)
+   eq(p.ack,nil,n);eq(p.count,nil,n);eq(#sent,1,n)
+   clock=clock+12;tick(c);eq(E.state(c).fault,'recovery timeout')
+  end
+ end
+ for _,line in ipairs({
+  'This globe can be drained another 2 time.',
+  'This globe can be drained another 0 time.',
+  'This globe can be drained another 4 times',
+  'This globe can be drained another 4 times. trailing',
+  ' This globe can be drained another 4 times.',
+  'Someone says, "This globe can be drained another 4 times."',
+  'This globe is infused with lava and can be drained another 4 times.',
+  'This globe is infused with Water and can be drained another 4 times.',
+ }) do
+  local c,sent=fixture();start(c);E.text(c,line);E.prompt(c);tick(c)
+  eq(E.state(c).pending.ack,nil,line);eq(#sent,1,line)
+ end
+end)
+test('actual native fresh four drains AIR then completes during busy BASH',function()
+ local c,sent=fixture();start(c)
+ E.text(c,'This globe can be drained another 4 times.');E.prompt(c);tick(c)
+ eq(table.concat(sent,'|'),'probe globe|drain globe')
+ E.text(c,drain:gsub('water','air'));tick(c);eq(#sent,2)
+ E.prompt(c);tick(c);eq(sent[3],'summon elemental');eq(E.state(c).committed,true)
+ E.text(c,success);c.runner.waiting=true;c.current.player.balance=false;E.prompt(c);tick(c)
+ eq(E.state(c).pending,nil);eq(E.state(c).committed,nil);eq(E.state(c).fault,nil)
+ eq(E.state(c).armed,true);eq(c.runner.waiting,true);eq(c.mode,'BASH');eq(#sent,3)
+end)
+test('uncommitted timeout OFF then explicit ON clears fault without sends',function()
+ local c,sent=fixture();start(c);clock=clock+12;tick(c)
+ eq(E.state(c).fault,'recovery timeout');E.arm(c,false);eq(E.state(c).pending,nil)
+ eq(E.state(c).fault,'recovery timeout');local n=#sent
+ eq(E.arm(c,true),true);eq(E.state(c).fault,nil);eq(E.state(c).phase,'idle')
+ eq(E.state(c).room,c.current.room.id);eq(E.state(c).status,'armed (waiting for own summon failure)')
+ for i=1,10 do E.prompt(c);tick(c) end;eq(#sent,n)
+end)
+test('explicit ON cancels timed-out read-only waiting or probe without sends',function()
+ for _,phase in ipairs({'waiting','probe'}) do
+  local c,sent=fixture();E.arm(c,true);E.text(c,failure)
+  if phase=='probe' then tick(c) end
+  local old=E.state(c).pending;clock=clock+61;tick(c)
+  eq(old.phase,phase);eq(E.state(c).fault,'recovery timeout');eq(E.state(c).committed,nil)
+  local n=#sent;eq(E.arm(c,true),true);eq(E.state(c).pending,nil);eq(E.state(c).fault,nil)
+  eq(E.state(c).armed,true);E.prompt(c);tick(c);eq(#sent,n)
+  -- A new exact own failure, not ON, starts a new read-only attempt.
+  E.text(c,failure);tick(c);eq(sent[n+1],'probe globe');eq(E.state(c).pending==old,false)
+ end
+end)
+test('invalid arm scope retains fault and read-only pending proof',function()
+ for _,invalidate in ipairs({
+  function(c)c.mode='OFF'end,function(c)c.current.mode='OFF'end,
+  function(c)c.runner.mode='OFF'end,function(c)c.current.room.id=nil end,
+  function(c)c.current.connected=false end,function()tcp=false end,
+ }) do
+  local c,sent=fixture();start(c);clock=clock+12;tick(c)
+  local b=E.state(c);local p,room=b.pending,b.room;invalidate(c)
+  eq(E.arm(c,true),false);eq(b.armed,false);eq(b.fault,'recovery timeout')
+  eq(b.pending,p);eq(b.room,room);eq(#sent,1)
+ end
+end)
+test('committed drain or summon timeout survives OFF ON detach reload unchanged',function()
+ for _,phase in ipairs({'drain','summon'}) do
+  local c,sent=fixture();start(c);probe(c,3);if phase=='summon' then ack(c) end
+  local b=E.state(c);local p=b.pending;local n=#sent
+  clock=clock+12;tick(c);eq(b.fault,'recovery timeout');eq(p.phase,phase)
+  eq(E.arm(c,true),false);eq(b.fault,'recovery timeout');eq(b.pending,p);eq(b.committed,true)
+  E.arm(c,false);eq(b.pending,p);eq(b.committed,true);eq(E.arm(c,true),false)
+  E.detach(c);local fresh=dofile(root..'elementals.lua');eq(fresh.arm(c,true),false)
+  eq(b.pending,p);eq(b.committed,true);eq(b.armed,false);eq(b.fault~=nil,true)
+  E.text(c,drain);E.text(c,success);E.prompt(c);tick(c);eq(b.pending,p);eq(#sent,n)
+ end
+end)
+test('physical pending and orphan committed barrier never cleared by ON or OFF',function()
+ for _,phase in ipairs({'drain','summon','orphan'}) do
+  local c,sent=fixture();local b=E.state(c)
+  if phase=='orphan' then b.committed=true else b.pending={phase=phase};b.fault='uncertain' end
+  local p=b.pending;eq(E.arm(c,true),false);eq(b.pending,p)
+  E.arm(c,false);eq(b.pending,p);eq(b.fault~=nil,true);eq(E.arm(c,true),false)
+  eq(b.committed,phase=='orphan' and true or nil);eq(#sent,0)
+ end
+end)
+for _,path in ipairs({'direct ON','OFF ON','detach ON','reload ON'}) do
+ test('missing or unknown pending phase survives '..path,function()
+  for _,phase in ipairs({'missing','unknown'}) do
+   local c,sent=fixture();local b=E.state(c)
+   local p=phase=='missing' and {} or {phase='unknown'}
+   b.pending=p;b.fault='uncertain';b.phase=phase
+   local module=E
+   if path=='OFF ON' then E.arm(c,false)
+   elseif path=='detach ON' then E.detach(c)
+   elseif path=='reload ON' then
+    E.detach(c);module=dofile(root..'elementals.lua');module.attach(c)
+   end
+   eq(b.pending,p,'uncertain pending erased by '..path)
+   eq(b.committed,nil);eq(b.fault~=nil,true)
+   eq(module.arm(c,true),false);eq(b.pending,p);eq(b.armed,false)
+   eq(b.fault~=nil,true);eq(b.phase,phase)
+   -- Neither late evidence nor another OFF/ON cycle may manufacture certainty.
+   module.text(c,drain);module.text(c,success);module.prompt(c);module.service(c)
+   module.arm(c,false);eq(module.arm(c,true),false)
+   eq(b.pending,p);eq(b.committed,nil);eq(b.armed,false);eq(#sent,0)
+  end
+ end)
+end
 print(string.format('elementals: %d tests, %d assertions passed',count,checks))
