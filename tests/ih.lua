@@ -1,10 +1,19 @@
 -- Deterministic fake-clock tests of the actual IH scheduler and Mudlet callbacks.
 local root=assert(arg[1]);local realdofile=dofile;local realprint=print;print=function()end
-local clock,handlers,triggers,aliases,timers,sent,nextid
+local clock,handlers,triggers,aliases,timers,sent,nextid,gmcp_sent,room_refresh,auto_room_items
+function sendGMCP(msg)gmcp_sent[#gmcp_sent+1]=msg;room_refresh=true end
 function getEpoch()return clock end
 function getMudletHomeDir()return root:gsub('/combat_v2/$','')end
 function getConnectionInfo()return 'fixture',0,true end
-function send(cmd)sent[#sent+1]={command=cmd,time=clock}end
+function send(cmd)
+ sent[#sent+1]={command=cmd,time=clock}
+ -- Aetolia queues the explicit GMCP refresh until a command produces a prompt.
+ -- Plain IH in an unchanged room emits no new item-list event in this fixture.
+ if cmd=='ih' and room_refresh and auto_room_items then
+  room_refresh=false;gmcp.Char={Items={List={location='room',items=auto_room_items}}}
+  handlers['gmcp.Char.Items.List']()
+ end
+end
 function registerAnonymousEventHandler(e,f)handlers[e]=f;return e end
 function killAnonymousEventHandler(e)handlers[e]=nil end
 function tempRegexTrigger(p,f)nextid=nextid+1;triggers[nextid]=f;return nextid end
@@ -16,7 +25,7 @@ function killTimer(id)if timers[id]then timers[id].alive=false end end
 dofile=function(p)if p:match('/gui.lua$')then return {create=function()end,refresh=function()end}end;return realdofile(p)end
 local count=0;local function check(v,msg)assert(v,msg);count=count+1 end
 local function fresh(target)
- combat_v2=nil;gmcp={};clock=100;handlers={};triggers={};aliases={};timers={};sent={};nextid=0
+ combat_v2=nil;gmcp={};clock=100;handlers={};triggers={};aliases={};timers={};sent={};nextid=0;gmcp_sent={};room_refresh=false;auto_room_items=nil
  realdofile(root..'bootstrap.lua')
  local s=combat_v2.current;s.room.id=1
  combat_v2.state.sync_gmcp(s,{Char={Vitals={hp=100,maxhp=100,balance=1,equilibrium=1,left_arm=1,right_arm=1}}});s.player.stance='scorpion'
@@ -94,5 +103,10 @@ check(#attacks()==0,'no selected/queued target must not attack an arbitrary NPC'
 s=fresh('rat');combat_v2_set_mode('PVP');check(#ihs()==0,'PvP incorrectly issued NPC IH')
 s=fresh('rat');combat_v2_set_mode('BASH');realdofile(root..'bootstrap.lua');advance(6)
 check(combat_v2.mode=='OFF' and #ihs()==1,'reload left IH timer running')
+s=fresh('spider');auto_room_items={{id=1001,name='a medium pulsating spider',attrib='m'},{id=1002,name='a medium pulsating spider',attrib='m'},{id=1003,name='a medium pulsating spider',attrib='m'}}
+combat_v2_set_mode('BASH')
+check(#gmcp_sent==1 and gmcp_sent[1]=='Char.Items.Room ""','IH did not explicitly request fresh room data before its prompt')
+check(s.target.name=='1001' and #attacks()==1,'three unchanged spiders were not acquired and attacked through fresh GMCP')
+check(not s.hunting.ih.active and combat_v2.ih_timer==nil,'synchronous refreshed response left a scan timer alive')
 print=realprint
 print('PASS IH '..count..' assertions: fresh presence gate, exact two-second retries, three-check halt, recovery, actor filtering, stale callbacks and cancellation')

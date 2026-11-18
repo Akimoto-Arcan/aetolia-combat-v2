@@ -44,7 +44,12 @@ function combat_v2_request_ih()
   if scan.attempts>=3 then combat_v2_stop("No target confirmed after 3 IH checks");return end
   combat_v2_request_ih()
  end)
- local ok,why=pcall(c.ih_sender or send,"ih")
+ local ok,why=pcall(function()
+  -- IH does not refresh an unchanged item list by itself. Aetolia flushes
+  -- this explicit GMCP request when the following IH produces its prompt.
+  sendGMCP([[Char.Items.Room ""]])
+  local sender=c.ih_sender or send;sender("ih")
+ end)
  if not ok then combat_v2_stop("IH send failed: "..tostring(why));return false end
  refresh();return true
 end
