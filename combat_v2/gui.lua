@@ -361,7 +361,7 @@ function M.refresh(state,runner,cure)
  affpanel(ui,"player_afflictions",p.afflictions,"YOUR AFFLICTIONS","GMCP observed",C.warn)
  affpanel(ui,"enemy_afflictions",t.afflictions,"ENEMY AFFLICTIONS","tracked / inferred",C.bad)
  local d=state.defense;local defense=not state.connected and "OFFLINE" or d and d.phase or "monitoring"
- M.cards.cure:echo(html(heading("DEFENSE / FIRSTAID").."<span style='color:"..(d and d.hold and C.bad or C.good)..";'>"..esc(defense).."</span> · FA: "..(cure.enabled and "requested" or "unverified")))
+ M.cards.cure:echo(html(heading("DEFENSE / FIRSTAID").."<span style='color:"..(d and d.hold and C.bad or d and d.low_health and C.warn or C.good)..";'>"..esc(defense).."</span> · FA: "..(cure.enabled and "requested" or "unverified")))
  M.cards.events:echo(M.event_feed(state))
 end
 return M

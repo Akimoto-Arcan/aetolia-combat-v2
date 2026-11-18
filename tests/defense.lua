@@ -55,4 +55,39 @@ reentrant=function(cmd)send(cmd);D.service(s,reentrant)end
 D.service(s,reentrant);check(#sent==n+3,'reentrant delivery duplicated elevations')
 s=fresh();check(not D.audit(s,function()error('read-only transport failure')end),'audit transport failure was hidden')
 check(not D.setup(s,function()error('setup transport failure')end) and D.state(s).setup=='partial request; server readback required','partial setup falsely declared success')
+-- Reproduce the real BASH stall: native healing below the old resume threshold
+-- must not disable pressure. Only health-only holds are bypassed, never incapacity.
+R.bind_policy(function()return true end)
+for _,hp in ipairs({37,55,61,29,19,3})do
+ s=fresh();s.mode='BASH';s.player.stance='scorpion';s.player.hp=hp
+ D.state(s).low_health=true
+ check(not D.hold(s),'health-only BASH pause survived at '..hp..'%')
+ check(D.state(s).low_health,'low-health warning was lost')
+ local br=R.new(s,K);br.mode='BASH';br.sender=send;br.paused_health=true;n=#sent
+ check(R.execute(br,R.propose(br)) and #sent==n+1,'BASH executor retained old health latch at '..hp..'%')
+ check(sent[#sent]=='combo Fixture spk ucp ucp' and not br.paused_health,'BASH changed recipe or retained stale pause')
+end
+local function bash_block(change,msg)
+ s=fresh();s.mode='BASH';s.player.stance='scorpion';s.player.hp=3;change(s)
+ local br=R.new(s,K);br.mode='BASH';br.sender=send;n=#sent
+ check(not R.execute(br,{name='bash_strike',command='combo Fixture spk ucp ucp'}) and #sent==n,msg)
+end
+bash_block(function(x)x.player.afflictions.paralysis=true end,'low-HP BASH bypassed paralysis')
+bash_block(function(x)x.player.afflictions.asleep=true end,'low-HP BASH bypassed sleep')
+bash_block(function(x)x.player.afflictions.unconsciousness=true end,'low-HP BASH bypassed unconsciousness')
+bash_block(function(x)x.player.prone=true end,'low-HP BASH bypassed prone')
+bash_block(function(x)x.player.afflictions={asthma=true,anorexia=true,slickness=true}end,'low-HP BASH bypassed cure-lock')
+bash_block(function(x)x.player.hp=0 end,'low-HP BASH bypassed zero health')
+bash_block(function(x)x.player.dead=true end,'low-HP BASH bypassed death')
+bash_block(function(x)x.connected=false end,'low-HP BASH bypassed disconnect')
+bash_block(function(x)x.player.balance=false end,'low-HP BASH bypassed balance')
+bash_block(function(x)x.player.equilibrium=false end,'low-HP BASH bypassed equilibrium')
+bash_block(function(x)x.player.left_arm_balance=false end,'low-HP BASH bypassed arm balance')
+bash_block(function(x)x.player.mounted=471247 end,'low-HP BASH bypassed mounted block')
+R.bind_policy(function()return false,'fixture denied' end)
+bash_block(function()end,'low-HP BASH bypassed target/player/area policy')
+R.bind_policy(nil)
+-- PvP keeps both survival gates. The new rule is BASH-only.
+s=fresh();s.player.hp=25;local pr=R.new(s,K);pr.mode='FULL_AUTO';pr.sender=send;n=#sent
+check(D.hold(s) and not R.execute(pr,{command='bbt Fixture'}) and #sent==n,'BASH health policy leaked into PvP')
 print('PASS defense '..count..' assertions: own-state ingestion, early blocker elevations, cure-lock hold, hysteresis, mode/TCP gates, mana/Kai reserves, setup readback and loss replay')

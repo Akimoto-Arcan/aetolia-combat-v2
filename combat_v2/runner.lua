@@ -52,8 +52,11 @@ function M.execute(r,a,approved)
  if M.defense then local hold,why=M.defense(s);if hold then return deny("DEFENSE: "..why) end end
  if not s.target.name or s.target.dead or not tostring(s.target.name):match("^[%w%s'%-]+$") or tostring(s.target.name):find("[\r\n]") then return deny("no valid living target") end
  local pct=(tonumber(p.maxhp) or 0)>0 and 100*p.hp/p.maxhp or 100
- if pct<cfg(r,"health_pause",30) then r.paused_health=true end
- if r.paused_health then if pct<cfg(r,"health_resume",60) then return deny("low health pause (resume at "..cfg(r,"health_resume",60).."%)") end;r.paused_health=false end
+ if r.mode=="BASH" then r.paused_health=false -- user policy: FIRSTAID heals while BASH keeps pressure
+ else
+  if pct<cfg(r,"health_pause",30) then r.paused_health=true end
+  if r.paused_health then if pct<cfg(r,"health_resume",60) then return deny("low health pause (resume at "..cfg(r,"health_resume",60).."%)") end;r.paused_health=false end
+ end
  if p.prone or p.afflictions.paralysis or p.afflictions.asleep then return deny("player hindered/prone; recover first") end
  if r.waiting then return deny("waiting for balance recovery") end
  if (p.mounted==true or (tonumber(p.mounted) or 0)>0) and not (a and a.name=="dismount" and a.command=="quickdismount") then return deny("mounted; confirm dismount before stance/attack") end

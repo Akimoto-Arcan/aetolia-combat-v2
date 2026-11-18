@@ -36,13 +36,14 @@ function M.plan(s)
  local hp=(tonumber(p.maxhp) or 0)>0 and 100*p.hp/p.maxhp or 100
  local pause=cfg.defense_health_pause or 45;local resume=cfg.defense_health_resume or 65
  if hp<pause then d.low_health=true elseif hp>=resume then d.low_health=false end
+ local health_hold=d.low_health and s.mode~='BASH'
  local lock=a.anorexia and a.asthma and a.slickness
  local hinder=a.paralysis or a.asleep or a.unconsciousness or a.stun or a.stunned
  local reason=lock and (a.paralysis and 'cure-lock + paralysis' or 'cure-lock: eat/apply/smoke blocked') or
-  d.low_health and ('survival pause; recover to '..resume..'% HP') or
+  health_hold and ('survival pause; recover to '..resume..'% HP') or
   (p.prone or a.prone or a.fallen) and 'recover posture; native FIRSTAID' or
-  hinder and 'recover hinder; native FIRSTAID' or 'monitoring'
- local hold=(lock or d.low_health or p.prone or a.prone or a.fallen or hinder) and true or false
+  hinder and 'recover hinder; native FIRSTAID' or (s.mode=='BASH' and d.low_health and 'BASH low HP: attacking while FIRSTAID cures') or 'monitoring'
+ local hold=(lock or health_hold or p.prone or a.prone or a.fallen or hinder) and true or false
  if cfg.defense_enabled==false then reason='disabled';hold=false end
  if d.fault and cfg.defense_enabled~=false then hold=true;reason=d.fault end
  d.hold=hold;d.phase=reason;d.proposals={}

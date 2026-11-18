@@ -47,7 +47,7 @@ s.player.left_arm_balance=false;s.player.right_arm_balance=false;check(R.tick(r)
 s,r=fresh();observe(s,'rebounding',{value=true});check(K.choose(s).command=='','rebounding not respected')
 s,r=fresh();for _,limb in ipairs({'left_arm','right_arm','left_leg','right_leg','torso','head'})do s.target.mangled[limb]=true end
 check(K.choose(s).command=='','all limbs invalid should wait')
-s,r=fresh('BASH');s.player.hp=20;check(not R.tick(r) and r.paused_health,'low HP pause missing')
+s,r=fresh('FULL_AUTO');s.player.hp=20;check(not R.tick(r) and r.paused_health,'PvP low HP pause missing')
 s.player.hp=45;check(not R.tick(r),'health hysteresis missing');s.player.hp=65;check(R.tick(r),'health recovery did not resume')
 s,r=fresh('BASH');s.player.prone=true;check(not R.tick(r),'prone player attacked')
 s,r=fresh('BASH');s.player.afflictions.paralysis=true;check(not R.tick(r),'paralysed player attacked')
