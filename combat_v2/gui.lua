@@ -123,6 +123,7 @@ function M.defense_action(action,rest)
    if not key and type(rest)=="string" then key=rest:match("^([%a][%w_]*) off$")end
    local entry=key and buff_entry(key)
    if not entry or (action=="keep" and entry.control~="class") or (action=="native" and entry.control~="native") then return false,"Unknown defense selection" end
+   if action=="keep" and entry.available==false then return false,entry.availability or "Unavailable defense" end
    if action=="native" and (type(entry.priority)~="number" or entry.priority<1 or entry.priority>26 or entry.priority%1~=0) then return false,"Native priority UNKNOWN; audit FIRSTAID first" end
   end
  elseif action~="start" and action~="stop" then return false,"Unsupported defense action" end
@@ -144,7 +145,7 @@ local function defense_rows(c,state,filter)
  for _,e in ipairs(c.buffs.rows(state))do
   if type(e.key)=="string" and e.key:match("^[%a][%w_]*$") and not seen[e.key] then
    seen[e.key]=true
-   if filter=="ALL" or filter=="ACTIVE" and e.active==true or e.owner==filter then rows[#rows+1]=e end
+   if filter=="ALL" or filter=="ACTIVE" and e.active==true or filter=="MONK" and (e.owner=="MONK" or e.owner=="SKILL" or e.owner=="TATTOO") or e.owner==filter then rows[#rows+1]=e end
   end
  end
  return rows
@@ -164,6 +165,7 @@ function M.defense_slot(slot)
  local e=entries[(p.page-1)*14+slot]
  if not e or e.key~=row.key or e.control~=row.control or row.toggle.hidden then return false,"Stale defense slot" end
  if e.control~="class" and e.control~="native" then return false,"Read-only observation" end
+ if e.control=="class" and e.available==false then return false,e.availability or "Unavailable defense" end
  return M.defense_action(e.control=="native" and "native" or "keep",e.key..(e.wanted==true and " off" or " on"))
 end
 function M.show_defenses()
@@ -226,7 +228,7 @@ function M.refresh_defenses(state)
  local status=c.buff_status
  if type(status)=="table" then status=status.reason or status.status or status.phase end
  p.header:echo(html(heading("DEFENSE MANAGER · MASTER "..(b.master==true and "ON" or "OFF"))..(state.connected and "LIVE" or "OFFLINE / CACHED").." · Mana "..esc(state.player.mana).." / "..esc(state.player.maxmana).." · "..esc(status or (b.sequence and "DEFUP in progress" or "idle"))))
- p.warning:echo(html("<span style='color:"..C.warn..";'>Row ON arms its owner; drains are opt-in. MASTER / DEFUP / STOP: MONK only.<br>FIRSTAID is independent. UPKEEP OFF does NOT cancel active drains.</span>"))
+ p.warning:echo(html("<span style='color:"..C.warn..";'>Row ON arms its owner; drains are opt-in. MASTER / DEFUP / STOP: client skills only.<br>FIRSTAID is independent. UPKEEP OFF does NOT cancel active drains.</span>"))
  local entries=defense_rows(c,state,p.filter);local pages=math.max(1,math.ceil(#entries/14))
  p.page=math.max(1,math.min(p.page,pages))
  p.page_label:echo(html("Page "..p.page.." / "..pages.." · "..#entries.." rows"))
@@ -241,20 +243,24 @@ function M.refresh_defenses(state)
    local color=entry.active==true and C.good or entry.active==false and C.bad or C.warn
    local priority=type(entry.priority)=="number" and entry.priority>=1 and entry.priority<=26 and entry.priority%1==0 and entry.priority or nil
    local notes={entry.owner or "OBSERVED"}
+   if entry.required then notes[#notes+1]="REQUIRED" end
+   if entry.availability then notes[#notes+1]=entry.availability end
+   if entry.passive then observed="PASSIVE" end
    if entry.control=="native" then notes[#notes+1]=priority==26 and "P26 OFF" or priority and "P"..priority or "PRIORITY UNKNOWN" end
    if entry.drain then notes[#notes+1]="DRAIN: "..(type(entry.drain)=="string" and entry.drain or "resources")end
    if entry.requires_full then notes[#notes+1]="full resources"end
    if entry.cooldown_loss then notes[#notes+1]="loss cooldown"end
+   if entry.cooldown_activation then notes[#notes+1]="activation cooldown "..entry.cooldown_activation.."s"end
    notes[#notes+1]=entry.off and "OFF: verified cancel" or "OFF: upkeep only"
    row.info:echo(html("<span style='font-size:12px;'><b>"..esc(entry.label or entry.key).."</b> · <span style='color:"..color..";'>"..observed.."</span> · "..esc(table.concat(notes," · ")).."</span>"))
-   if entry.control=="class" or entry.control=="native" then
+   if entry.control=="class" and entry.available~=false or entry.control=="native" then
     row.toggle:show()
     row.toggle:setStyleSheet("background-color:"..(entry.wanted==true and "#315b46" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:4px;")
     row.toggle:echo(html("<center>WANTED "..(entry.wanted==true and "ON" or entry.wanted==false and "OFF" or "UNKNOWN").."</center>"))
    else row.toggle:hide()end
   end
  end
- p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE is observed, never inferred from wanted. OBSERVED rows are read-only.<br>FIRSTAID ON: saved priority or default P8 only after full priority snapshot; OFF = P26.<br>Fetch native priorities: defup audit (4 read-only queries). REFRESH only redraws.<br>OFF without verified cancellation only stops upkeep; MASTER controls MONK, not FIRSTAID.</span>"))
+ p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE is observed, never inferred from wanted. OBSERVED rows are read-only.<br>FIRSTAID ON: saved priority or default P8 only after full priority snapshot; OFF = P26.<br>Fetch native priorities: defup audit (read-only queries). REFRESH only redraws.<br>OFF without verified cancellation only stops upkeep; MASTER controls client skills, not FIRSTAID.</span>"))
  return true
 end
 

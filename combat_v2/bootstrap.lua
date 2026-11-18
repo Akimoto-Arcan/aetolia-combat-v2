@@ -19,15 +19,15 @@ local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
 -- Buff preparation/upkeep is separate from FIRSTAID's survival governor.
 c.buffs=dofile(root.."buffs.lua");c.buffs.stop(c.current,"reload; upkeep disarmed");c.buff_class_seen=nil;c.buff_skill_seen=nil
 local function buff_invalidate()
-  local b=c.buffs.state(c.current);b.known={};b.known_ready=false;c.buff_skill_seen=nil
-  b.native_priorities={};b.native_pending={};b.native_version=(b.native_version or 0)+1;b.native_listing=nil;b.native_status=nil;b.native_defences=nil
+  c.buffs.invalidate(c.current);local b=c.buffs.state(c.current);c.buff_skill_seen=nil
+  b.native_priorities={};b.native_full_required=true;b.native_version=(b.native_version or 0)+1;b.native_listing=nil;b.native_status=nil;b.native_defences=nil
  if b.query and b.query.kind=="skills"then b.query=nil end
  if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false end
  -- Fence cached payloads across class/session boundaries, including in-place GMCP tables.
  local skills=gmcp and gmcp.Char and gmcp.Char.Skills or {}
  c.buff_groups_seen=skills.Groups;c.buff_list_seen=skills.List
 end
-buff_invalidate();c.buff_groups_seen=nil;c.buff_list_seen=nil
+buff_invalidate() -- cached pre-reload skill payloads are not fresh ownership
 local function buff_snapshot(source)
  local g=gmcp or {};local v=g.Char and g.Char.Vitals or {};local status=g.Char and g.Char.Status or {}
  local name=status.class
@@ -44,20 +44,9 @@ local function buff_snapshot(source)
  local fresh_list=source=="gmcp.Char.Skills.List" or list~=c.buff_list_seen
  c.buff_groups_seen=groups;c.buff_list_seen=list
  if c.buffs.state(c.current).class~="monk"then return end
- if fresh_groups then
-  local all=false
-  for _,group in pairs(type(groups)=="table"and groups or {})do
-   if type(group)=="table"and tostring(group.name):lower()=="kaido"then all=tostring(group.rank):lower():match("^transcendent")~=nil;break end
-  end
-  if all and c.buff_skill_seen~="kaido-list"then
-   local names={};for _,entry in ipairs(c.buffs.catalog)do names[#names+1]=entry.key end
-   c.buffs.set_known(c.current,names);c.buff_skill_seen="all-kaido"
-  elseif not all and c.buff_skill_seen=="all-kaido"then
-   local b=c.buffs.state(c.current);b.known={};b.known_ready=false;c.buff_skill_seen=nil
-  end
- end
- if fresh_list and type(list)=="table"and tostring(list.group):lower()=="kaido"and type(list.list)=="table"then
-  c.buffs.set_known(c.current,list.list);c.buff_skill_seen="kaido-list"
+ if fresh_groups then c.buffs.set_groups(c.current,groups) end
+ if fresh_list and type(list)=="table" and type(list.group)=="string" and type(list.list)=="table" then
+  c.buffs.set_group_known(c.current,list.group,list.list)
  end
 end
 -- Explicit event source is also the narrow hook for a handler-only loader.
@@ -123,11 +112,10 @@ function combat_v2_buffs(action,rest)
  if action=="audit"then
   if not c.current.connected or c.current.player.dead then return false,"Disconnected: defense audit unavailable"end
   if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return false,"Disconnected"end end
-  send("ab kaido");send("defences");send("firstaid");send("firstaid priority defence list");return true,"Read-only defense/ability/native FIRSTAID audit requested"
+  send("ab kaido");send("ab telepathy");send("ab survival");send("ab vision");send("ab avoidance");send("tattoos");send("defences");send("firstaid");send("firstaid priority defence list");return true,"Read-only defense/ability/tattoo/native FIRSTAID audit requested"
  elseif action=="native"then
    local key,value=rest:match("^([%a_]+)%s+(%a+)$")
    if not key or not c.buffs.native_catalog or not c.buffs.native_catalog[key] or (value~="on"and value~="off")then return false,"Native defense requires a supported name and on|off"end
-   if c.mode=="SHADOW"then return false,"SHADOW is read-only"end
    if not c.current.connected or c.current.player.dead or (tonumber(c.current.player.hp)or 0)<=0 then return false,"Disconnected/dead: native defense configuration unavailable"end
    if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return false,"Disconnected"end end
    if c.buffs.native_priority(c.current,key)==nil then return false,"Native priorities unknown; use defup audit first"end
@@ -147,17 +135,14 @@ function combat_v2_buffs(action,rest)
  elseif action=="stop"then c.buffs.stop(c.current,"defup/upkeep stopped; committed action still acknowledged")
  elseif action=="reset"then combat_v2_stop("reviewed defup reset");c.buffs.reset(c.current);c.buff_status="Reviewed reset; combat/upkeep OFF"
  elseif action=="start"then
-  if c.mode=="SHADOW"then return false,"SHADOW is read-only; use cv2 off before defup"end
   ok,why=c.buffs.start(c.current)
  elseif action=="keep"then
   if rest=="on"or rest=="off"then
-   if rest=="on"and c.mode=="SHADOW"then return false,"SHADOW is read-only; use cv2 off first"end
    ok,why=c.buffs.master(c.current,rest=="on")
    if rest=="off"then print("Upkeep paused; active drains remain. Use defkeep NAME off to cancel a specific supported defense.")end
   else
    local key,value=rest:match("^([%a_]+)%s+(%a+)$")
    if not key or (value~="on"and value~="off")then return false,"defkeep on|off|NAME on|off"end
-   if c.mode=="SHADOW"then return false,"SHADOW is read-only; use cv2 off first"end
    if c.buffs.native_catalog and c.buffs.native_catalog[key]then return combat_v2_buffs("native",rest)end
    ok,why=c.buffs.toggle(c.current,key,value=="on")
    if ok then local saved,err=buff_preferences(true);if not saved then print("Defense choice applied but NOT saved: "..tostring(err))end end
@@ -422,7 +407,7 @@ function combat_v2_trace(n)
 end
 c.handlers={}
 local function handler(event,fn) c.handlers[#c.handlers+1]=registerAnonymousEventHandler(event,fn) end
-handler("gmcp.Char.Vitals",function() c.state.sync_gmcp(c.current,gmcp);combat_v2_tick() end)
+handler("gmcp.Char.Vitals",function() c.state.sync_gmcp(c.current,gmcp);c.buffs.vitals(c.current,gmcp.Char.Vitals or {});combat_v2_tick() end)
 for _,kind in ipairs({"Groups","List"})do
  local event="gmcp.Char.Skills."..kind
  handler(event,function()buff_snapshot(event);combat_v2_tick()end)
@@ -442,6 +427,7 @@ handler("gmcp.Room.RemovePlayer",function() c.policy.player_remove(c.current,gmc
 local function collection(kind)
  handler("gmcp.Char."..kind..".List",function()
   if kind=="Defences"then c.buffs.sync(c.current,"List",gmcp.Char[kind].List)end
+  if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"List",gmcp.Char[kind].List)end
   local dest=kind=="Afflictions" and "afflictions" or "defences";local t={}
   for _,a in ipairs(gmcp.Char[kind].List or {}) do local n=type(a)=="table" and a.name or a;if n then t[c.defense.key(n)]=true end end
   c.current.player[dest]=t
@@ -450,6 +436,7 @@ local function collection(kind)
  end)
  handler("gmcp.Char."..kind..".Add",function()
   if kind=="Defences"then c.buffs.sync(c.current,"Add",gmcp.Char[kind].Add)end
+  if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"Add",gmcp.Char[kind].Add)end
   local a=gmcp.Char[kind].Add;local n=type(a)=="table" and a.name or a
   if n then n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=true end
   if kind=="Afflictions" and (n=="prone" or n=="fallen") then c.current.player.prone=true end
@@ -457,6 +444,7 @@ local function collection(kind)
  end)
  handler("gmcp.Char."..kind..".Remove",function()
   if kind=="Defences"then c.buffs.sync(c.current,"Remove",gmcp.Char[kind].Remove)end
+  if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"Remove",gmcp.Char[kind].Remove)end
   local a=gmcp.Char[kind].Remove;local values=type(a)=="table" and (a.name and {a.name} or a) or {a}
   for _,n in ipairs(values) do
    n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=nil

@@ -25,7 +25,7 @@ local function fixture(opts)
  B.set_class(s,'Monk')
  if not opts or not opts.unknown then
   local names={};for _,e in ipairs(B.catalog) do names[#names+1]=e.key end
-  B.set_known(s,names);B.sync(s,'List',{})
+  for _,group in ipairs({'kaido','telepathy','survival','vision','avoidance'}) do B.set_group_known(s,group,names) end;B.sync(s,'List',{})
  end
  local sent={};local sender=function(cmd) sent[#sent+1]=cmd end
  local r={waiting=false}
@@ -41,21 +41,22 @@ end
 
 test('catalog safe defaults, no emergency or arbitrary commands',function()
  local s,sent,tick=fixture();local n=0
- for i,e in ipairs(B.catalog) do eq(e.default,i<=8,e.key);if e.default then n=n+1 end end
- eq(n,8);eq(#B.catalog,14);eq(B.state(s).master,false);eq(B.state(s).sequence,false)
+ for i,e in ipairs(B.catalog) do eq(e.default,i<=8 or e.key=='immunity' or e.key=='mindseye',e.key);if e.default then n=n+1 end end
+ eq(n,10);eq(#B.catalog,33);eq(B.state(s).master,false);eq(B.state(s).sequence,false)
  eq(tick().busy,false);eq(#sent,0)
  eq(B.toggle(s,'regeneration on;kill',true),false);eq(B.toggle(s,'numbness',true),false)
  eq(B.toggle(s,'vitality','on'),false);eq(#sent,0)
 end)
 
 test('one-shot deterministic sequencing and completion',function()
- local s,sent,tick=fixture();eq(B.start(s),true);eq(#sent,0)
+ local s,sent,tick=fixture();clock=clock+121;eq(B.start(s),true);eq(#sent,0)
  for i=1,7 do
   local e=B.catalog[i];eq(tick().busy,true);eq(sent[#sent],e.command)
   eq(B.state(s).master,false);ack(s,e.key);eq(tick().busy,false)
  end
- eq(tick().busy,false);eq(B.state(s).sequence,false);eq(#sent,7)
- B.sync(s,'Remove','weathering');tick();eq(#sent,7,'one shot never arms upkeep')
+ eq(tick().busy,true);eq(sent[#sent],'immunity');ack(s,'immunity');tick()
+ eq(tick().busy,false);eq(B.state(s).sequence,false);eq(#sent,8)
+ B.sync(s,'Remove','weathering');tick();eq(#sent,8,'one shot never arms upkeep')
 end)
 
 test('maintenance loss reapplies once after backoff',function()
@@ -104,7 +105,7 @@ test('solicited discovery timeout latches quiet fault',function()
 end)
 
 test('known unlearned abilities skipped, not retried',function()
- local s,sent,tick=fixture();B.set_known(s,{});B.start(s);tick();eq(#sent,0);eq(B.state(s).sequence,false)
+ local s,sent,tick=fixture();for _,g in ipairs({'kaido','vision','telepathy','survival','avoidance'})do B.set_group_known(s,g,{})end;B.start(s);tick();eq(#sent,0);eq(B.state(s).sequence,false)
  B.toggle(s,'trance',false);tick();eq(#sent,0)
 end)
 
@@ -306,7 +307,8 @@ end)
 test('disconnect and class changes invalidate stale ready prompt evidence',function()
  local s,sent,tick=fixture();only(s,'weathering');B.start(s);tick();ack(s,'weathering')
  local p=B.state(s).pending;s.connected=false;tick();s.connected=true;eq(tick().busy,true);eq(B.state(s).pending,p)
- B.on_prompt(s);tick();eq(B.state(s).pending,nil)
+ B.on_prompt(s);tick();eq(B.state(s).pending,p);eq(p.confirmed,false)
+ B.sync(s,'List',{'weathering'});B.on_prompt(s);tick();eq(B.state(s).pending,nil)
  local s2,sent2,tick2=fixture();only(s2,'weathering');B.start(s2);tick2();ack(s2,'weathering')
  B.set_class(s2,'Templar');B.set_class(s2,'Monk');B.on_prompt(s2);eq(tick2().busy,true)
  eq(B.state(s2).pending.confirmed,false);eq(sent2[2],'defences')
@@ -398,12 +400,12 @@ test('rows ordered deduplicated tri-state metadata and actual extras',function()
   if i<=#B.catalog then eq(e.key,B.catalog[i].key) end
  end
  for _ in pairs(B.native_catalog) do count=count+1 end
- eq(count,12);eq(#rows,58);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
+ eq(count,12);eq(#rows,68);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
  eq(row(s,'courage').wanted,nil);eq(row(s,'weathering').owner,'MONK');eq(row(s,'regeneration').drain,true)
  eq(row(s,'blindness').wanted,nil);eq(row(s,'blindness').control,'observed')
  s.player.defences['blind']=true;s.player.defences.deaf=true;s.player.defences.new_power=true
- eq(row(s,'blindness').active,true);eq(row(s,'deafness').active,true);eq(row(s,'new_power').owner,'OBSERVED')
- eq(#B.rows(s),59);eq(#sent,0);eq(B.state(s).master,false)
+ eq(row(s,'blindness').active,true);eq(row(s,'deafness').active,true);eq(row(s,'new_power').owner,'UNAVAILABLE')
+ eq(#B.rows(s),69);eq(#sent,0);eq(B.state(s).master,false)
  B.sync(s,'List',{'regeneration','insomnia','unlisted_power'})
  -- Simulate bootstrap replacing canonical state after our sync.
  s.player.defences={}
@@ -500,7 +502,7 @@ test('native ownership never casts courage or general commands even disabled',fu
  eq(#sent,0);eq(B.state(s).pending,nil);eq(row(s,'courage').wanted,false)
  for _,k in ipairs({'clarity','blindness','flame','owl','strange_aura'}) do
   B.text(s,'You have gained the '..k..' defence.');B.text(s,'Your '..k..' defence has been stripped.');tick()
-  eq(row(s,k).owner,'OBSERVED');eq(row(s,k).wanted,nil);eq(#sent,0)
+  eq(row(s,k).owner,k=='clarity' and 'SKILL' or k=='blindness' and 'SELF-AFFLICTED' or 'UNAVAILABLE');if k=='clarity' then eq(row(s,k).wanted,false)else eq(row(s,k).wanted,nil)end;eq(#sent,0)
  end
 end)
 

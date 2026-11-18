@@ -171,7 +171,7 @@ contains(manager.header,'MASTER OFF');contains(manager.header,'&lt;paused&gt;')
 contains(manager.rows[1].info,'&lt;Toughness&gt;');contains(manager.rows[1].info,'MISSING');contains(manager.rows[1].info,'#ee8897');contains(manager.rows[1].toggle,'WANTED ON')
 contains(manager.rows[2].info,'ACTIVE');contains(manager.rows[2].info,'#76d39b');contains(manager.rows[2].info,'DRAIN: resources');contains(manager.rows[2].toggle,'WANTED OFF')
 contains(manager.rows[3].info,'FIRSTAID · P3');contains(manager.rows[4].info,'P26 OFF');contains(manager.rows[4].info,'UNKNOWN');contains(manager.rows[4].info,'#e5c07b')
-contains(manager.rows[5].info,'PRIORITY UNKNOWN');contains(manager.footer,'default P8');contains(manager.warning,'MONK only');contains(manager.warning,'NOT cancel active drains');contains(manager.footer,'defup audit')
+contains(manager.rows[5].info,'PRIORITY UNKNOWN');contains(manager.footer,'default P8');contains(manager.warning,'client skills only');contains(manager.warning,'NOT cancel active drains');contains(manager.footer,'defup audit')
 assert(manager.rows[6].toggle.hidden and rebuilt.defense_slot(6)==false,'observed row actionable')
 assert(manager.rows[5].toggle.click()==false and #calls==0,'unknown priority dispatched')
 manager.buttons.refresh.click();manager.window:hide();rebuilt.refresh(state,combat_v2.runner,combat_v2.cure)
@@ -230,6 +230,15 @@ assert(#calls==dispatched and initializations==0 and sends==0)
 assert(combat_v2.runner.mode==mode_before and combat_v2.runner.pending==pending and reloaded.root==root_before and combat_v2_ui.walk_popup==walker_before)
 local db=reloaded.buttons.defenses.p;local bb=reloaded.buttons.body_scan.p;local hb=reloaded.buttons.help.p
 assert(db.width==90 and db.x+db.width<bb.x and bb.x+bb.width<hb.x)
+-- Capability revocation between paint and click must not dispatch; metadata survives projection.
+manager.buttons.ALL.click();entries[1].available=false;entries[1].availability='NOT LEARNED';entries[1].required=true
+entries[1].requires_full=true;entries[1].cooldown_loss=180;entries[1].cooldown_activation=120;entries[1].off='verified off'
+local safe_calls=#calls
+assert(reloaded.defense_action('keep',entries[1].key..' on')==false and #calls==safe_calls,'unavailable direct callback dispatched')
+reloaded.refresh_defenses(state);assert(manager.rows[1].toggle.hidden,'unavailable row showed fake ON')
+contains(manager.rows[1].info,'NOT LEARNED');contains(manager.rows[1].info,'REQUIRED');contains(manager.rows[1].info,'full resources');contains(manager.rows[1].info,'loss cooldown');contains(manager.rows[1].info,'activation cooldown 120s');contains(manager.rows[1].info,'verified cancel')
+assert(manager.rows[1].toggle.click()==false and #calls==safe_calls,'hidden stale capability dispatched')
+entries[1].available=true;entries[1].availability='AVAILABLE';reloaded.refresh_defenses(state)
 -- Upgrade a previously open catalog-keyed manager without touching other UI.
 local legacy={rows={old={info=obj({name='legacy_info'}),toggle=obj({name='legacy_toggle'})}},buttons={old=obj({name='legacy_button'})},window=obj({name='legacy_window'}),header=obj({name='legacy_header'})}
 combat_v2_ui.defenses=legacy

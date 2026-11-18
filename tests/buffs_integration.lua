@@ -66,6 +66,8 @@ local function priorities(entries)
 end
 check(#sent==0 and not s.buffs.master and not s.buffs.sequence,'bootstrap armed or cast buffs')
 handlers['gmcp.Char.Vitals']() -- genuine fresh-session event, not cached login evidence
+check(not s.buffs.known.toughness,'bootstrap trusted cached Groups before a fresh event')
+handlers['gmcp.Char.Skills.Groups']()
 check(aliases[ [[^defup(?:\s+(.*))?$]] ] and aliases[ [[^defkeep(?:\s+(.*))?$]] ],'plain aliases missing')
 check(combat_v2_buffs('show') and shown==1 and #sent==0,'manager opening sent commands')
 only('toughness');def('List',{})
@@ -107,7 +109,8 @@ text("You have set the 'arcane' defence to the 2 priority.")
 before=#sent
 check(not combat_v2_buffs('native','arcane;quit on') and not combat_v2_buffs('native','weathering on') and not combat_v2_buffs('native','arcane maybe') and #sent==before,'invalid native key/action sent commands')
 c.mode='SHADOW';c.runner.mode='SHADOW';s.mode='SHADOW'
-check(not combat_v2_buffs('native','arcane off') and #sent==before,'SHADOW configured native upkeep')
+check(combat_v2_buffs('native','arcane off') and #sent==before+2 and c.mode=='SHADOW' and s.mode=='SHADOW','SHADOW native configuration enabled offense or was refused')
+text("You have set the 'arcane' defence to the 26 priority.");before=#sent
 c.mode='OFF';c.runner.mode='OFF';s.mode='OFF'
 -- Exercise the actual native callback and registered text trigger, not a copied dispatcher.
 for _,failure in ipairs({'false','throw'})do
@@ -172,7 +175,7 @@ before=#sent
 local wasconnected=s.connected;s.connected=false
 check(not combat_v2_buffs('native','arcane off') and #sent==before,'disconnected native request escaped gate');s.connected=wasconnected
 before=#sent
-combat_v2_set_mode('SHADOW');check(not combat_v2_buffs('start') and not combat_v2_buffs('keep','on'),'SHADOW allowed automatic buffs')
+combat_v2_set_mode('SHADOW');check(combat_v2_buffs('start') and combat_v2_buffs('keep','on') and c.mode=='SHADOW' and c.runner.mode=='SHADOW','defense controls failed to preserve SHADOW offense mode')
 combat_v2_stop();gmcp.Char.Status.class='Shaman';tick();check(not combat_v2_buffs('start') and #sent==before,'wrong class allowed defup')
 -- Ownership regressions use the real registered bootstrap handlers.
 gmcp.Char.Status.class='Monk';gmcp.Char.Skills.List=nil;tick()
@@ -223,7 +226,41 @@ before=#sent;tick();handlers['gmcp.Char.Vitals']();tick()
 check(next(s.buffs.known)==nil and not s.buffs.known_ready and #sent==before,'reconnect reused cached ownership or sent commands')
 M.reset(s);skills('List',{group='Kaido',list={}})
 check(s.buffs.known_ready and not s.buffs.master and not s.buffs.sequence and #sent==before,'fresh reconnect List armed or cast buffs')
+-- New multi-group and fresh-event provenance through actual bootstrap handlers.
+M.reset(s);combat_v2_stop();handlers['gmcp.Char.Vitals']();before=#sent
+skills('Groups',{{name='Kaido',rank='Transcendent'},{name='Vision',rank='Transcendent'},{name='Telepathy',rank='Transcendent'},{name='Survival',rank='Transcendent'},{name='Avoidance',rank='Transcendent'},{name='Tattoos',rank='Transcendent'}})
+check(s.buffs.known.nightsight and s.buffs.known.insight and s.buffs.known.clarity and s.buffs.known.dodgemelee and s.buffs.known.divertmelee,'fresh curated group inference missing')
+check(not s.buffs.known.cloak and not s.buffs.known.mindseye and not s.buffs.known.fitness and not s.buffs.known.kai_recursion,'rank inferred ink or deprecated Kaido')
+skills('List',{group='Vision',list={}})
+check(not s.buffs.known.nightsight and s.buffs.known.insight and s.buffs.known.clarity,'Vision revocation affected wrong group')
+tick();check(not s.buffs.known.nightsight,'cached Groups revived precise empty Vision')
+skills('List',{group='Telepathy',list={'Cloak','Insight'}})
+check(s.buffs.known.mindcloak and not s.buffs.known.cloak,'Telepathy Cloak became tattoo capability')
+text('You have the following tattoos:');text('Head: Boar Active');text('Left arm: Cloak Uses left: 2');text('Right leg: Mindseye Uses left: 2');prompt()
+check(M.availability(s,'cloak') and M.availability(s,'mindseye'),'actual TATTOOS/prompt did not populate ownership')
+local function defense_row(key)for _,r in ipairs(M.rows(s))do if r.key==key then return r end end end
+def('List',{});check(defense_row('boar').active==true and defense_row('boar').availability=='PASSIVE','active tattoo became phantom missing')
+gmcp.Char.Vitals.blind='1';gmcp.Char.Vitals.deaf='1';handlers['gmcp.Char.Vitals']()
+check(defense_row('blindness').active and defense_row('deafness').active,'actual fresh blind/deaf Vitals not ingested')
+def('List',{});check(defense_row('blindness').active,'DefList absence erased fresh blind flag')
+text('Your blind defence has been stripped.');tick();tick()
+check(defense_row('blindness').active==false,'cached Vitals tick resurrected strip')
+def('List',{});check(defense_row('blindness').active==false,'cached Vitals positivity survived newer strip')
+gmcp.Char.Vitals.blind='0';gmcp.Char.Vitals.deaf='0';handlers['gmcp.Char.Vitals']()
+check(defense_row('blindness').active==false and defense_row('deafness').active==false,'zero flags are truthy')
+check(not s.buffs.master and not s.buffs.sequence and #sent==before,'read-only group/ink/Vitals discovery armed or sent')
+for _,entry in ipairs(M.catalog)do if entry.drain and entry.key~='regeneration' then check(not s.buffs.wanted[entry.key],'new drain default ON')end end
+handlers['sysDisconnectionEvent']();check(next(s.buffs.tattoos)==nil and not s.buffs.known.mindcloak,'disconnect reused ink/group ownership')
+-- Explicit self-defense preparation in SHADOW never authorizes offense or changes mode.
+handlers['gmcp.Char.Vitals']();skills('List',{group='Kaido',list={'Toughness'}})
+combat_v2_set_mode('SHADOW');only('toughness');def('List',{});before=#sent
+check(combat_v2_buffs('start') and sent[before+1]=='toughness' and #sent==before+1,'SHADOW self preparation did not dispatch only its defense')
+check(c.mode=='SHADOW' and s.mode=='SHADOW' and c.runner.mode=='SHADOW','defup changed offense mode')
+def('Add','toughness');prompt();tick()
+check(not s.buffs.pending and c.mode=='SHADOW' and #sent==before+1,'SHADOW defense ACK activated offense')
+combat_v2_buffs('stop');check(c.mode=='SHADOW','stopping upkeep changed offense mode')
 -- Bootstrap-owned Flurry lifecycle hooks must not survive manual scope changes.
+combat_v2_stop() -- reset only this offline fixture before testing an actual mode transition
 local previous_cancel=c.monk.cancel_flurry;local cancelled={}
 c.monk.cancel_flurry=function(_,why)cancelled[why or "runner stop"]=true end
 combat_v2_set_mode('SHADOW');check(cancelled['mode changed'],'mode transition omitted Flurry cancellation')
@@ -233,4 +270,9 @@ handlers['sysDisconnectionEvent']();check(cancelled.disconnect,'disconnect omitt
 combat_v2_stop();check(cancelled.OFF,'OFF omitted Flurry cancellation')
 combat_v2_reset_wait();check(cancelled["reviewed reset"],"reviewed reset omitted Flurry cancellation")
 c.monk.cancel_flurry=previous_cancel
+before=#sent
+for _,k in ipairs({'blindness','deafness','insulation','temperance','venom_resistance'})do
+ check(not combat_v2_buffs('native',k..' on'),'false native owner accepted '..k)
+end
+check(#sent==before,'unsupported native configuration sent')
 print=realprint;print('PASS buffs integration '..n..' assertions: aliases, snapshots, prompt/EQ, opt-in/cancel, preferences, modes, class/session ownership and fresh skill events')
