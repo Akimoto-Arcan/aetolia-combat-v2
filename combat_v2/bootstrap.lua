@@ -552,5 +552,9 @@ if c.elementals then c.elementals.detach(c)end
 c.elementals=dofile(root.."elementals.lua");c.elementals.arm(c,false)
 c.gui.create();refresh()
 if c.supplies then c.supplies.detach(c)end
-c.supplies=dofile(root.."supplies.lua");c.supplies.attach(c)
+c.containers_required=true
+c.containers=dofile(root.."containers.lua")
+c.supplies=dofile(root.."supplies.lua")
+c.supplies.bind_containers(c,function(command)return send(command)end)
+c.supplies.attach(c)
 print("Combat V2 backend ready (OFF). t NAME; cv2 bash / pvp / assist; cv2 help; cv2 trace.")

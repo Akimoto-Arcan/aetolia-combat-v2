@@ -1,4 +1,4 @@
--- Read-only reserve monitor. No native curing, runner or mode ownership.
+-- Reserve/container monitor. No native curing, runner or mode ownership.
 -- Stock means CACHE RESERVE, never usable carried vials/bandages.
 local M = {}
 local ELIXIRS = '==============================[     Elixirs     ]=============================='
@@ -58,11 +58,57 @@ local function connected(c)
   local ok, _, _, online = pcall(getConnectionInfo)
   return ok and online == true
 end
-local function bash(c)
-  if c.supplies_is_bash then return c.supplies_is_bash() == true end
-  if c.current then return c.current.mode == 'BASH' end
-  if c.mode ~= nil then return c.mode == 'BASH' end
-  return c.state and c.state.mode == 'BASH'
+local function periodic_enabled(c)
+  -- Standalone legacy consumers retain their original BASH-only policy.
+  -- The installed carried-container integration monitors every connected mode.
+  if c.containers or c.containers_required then return true end
+  if c.supplies_is_bash then return c.supplies_is_bash()==true end
+  return (c.current and c.current.mode or c.mode or (c.state and c.state.mode))=='BASH'
+end
+-- Separate narrow capabilities: no public generic arbitrary-command adapter.
+function M.bind_containers(c,transport)
+  assert(type(transport)=='function','container transport required')
+  if c.containers_refill_enabled==nil then c.containers_refill_enabled=true end
+  c.containers_query_sender=function(command)
+    if command~='viallist' and command~='pipelist' and command~='bandagelist' then return false end
+    if not connected(c) then return false end
+    return transport(command)
+  end
+  c.containers_action_sender=function(command)
+    if type(command)~='string' or not c.containers_refill_enabled or not connected(c) then return false end
+    local fluid,family,id=command:match('^fluidcache fill ([a-z]+) ([a-z]+)([1-9]%d*)$')
+    local valid=false
+    if fluid and (family=='vial' or family=='bandage') then
+      local source=family=='vial' and groups.elixirs or groups.poultices
+      for description,key in pairs(source) do if key==fluid then valid=true end end
+    end
+    local herb,pipe=command:match('^put ([a-z]+) in pipe([1-9]%d*)$')
+    if herb and (herb=='reishi' or herb=='willow' or herb=='yarrow') then valid=true end
+    if command=='light pipes' then valid=true end
+    if not valid then return false end
+    return transport(command)
+  end
+end
+function M.audit_containers(c)
+  local d=data(c)
+  if not c.containers or type(c.containers.audit)~='function' or
+    type(c.containers_query_sender)~='function' or not connected(c) then return false end
+  local s=c.containers.state(c)
+  if s.pending then return false end
+  d.containers_last_attempt=now(c)
+  d.containers_refresh_due=nil
+  return c.containers.audit(c,c.containers_query_sender)
+end
+-- Known own pipe-fill acknowledgement is a refresh hint, never a count delta.
+-- Other own consumption templates await exact native fixtures; periodic polling
+-- remains authoritative rather than guessing broad drink/press/drag patterns.
+local function container_hint(c,line)
+  if line=='You fill your pipe with a yarrow root.' then
+    local d=data(c)
+    if d.requested and not d.containers_refresh_due then
+      d.containers_refresh_due=math.max(now(c)+1,(d.containers_last_attempt or 0)+5)
+    end
+  end
 end
 local function expire(c)
   local d=data(c)
@@ -124,6 +170,13 @@ function M.state(c)
   table.sort(s.empty); table.sort(s.low); table.sort(s.unknown)
   s.level=#s.empty>0 and 'critical' or
     ((#s.low>0 or #s.unknown>0 or s.stale or s.pending) and 'warning' or 'ok')
+  local carried
+  if c.containers and type(c.containers.state)=='function' then carried=c.containers.state(c)
+  elseif c.containers_required then carried={issues={'Carried containers unavailable'},stale=true} end
+  s.containers=carried
+  if carried and (#(carried.issues or {})>0 or carried.stale or carried.pending) and s.level=='ok' then
+    s.level='warning'
+  end
   return s
 end
 local function escape(s)
@@ -161,13 +214,27 @@ function M.render(c)
   for _,k in ipairs(s.low) do low[#low+1]=entry(k) end
   local title=#zero>0 and ('EMPTY CACHE: '..table.concat(zero,', ')) or
     (#low>0 and 'LOW CURATIVE RESERVES (<'..(c.supplies_low or 200)..')' or
-    (s.level~='ok' and 'FC + IC CURATIVES: UNKNOWN / STALE' or 'FC + IC curatives: audited reserves at/above threshold'))
-  local note='Carried vials/bandages and pipes unverified.'
+    ((s.stale or #s.unknown>0 or s.pending) and 'FC + IC CURATIVES: UNKNOWN / STALE' or
+    (s.level~='ok' and 'CARRIED SUPPLIES: ISSUES' or 'OK')))
+  local note=''
+  if not s.containers then note='Carried vials/bandages and pipes unverified.' end
   if #zero>0 then note='Reserve empty; carried vials/bandages may remain. '..note end
   if s.stale or #s.unknown>0 or s.pending then
     note=note..' Unknown: '..#s.unknown..'. '..s.status..'.'
   end
-  s.title=title; s.note=note; s.entries=low
+  -- Render only affected entries, without treating carried IDs as stock keys.
+  local issues={}
+  for _,v in ipairs(low) do issues[#issues+1]=v end
+  if s.containers then
+    for _,v in ipairs(s.containers.issues or {}) do
+      if type(v)=='string' then issues[#issues+1]=v end
+    end
+    if s.containers.stale or s.containers.pending then
+      issues[#issues+1]='Carried containers: UNKNOWN / STALE'
+    end
+  end
+  low=issues
+  s.title=title; s.note=note; s.entries=issues
   if not c.supplies_ui and Geyser and Geyser.Label then
     c.supplies_ui = {label=Geyser.Label:new({name='combat_v2_supplies_alarm', x=350,y=10,width=600,height=48})}
   end
@@ -188,7 +255,7 @@ function M.render(c)
       end
       bodyRows=bodyRows+rowHeight; cells[#cells+1]='<tr>'..table.concat(row)..'</tr>'
     end
-    local body=#low>0 and ('<b>LOW:</b><table width="100%" style="font-size:12px; table-layout:fixed">'..table.concat(cells)..'</table>') or ''
+    local body=#low>0 and ('<b>'..(s.containers and 'ISSUES:' or 'LOW:')..'</b><table width="100%" style="font-size:12px; table-layout:fixed">'..table.concat(cells)..'</table>') or ''
     local titleRows=math.ceil(#title/math.max(1,math.floor((width-12)/(s.level=='critical' and 11 or 8))))
     local noteRows=math.ceil(#note/math.max(1,math.floor((width-12)/7)))
     local height=math.max(s.level=='critical' and 106 or 48,
@@ -247,6 +314,8 @@ local function missingList(f,text,section)
 end
 function M.text(c,line)
   if type(line)~='string' then return end
+  if c.containers and c.containers.text then c.containers.text(c,line) end
+  container_hint(c,line)
   expire(c)
   local d=data(c)
   local purchased=line:match('^You pay %d+ gold sovereigns to add %d+ sips of (.-) to your fluidcache%.$')
@@ -407,6 +476,7 @@ local function requestMissing(c)
   return success
 end
 function M.prompt(c)
+  if c.containers and c.containers.prompt then c.containers.prompt(c) end
   expire(c)
   local d=data(c)
   for _,name in ipairs(commands) do
@@ -418,9 +488,13 @@ function M.prompt(c)
   requestMissing(c)
   M.render(c)
 end
-function M.audit(c,sender)
+function M.audit(c,sender,cache_only)
   expire(c)
   local d=data(c)
+  if connected(c) and type(sender or c.supplies_sender)=='function' then
+    d.requested=true
+    if not cache_only then M.audit_containers(c) end
+  end
   local framed=false
   for _,s in pairs(d.sources) do framed=framed or s.frame~=nil end
   if d.pending or framed or d.dispatching or d.auditing then return false,'audit already pending' end
@@ -450,6 +524,8 @@ end
 function M.attach(c)
   M.detach(c) -- invokes old module closure on dofile/reload, not only new locals
   local d=data(c)
+  if c.containers and c.containers.invalidate then c.containers.invalidate(c) end
+  d.containers_refresh_due=nil;d.containers_last_attempt=nil
   d.frame=nil; d.pending=false; d.requested=false; d.stale=true;d.refresh_after_purchase=nil
   for _,s in pairs(d.sources) do s.frame=nil; s.pending=false; s.deferred=nil; s.stale=true; s.complete=false; s.coverage={}; s.refills={}; s.full_done=nil; s.status='not audited' end
   local owner={handlers={},triggers={},alive=true}
@@ -461,6 +537,8 @@ function M.attach(c)
     if owner.timer and killTimer then killTimer(owner.timer) end
     if c.supplies_ui and c.supplies_ui.label and c.supplies_ui.label.delete then c.supplies_ui.label:delete() end
     c.supplies_ui=nil
+    if c.containers and c.containers.invalidate then c.containers.invalidate(c) end
+    d.containers_refresh_due=nil
     d.frame=nil; d.pending=false; d.requested=false; d.stale=true;d.refresh_after_purchase=nil
   for _,s in pairs(d.sources) do s.frame=nil; s.pending=false; s.deferred=nil; s.stale=true; s.complete=false; s.coverage={}; s.refills={}; s.full_done=nil; s.status='not audited' end
     if c.supplies_owner==owner then c.supplies_owner=nil end
@@ -479,6 +557,7 @@ function M.attach(c)
       owner.handlers[#owner.handlers+1]=registerAnonymousEventHandler(event,function()
         if owner.alive then
           if not connected(c) then
+            if c.containers and c.containers.invalidate then c.containers.invalidate(c) end
             for _,s in pairs(d.sources) do s.frame=nil; s.pending=false; s.stale=true; s.status='disconnected' end
           end
           M.render(c)
@@ -492,8 +571,16 @@ function M.attach(c)
     expire(c)
     if d.refresh_after_purchase and now(c)>=d.refresh_after_purchase and connected(c) and not d.pending and not d.frame and type(c.supplies_sender)=='function' then
       d.refresh_after_purchase=nil;M.audit(c)
-    elseif d.requested and connected(c) and bash(c) and not d.pending and not d.frame and
-      now(c)-(d.last_attempt or 0)>=60 then M.audit(c) end
+    elseif d.requested and connected(c) and periodic_enabled(c) and not d.pending and not d.frame and
+      now(c)-(d.last_attempt or 0)>=60 then M.audit(c,nil,true) end
+    if d.requested and connected(c) and c.containers then
+      if (d.containers_refresh_due and now(c)>=d.containers_refresh_due) or
+        now(c)-(d.containers_last_attempt or 0)>=60 then M.audit_containers(c) end
+      if c.containers.service and c.containers_refill_enabled==true and
+        type(c.containers_action_sender)=='function' then
+        c.containers.service(c,c.containers_action_sender)
+      end
+    end
     M.render(c)
     if owner.alive and tempTimer then owner.timer=tempTimer(5,tick) end
   end
