@@ -39,6 +39,7 @@ function M.tick(s,sender,paused_health)
   elseif t-m.eq_pending>8 then m.fault='Telepathy acknowledgement missing; inspect trace and cv2 reset' end
  end
  if s.mode~='FULL_AUTO' then return m.eq_pending~=nil end
+ if p.mounted==true or (tonumber(p.mounted) or 0)>0 or s.dismount_stance then return false end
  if M.defense and M.defense.hold(s) then return false end
  if paused_health or ((tonumber(p.maxhp) or 0)>0 and 100*(tonumber(p.hp) or 0)/p.maxhp<((s.config or {}).health_pause or 30)) then return false end
  if not s.connected or p.dead or (tonumber(p.hp) or 0)<=0 or p.prone or p.afflictions.paralysis or p.afflictions.asleep or p.afflictions.frozen then return false end

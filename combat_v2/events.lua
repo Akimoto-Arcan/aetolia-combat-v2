@@ -51,6 +51,7 @@ function M.event(s,text)
   if not s.training_battle_ended then s.training_battle_ended=true;s.stop_reason="training battle ended";s.hit_context=nil;s.training=nil end
   return s
  end
+ if text:match("^With acrobatic grace, you quickly hop off of .+%.$") or text:match("^You step down off of .+%.$") then p.mounted=false;p.mount_id=nil;return s end
  if text=="Your bodily control allows you to maintain your balance." then s.stance_free_sequence=(s.stance_free_sequence or 0)+1;return s end
  if text=="You sink back into the menacing stance of the Scorpion." then p.stance="scorpion";return s end
  if text=="Making a call to your own, you kip yourself up and sink back into the Scorpion stance." then p.stance="scorpion";p.prone=false;return s end

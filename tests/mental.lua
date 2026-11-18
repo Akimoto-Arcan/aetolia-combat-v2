@@ -47,4 +47,7 @@ M.text(s,'You must regain balance first.');check(not s.mental.eq_pending and not
 clock=clock+1;M.tick(s,send);check(s.mental.eq_pending,'rejected Blackout did not retry after readiness/backoff')
 s=fresh();s.player.maxhp=100;s.player.hp=9;n=#sent;M.tick(s,send);check(#sent==n,'low-health mental cast ignored safety pause')
 s=fresh();s.training_battle_ended=true;n=#sent;M.tick(s,send);check(#sent==n,'mental channel survived training defeat')
+
+s=fresh();s.player.mounted=true;n=#sent;M.tick(s,send);check(#sent==n,'mounted actor started mental offense')
+s.player.mounted=471247;M.tick(s,send);check(#sent==n,'raw mount-id actor started mental offense')
 print('PASS mental/stance '..count..' assertions: independent acquisition, confirmation, ejection, cooldown, EQ wait, safe modes and legal stance transitions')

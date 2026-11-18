@@ -42,4 +42,22 @@ realdofile(root..'bootstrap.lua');check(#sent==before and combat_v2.mode=='OFF',
 combat_v2.current.connected=true;combat_v2.current.player.hp=100
 combat_v2_set_curing(true);check(sent[#sent-1]=='firstaid on' and sent[#sent]=='firstaid curing on','native curing commands')
 combat_v2_set_curing(false);check(sent[#sent]=='firstaid off','native curing off')
+
+local ms=S.new();S.set_target(ms,'Fixture');ms.mode='BASH';S.sync_gmcp(ms,{Char={Vitals={hp=100,maxhp=100,balance=1,equilibrium=1,left_arm=1,right_arm=1,mounted='471247',stance='none'}}})
+check(ms.player.mounted and ms.player.mount_id==471247,'mount id was treated as false')
+check(K.choose(ms).command=='quickdismount','mounted BASH selected an attack instead of preparation')
+local mr=R.new(ms,K);mr.mode='BASH';mr.sender=send;local mounted_before=#sent
+check(not R.execute(mr,{name='combo',command='combo Fixture sdk spp spp'}),'direct attack bypassed mounted guard')
+check(#sent==mounted_before,'mounted guard sent an attack')
+check(R.tick(mr) and sent[#sent]=='quickdismount' and mr.waiting,'quickdismount not sent once')
+check(not ms.target.attacked_generation,'dismount claimed an attack on the target')
+clock=clock+1;check(not R.tick(mr) and #sent==mounted_before+1,'mounted wait duplicated dismount')
+S.sync_gmcp(ms,{Char={Vitals={mounted='0'}}});R.update_balance(mr);check(not mr.waiting and not ms.player.mounted,'observed dismount did not release free-action wait')
+clock=clock+1;check(R.tick(mr) and sent[#sent]=='scs','dismount did not lead to standalone Scorpion preparation')
+local events=dofile(root..'events.lua');events.event(ms,'You sink back into the menacing stance of the Scorpion.');events.event(ms,'Your bodily control allows you to maintain your balance.');R.update_balance(mr)
+clock=clock+1;check(R.tick(mr) and sent[#sent]=='combo Fixture sdk spp spp','prepared BASH did not continue into attack')
+check(not ms.dismount_stance,'temporary stance preparation leaked into future decisions')
+for _,value in ipairs({0,'0',false})do S.sync_gmcp(ms,{Char={Vitals={mounted=value}}});check(not ms.player.mounted,'unmounted encoding treated as mount')end
+S.sync_gmcp(ms,{Char={Vitals={mounted='471247'}}});events.event(ms,'With acrobatic grace, you quickly hop off of a stormwinged roc.');check(ms.player.mounted==false,'observed quickdismount text not ingested')
+ms.player.mounted=true;ms.mode='FULL_AUTO';ms.config.pvp_stance='eagle';check(K.choose(ms).after_stance=='eagle','PvP mounted preparation used bashing stance')
 print('PASS '..count..' assertions: execution gates, duplicate guard, regain, assist, disconnect/death, validation, target reset, bootstrap/reload, FIRSTAID')

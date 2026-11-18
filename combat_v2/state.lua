@@ -1,6 +1,7 @@
 local M={}
 function M.now() return getEpoch and getEpoch() or os.clock() end
 function M.flag(x) return x==true or tonumber(x)==1 end
+function M.mounted(x) return x==true or (tonumber(x) or 0)>0 end
 function M.valid_target(name)
  return type(name)=="string" and #name>0 and #name<=100 and not name:find("[\r\n]") and name:match("^[%w%s'%-]+$")~=nil
 end
@@ -25,7 +26,7 @@ function M.set_target(s,name)
  name=tostring(name or ""):match("^%s*(.-)%s*$")
  if name~="" and not M.valid_target(name) then return false,"invalid target" end
  name=name~="" and name or nil
- if s.target.name~=name then s.target=M.target(name);s.target_generation=(s.target_generation or 0)+1;s.hit_context=nil;s.last_action=nil;M.record(s,"target",name or "cleared") end
+ if s.target.name~=name then s.target=M.target(name);s.target_generation=(s.target_generation or 0)+1;s.hit_context=nil;s.last_action=nil;s.dismount_stance=nil;M.record(s,"target",name or "cleared") end
  s.stop_reason=nil;return true
 end
 function M.sync_gmcp(s,g)
@@ -33,7 +34,8 @@ function M.sync_gmcp(s,g)
  for key,field in pairs({hp="hp",maxhp="maxhp",mp="mana",maxmp="maxmana",kai="kai"}) do if tonumber(v[key]) then p[field]=tonumber(v[key]) end end
  if v.hp~=nil then s.connected=true;p.dead=p.hp<=0 end
  if next(v)~=nil then s.vitals_at=M.now() end
- for key,field in pairs({balance="balance",equilibrium="equilibrium",left_arm="left_arm_balance",right_arm="right_arm_balance",prone="prone",mounted="mounted"}) do if v[key]~=nil then p[field]=M.flag(v[key]) end end
+ for key,field in pairs({balance="balance",equilibrium="equilibrium",left_arm="left_arm_balance",right_arm="right_arm_balance",prone="prone"}) do if v[key]~=nil then p[field]=M.flag(v[key]) end end
+ if v.mounted~=nil then p.mounted=M.mounted(v.mounted);p.mount_id=p.mounted and tonumber(v.mounted) or nil end
  if v.stance then p.stance=tostring(v.stance) end
  return s
 end

@@ -25,6 +25,14 @@ function M.choose(s)
  local t,p=s.target,s.player
  if not t.name or t.name=="" then return wait("no target") end
  if t.dead then return wait("target dead") end
+ if p.mounted==true or (tonumber(p.mounted) or 0)>0 then
+  local a=action("dismount","quickdismount","dismount before stance or attacks",nil,true)
+  a.after_stance=s.mode=="BASH" and "scorpion" or (s.config.pvp_stance or "eagle");return a
+ end
+ local stance_codes={scorpion="scs",eagle="egs",cobra="cbs",dragon="drs",tiger="tgs",wolf="wfs"}
+ if s.dismount_stance and stance_codes[s.dismount_stance] and tostring(p.stance or ""):lower()~=s.dismount_stance then
+  local a=action("stance",stance_codes[s.dismount_stance],"enter stance after confirmed dismount",nil,true);a.stance=s.dismount_stance;return a
+ end
  if t.shield then return action("shieldbreak","sck "..t.name,"scythekick removes observed magical shield",nil,true) end
  if t.rebounding then return wait("rebounding observed; clear or re-observe defence before attacking") end
  if s.mode=="BASH" then

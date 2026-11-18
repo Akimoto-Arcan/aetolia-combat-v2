@@ -115,6 +115,16 @@ Confirmed named cripple/break/mangle messages and Discern observations update th
 
 The actual training-dummy messages `buckles to the ground with a shuddering fall` and `lifts itself upright from the ground` now update posture. Those lines alone do not prove a cripple. The observed dummy test emitted falls/stands but no named limb-cripple confirmations; a live opponent's confirmed injury messages are needed to validate the complete BBT progression in game. Supported generic injury templates were sourced from AC2.2 Kaido / Third Party Salve attacks; further unseen messages should be captured and replay-tested rather than guessed.
 
+## Mounted Monk preparation
+
+Live AB HORSEMANSHIP QUICKDISMOUNTING confirms `QUICKDISMOUNT` / `QDMOUNT` is known and dismounts without losing balance. The tested sequence is two commands: `quickdismount`, then `scs` (or the selected PvP stance). `quickdismount scorpion` and `dismount scs` did not enter a stance; the latter used2s balance. A bare stance command while mounted was rejected. Do not treat an ignored extra argument as successful combined stancing.
+
+GMCP `Char.Vitals.mounted` is0 when unmounted and a positive mount ID when mounted. Normalize this separately from ordinary0/1 balance flags; never compare it only to1. Retain the mount ID separately for diagnostics, not automatic mounting.
+
+Mounted BASH/FULL_AUTO selection first requests quickdismount. Only an observed unmounted state releases its wait; then BASH enters Scorpion or PvP enters the configured preparation stance before continuing. Quickdismount sends do not claim attack evidence. Preserve the original unmounted BASH combo opening. The physical executor also rejects bypassed attacks/stances while mounted, and mental offense is gated while mounted. OFF/SHADOW do not send; ASSIST still requires explicit approval. Stop/mode/target changes invalidate temporary stance preparation. No server queue is left behind.
+
+This was tested with self-only mount/dismount/stance actions and replayed through the actual runner with fake attacks; no live attack was required to validate preparation.
+
 ## Enemy-affliction force reset
 
 Use the enemy-panel `RESET` button or `cv2 enemy reset` to clear tracked enemy afflictions plus linked cripple/break/mangle/prone state, active restoration and Sweep setup. Remove the corresponding affliction evidence and pending ASSIST action so an old BBT cannot survive the correction. Keep selected target/generation, numeric trauma, parry/shield/rebounding, own afflictions and actual physical recovery wait intact. Return the enemy list to page1 and refresh immediately. This is a local tracking correction, not a server cure or a promise that the target has no afflictions. New observations may populate it again. It sends no game command and does not tick/restart offense by itself.

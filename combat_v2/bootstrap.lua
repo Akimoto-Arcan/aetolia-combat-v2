@@ -138,6 +138,7 @@ function combat_v2_set_mode(mode)
  if mode=="OFF" then return combat_v2_stop() end
  cancel_ih()
  if c.current.training_battle_ended then c.current.training_battle_ended=nil;c.current.mental=nil end
+ c.current.dismount_stance=nil
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
  if mode=="BASH" then
   local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end

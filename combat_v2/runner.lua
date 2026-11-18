@@ -20,7 +20,7 @@ function M.propose(r)
  r.state.mode=r.mode;local a=r.monk.choose(r.state);a.generation=r.state.target_generation;r.state.last_action=a;return a
 end
 function M.stop(r,reason)
- r.mode="OFF";r.state.mode="OFF";r.pending=nil;r.waiting=false;r.status=reason or "OFF";r.paused_health=false;r.fault=nil
+ r.mode="OFF";r.state.mode="OFF";r.pending=nil;r.waiting=false;r.status=reason or "OFF";r.paused_health=false;r.fault=nil;r.state.dismount_stance=nil;r.waiting_dismount=nil
  if r.state.hunting then r.state.hunting.active=false end
 end
 function M.watchdog(r)
@@ -56,6 +56,7 @@ function M.execute(r,a,approved)
  if r.paused_health then if pct<cfg(r,"health_resume",60) then return deny("low health pause (resume at "..cfg(r,"health_resume",60).."%)") end;r.paused_health=false end
  if p.prone or p.afflictions.paralysis or p.afflictions.asleep then return deny("player hindered/prone; recover first") end
  if r.waiting then return deny("waiting for balance recovery") end
+ if (p.mounted==true or (tonumber(p.mounted) or 0)>0) and not (a and a.name=="dismount" and a.command=="quickdismount") then return deny("mounted; confirm dismount before stance/attack") end
  if not a or type(a.command)~="string" or a.command=="" or a.command:find("[;\r\n]") then return deny(a and a.reason or "no valid action") end
  if a.generation and a.generation~=s.target_generation then return deny("stale action target") end
  if not M.ready(r,a.requires) then return deny("waiting for required balances") end
@@ -63,9 +64,11 @@ function M.execute(r,a,approved)
  if r.mode=="ASSIST" and not approved then r.pending=a;return deny("approval required") end
  local sender=r.sender or send
  r.waiting=true;r.saw_unready=false;r.waiting_requires=a.requires;r.last_send=now();r.pending=nil;r.state.last_action=a;r.status="sent: "..a.command
+ r.waiting_dismount=a.name=="dismount" or nil
+ if r.waiting_dismount then s.dismount_stance=a.after_stance elseif s.dismount_stance==tostring(p.stance or ""):lower() then s.dismount_stance=nil end
  r.waiting_stance=a.stance;r.stance_free_snapshot=s.stance_free_sequence or 0
  r.recovery_snapshot={};for key,n in pairs(s.recoveries or {}) do r.recovery_snapshot[key]=n end
- r.reject_snapshot=s.reject_sequence or 0;s.target.attacked_generation=s.target_generation;s.target.last_attack_at=now()
+ r.reject_snapshot=s.reject_sequence or 0;if a.name~="dismount" then s.target.attacked_generation=s.target_generation;s.target.last_attack_at=now() end
  local ok,err=pcall(sender,a.command)
  if not ok then if r.mode=="BASH" then r.fault="sender error: "..tostring(err);r.status=r.fault else M.stop(r,"sender error: "..tostring(err)) end;return false,r.status end
  if a.name=="sweep" then s.target.sweep_attempted=true end
@@ -81,6 +84,7 @@ function M.approve(r)
 end
 function M.update_balance(r)
  if r.waiting then
+  if r.waiting_dismount then if r.state.player.mounted==false and M.ready(r,r.waiting_requires) then r.waiting=false;r.waiting_dismount=nil end;return end
   if r.waiting_stance and tostring(r.state.player.stance or ""):lower()==r.waiting_stance and (r.waiting_stance=="eagle" or (r.state.stance_free_sequence or 0)>(r.stance_free_snapshot or 0)) and M.ready(r,r.waiting_requires) then r.waiting=false;r.waiting_stance=nil;return end
   if (r.state.reject_sequence or 0)>(r.reject_snapshot or 0) then r.waiting=false;r.saw_unready=false;return end
   local recovered=true
