@@ -109,6 +109,10 @@ For BASH, an acknowledgement timeout/sender failure latches a safe pause without
 
 FIRSTAID is separate from attack OFF. Its existing server priorities remain unchanged.
 
+## Target aliases in training tests
+
+A target such as `t dummy` can differ from the server's full attack name (`a battered training dummy`). At an own supported Tekura attack header, the tracker can bind that display name only when this engine sent an attack in the same target generation within two seconds and a unique living, unprotected room NPC matches the alias as a bounded word. Ambiguous aliases fail closed; choose the exact NPC ID instead. Global player matching remains exact. Connections still require a compatible, unexpired hit context, and displayed percentages remain confidence-tagged estimates. Hitpoint `Damage Dealt` is not a limb percentage. Historical missed hits are not backfilled, especially after a dummy resets.
+
 ## Sources and remaining verification
 
 Command syntax and static predicates were checked against https://wiki.aetolia.com/Tekura; live AB text is authoritative. FIRSTAID syntax: https://www.aetolia.com/game-help/?what=firstaid. GMCP reference: https://www.aetolia.com/game-help/?what=gmcp.

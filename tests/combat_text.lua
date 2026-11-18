@@ -59,4 +59,26 @@ s=fresh('BASH');r=R.new(s,K);r.mode='BASH';R.tick(r);clock=clock+1;lines(s,"A di
 s=fresh('BASH');lines(s,'You are in the Tiger stance.');check(K.choose(s).command=='combo Enemy scs spp spp','non-scorpion opening not enforced')
 lines(s,'You sink back into the menacing stance of the Scorpion.');check(K.choose(s).command=='combo Enemy sdk spp spp','scorpion confirmation not used')
 s.player.prone=true;lines(s,'Making a call to your own, you kip yourself up and sink back into the Scorpion stance.');check(s.player.stance=='scorpion' and not s.player.prone,'scorpion kipup not recognized')
+
+-- Regression from the observed dummy session: command alias differs from server display name.
+s=fresh();S.set_target(s,'dummy');s.room.items={['111']={name='a battered training dummy',attrib='m'},['222']={name='a runed target dummy',attrib=''}}
+r=R.new(s,K);r.mode='FULL_AUTO';check(R.tick(r),'dummy test attack was not staged')
+lines(s,'You use Tekura Snapkick on a battered training dummy.','You let fly at a battered training dummy with a snap kick.','You connect to the left leg!',
+ 'You use Tekura Hammerfist on a battered training dummy.','You ball up one fist and hammerfist a battered training dummy.','You connect to the left leg!',
+ 'You use Tekura Hammerfist on a battered training dummy.','You ball up one fist and hammerfist a battered training dummy.','You connect to the left leg!')
+check(s.target.display_name=='a battered training dummy','own alias attack did not bind the verified room NPC name')
+check(math.abs(s.target.limbs.left_leg-(s.config.kick_trauma+2*s.config.punch_trauma))<.001,'dummy combo did not track three confirmed hits')
+check(K.select_limb(s)=='right_leg','updated dummy limb estimate did not redirect route')
+check(s.target.evidence['limb:left_leg'].confidence==.65 and not s.target.broken.left_leg,'dummy estimates fabricated an authoritative break')
+s=fresh();S.set_target(s,'dummy');s.room.items={['111']={name='a battered training dummy',attrib='m'}}
+lines(s,'You use Tekura Snapkick on a battered training dummy.','You connect to the left leg!');check(s.target.limbs.left_leg==0,'alias binding without pending engine attack was accepted')
+r=R.new(s,K);r.mode='FULL_AUTO';R.tick(r);clock=clock+3
+lines(s,'You use Tekura Snapkick on a battered training dummy.','You connect to the left leg!');check(s.target.limbs.left_leg==0,'expired alias attack was bound')
+s=fresh();S.set_target(s,'dummy');s.room.items={['111']={name='a battered training dummy',attrib='m'},['222']={name='another training dummy',attrib='m'}}
+r=R.new(s,K);r.mode='FULL_AUTO';R.tick(r);lines(s,'You use Tekura Snapkick on a battered training dummy.','You connect to the left leg!')
+check(s.target.limbs.left_leg==0 and not s.target.display_name,'ambiguous alias was guessed')
+s=fresh();S.set_target(s,'dummy');s.room.items={['111']={name='a battered training dummy',attrib='mx'}}
+r=R.new(s,K);r.mode='FULL_AUTO';R.tick(r);lines(s,'You use Tekura Snapkick on a battered training dummy.','You connect to the left leg!');check(s.target.limbs.left_leg==0,'protected room NPC used to bind alias')
+s=fresh();S.set_target(s,'Ann');s.room.items={['111']={name='Joann',attrib='m'}}
+r=R.new(s,K);r.mode='FULL_AUTO';R.tick(r);lines(s,'You use Tekura Snapkick on Joann.','You connect to the left leg!');check(s.target.limbs.left_leg==0,'partial-word alias bound a different target')
 print('PASS combat-text '..count..' assertions: sourced message correlation, estimates, parry/miss/hidden-hit guards, actor identity, affliction cures, shield, rebounding, independent balance events, duplicate kills and scorpion opening')

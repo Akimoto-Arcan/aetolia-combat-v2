@@ -12,6 +12,28 @@ function M.matches(s,name)
  name=tostring(name):lower()
  return name==tostring(s.target.name):lower() or (s.target.display_name and name==s.target.display_name:lower()) or false
 end
+-- Bind a command alias only at our own attack header, never by globally fuzzy matching.
+function M.bind_attack_name(s,display)
+ local t=s.target
+ if not t.name or t.attacked_generation~=s.target_generation or now()-(t.last_attack_at or -100)>=2 then return false end
+ local wanted=tostring(t.name):lower();display=tostring(display or ""):lower()
+ local function word_match(full,token)
+  local a,z=full:find(token,1,true)
+  return a and (a==1 or not full:sub(a-1,a-1):match("%w")) and (z==#full or not full:sub(z+1,z+1):match("%w"))
+ end
+ local candidate,count=nil,0
+ for id,item in pairs(s.room.items or {}) do
+  local flags=item.attrib or "";local full=tostring(item.name or ""):lower()
+  if (flags:find("m",1,true) or item.icon=="monster") and not flags:find("d",1,true) and not flags:find("x",1,true) and
+     (tostring(id)==wanted or (not wanted:match("^%d+$") and word_match(full,wanted))) then
+   count=count+1
+   if full==display then candidate={id=tostring(id),name=item.name} end
+  end
+ end
+ if count~=1 or not candidate then return false end
+ t.display_name=candidate.name;t.identity={id=candidate.id,room=s.room.id,generation=s.target_generation,source="own attack + unique room NPC",time=now()}
+ return true
+end
 function M.apply(s,e)
  if type(e)~="table" or not M.matches(s,e.target) then return false,"other target" end
  if e.generation and e.generation~=s.target_generation then return false,"old generation" end

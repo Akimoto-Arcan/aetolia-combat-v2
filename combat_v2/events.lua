@@ -80,7 +80,9 @@ function M.event(s,text)
  if not attack then target=text:match("^You pump out at (%w+) with a powerful side kick%.$");if target then attack="sidekick" end end
  if attack then
   attack=attack:lower()
-  if same(s,target) and attacks[attack] then s.hit_context={attack=attack,target=s.target.name,generation=s.target_generation,expires=now()+2,remaining=5} else s.hit_context=nil end
+  local matched=same(s,target)
+  if not matched and attacks[attack] and Tracker and Tracker.bind_attack_name then matched=Tracker.bind_attack_name(s,target) end
+  if matched and attacks[attack] then s.hit_context={attack=attack,target=s.target.name,generation=s.target_generation,expires=now()+2,remaining=5} else s.hit_context=nil end
   return s
  end
  ctx=context(s)
