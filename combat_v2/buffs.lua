@@ -153,7 +153,9 @@ local confirmations={
  ['You are brimming with courage.']='courage',
  ['You will call upon your fortitude in need.']='vitality',
  ['You are regenerating lost health through the power of Kaido.']='boosting',
- ['You are regenerating lost health through will.']='boosting'
+ ['You are regenerating lost health through will.']='regeneration',
+ ['You begin to concentrate on regeneration of your wounds.']='regeneration',
+ ['Your regeneration is boosted.']='boosting'
 }
 function M.text(s,line)
  if type(line)~='string' then return end
@@ -167,7 +169,11 @@ function M.text(s,line)
   local k=name and key(name);if k then b.ability_listing[#b.ability_listing+1]=k end
  end
  if line=='You have the following active defences:' then b.listing={};return end
- if line:match('^You are protected by %d+ defences%.$') and b.listing then snapshot(s,b.listing);b.listing=nil;return end
+ if line:match('^You are protected by %d+ defences%.$') and b.listing then
+  -- Our text recognizer is partial. Unrecognized rows are not absent defenses.
+  -- Only a full GMCP List may clear existing positives or establish known absence.
+  b.listing=nil;return -- Rows were observed immediately; never replay stale evidence.
+ end
  local k=confirmations[line]
  if k then if b.listing then b.listing[k]=true end;observe(s,k,true);return end
  local name=line:match('^You have gained the ([%a_ %-]+) defence%.$')
@@ -282,7 +288,7 @@ local function service(s,runner,sender,hold)
   b.query={kind='skills',at=t};send_checked(b,sender,'ab kaido')
   return {busy=false,status=b.fault or 'requested Kaido abilities'}
  end
- if not b.defs_known or not b.defs_at or t-b.defs_at>120 then
+ if not b.defs_known then
   b.query={kind='defs',at=t};send_checked(b,sender,'defences')
   return {busy=false,status=b.fault or 'requested defence snapshot'}
  end
