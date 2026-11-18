@@ -127,7 +127,7 @@ Commands:
 
 - `cv2 defense status`: show defensive phase, blocked native channels and proposals.
 - `cv2 defense audit`: request FIRSTAID settings/priorities/elevations, defences and Monk ability references; no attacks.
-- `cv2 defense setup`: explicit operator action, stops attacks and requests a conservative native healing/stand/wake/focus/tree baseline plus health-over-mana preference. Does not reset priorities/curesets; requests FIRSTAID readback and remains unconfirmed until checked. Refuses offline.
+- `cv2 defense setup`: explicit operator action, stops attacks and requests a conservative native healing/stand/wake/focus/tree baseline plus health-over-mana preference and the native slickness pill option. The latter requests opiate instead of yarrow, avoiding the smoking requirement but not bypassing an eating block. Does not reset priorities/curesets; requests FIRSTAID readback and remains unconfirmed until checked. Refuses offline.
 - `cv2 defense on|off`: enable/disable blocker-elevation/lock governor; does not disable native FIRSTAID.
 - `cv2 config defense_health_pause 45`, `defense_health_resume 65`, `defense_mana_reserve 35`, `defense_kai_reserve 20`: tune survival thresholds/reserves. Resume must exceed pause.
 

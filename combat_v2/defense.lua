@@ -85,7 +85,7 @@ function M.setup(s,sender)
  -- Explicit operator action only. Preserve existing priorities and curesets.
  local commands={'firstaid on','firstaid curing on','firstaid heal health on','firstaid heal mana on',
   'firstaid use anabiotic on','firstaid auto stand on','firstaid auto wake on','firstaid use focus on',
-  'firstaid use tree on','firstaid vitals priority health','firstaid forcehealth 50','firstaid forcemana 20'}
+  'firstaid use tree on','firstaid vitals priority health','firstaid forcehealth 50','firstaid forcemana 20','firstaid slickness pill on'}
  commands[#commands+1]='firstaid'
  for _,cmd in ipairs(commands)do local ok,err=pcall(sender or send,cmd);if not ok then M.state(s).setup='partial request; server readback required';return false,'Setup request failed: '..tostring(err) end end
  -- FIRSTAID at the end requests configuration readback -- Request exact configuration readback, not assumed success.

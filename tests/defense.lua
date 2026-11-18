@@ -43,6 +43,7 @@ s=fresh();s.mode='OFF';n=#sent;check(D.audit(s,send) and #sent>n,'explicit read-
 n=#sent;check(D.setup(s,send) and #sent>n and sent[#sent]=='firstaid','setup did not request exact readback')
 for i=n+1,#sent do check(not sent[i]:find('priority reset',1,true) and not sent[i]:find('cureset',1,true),'setup overwrote priorities/cureset')end
 check(D.state(s).setup=='requested; server readback required','unconfirmed setup falsely declared verified')
+local slick_setup=false;for i=n+1,#sent do if sent[i]=='firstaid slickness pill on' then slick_setup=true end end;check(slick_setup,'setup omitted verified alternate slickness cure')
 -- Replay the observed defeat sequence: locked, native cure failures, falling HP,
 -- failed tree, mental focus curing a different affliction, then training reset.
 s=fresh();for _,k in ipairs({'anorexia','asthma','slickness','paralysis'})do D.text(s,'You are afflicted with '..k..'.')end
