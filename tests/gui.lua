@@ -98,4 +98,9 @@ assert(other.cards.enemy_afflictions.html:find('enemy 40',1,true),'last enemy af
 state.player.afflictions={};other.refresh(state,combat_v2.runner,combat_v2.cure)
 assert(combat_v2_ui.pages.player_afflictions==1,'page not clamped after cure')
 for _,size in ipairs({{1280,720},{1600,900},{1920,945}}) do screenw,screenh=size[1],size[2];other.layout();other.refresh(state,combat_v2.runner,combat_v2.cure);bounds() end
+
+local reset_clicks=0;function combat_v2_reset_enemy_afflictions()reset_clicks=reset_clicks+1;state.target.afflictions={};combat_v2_ui.pages.enemy_afflictions=1;other.refresh(state,combat_v2.runner,combat_v2.cure);return true end
+other.buttons.enemy_afflictions_reset.click();assert(reset_clicks==1 and other.cards.enemy_afflictions.html:find('[0]',1,true),'enemy RESET callback failed')
+local er=other.buttons.enemy_afflictions_reset.p;local prev=other.buttons.enemy_afflictions_prev.p;local nxt=other.buttons.enemy_afflictions_next.p
+assert(er.x>=prev.x+prev.width and er.x+er.width<=nxt.x,'enemy RESET overlaps paging')
 print('PASS GUI: reusable root, escaping, flags, separate large affliction panels, counts, independent paging, cure page clamp, responsive bounds at three resolutions; widgets='..created)

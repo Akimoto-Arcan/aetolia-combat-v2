@@ -107,6 +107,9 @@ function M.help_text()
   "  An unknown attack acknowledgement latches a safe pause.",
   "",
   "<cyan>OBSERVED TARGET CORRECTIONS<white>",
+  "  Enemy-panel RESET / cv2 enemy reset",
+  "    Clear enemy affs and injury/prone flags; keep target and numeric trauma.",
+  "    Local correction only: no commands, mode change, or balance reset.",
   "  cv2 track limb ll 25       Set an observed limb percentage.",
   "  cv2 track damage ll 7.5    Add observed limb damage.",
   "  cv2 track crippled ll on   Also: broken / mangled, on / off.",
@@ -174,6 +177,7 @@ function M.layout()
   place(ui.buttons[k.."_prev"],x+8,affY+affH-33,34,25)
   place(ui.buttons[k.."_next"],x+aw-42,affY+affH-33,34,25)
  end
+ local resetW=math.min(80,aw-100);place(ui.buttons.enemy_afflictions_reset,10+aw+10+(aw-resetW)/2,affY+affH-33,resetW,25)
  y=affY+affH+8;card("cure",52)
  local tw=(cw-16)/3
  for i,k in ipairs({"approve","curing","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
@@ -221,6 +225,7 @@ function M.create()
    end) end
   end
  end
+ if not ui.buttons.enemy_afflictions_reset then button(ui,"enemy_afflictions_reset","RESET",function()local ok,why=combat_v2_reset_enemy_afflictions();if not ok and why then print(why)end end) end
  if not ui.buttons.help then button(ui,"help","HELP",function()combat_v2.gui.show_help()end) end
  M.layout();return ui.root
 end

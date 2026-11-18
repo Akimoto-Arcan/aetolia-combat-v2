@@ -34,6 +34,16 @@ function M.bind_attack_name(s,display)
  t.display_name=candidate.name;t.identity={id=candidate.id,room=s.room.id,generation=s.target_generation,source="own attack + unique room NPC",time=now()}
  return true
 end
+-- Local correction only: keep identity/trauma/defences and physical acknowledgements.
+function M.clear_afflictions(s)
+ local t=s.target;if not t or not t.name then return false,"select an enemy first" end
+ t.afflictions={};t.crippled={};t.broken={};t.mangled={};t.prone=false;t.restoration=nil;t.sweep_attempted=nil
+ for k in pairs(t.evidence or {})do
+  if k=="prone" or k:match("^aff:") or k:match("^crippled:") or k:match("^broken:") or k:match("^mangled:") then t.evidence[k]=nil end
+ end
+ s.hit_context=nil;s.last_action=nil
+ return true
+end
 function M.apply(s,e)
  if type(e)~="table" or not M.matches(s,e.target) then return false,"other target" end
  if e.generation and e.generation~=s.target_generation then return false,"old generation" end

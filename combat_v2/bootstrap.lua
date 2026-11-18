@@ -146,6 +146,14 @@ function combat_v2_set_mode(mode)
  if not c.watch_timer and mode~="SHADOW" then c.watch_timer=tempTimer(1,watchdog) end
  return combat_v2_tick()
 end
+function combat_v2_reset_enemy_afflictions()
+ local ok,why=c.tracker.clear_afflictions(c.current)
+ if not ok then return false,why end
+ c.runner.pending=nil
+ if combat_v2_ui and combat_v2_ui.pages then combat_v2_ui.pages.enemy_afflictions=1 end
+ c.state.record(c.current,"enemy_reset","cleared enemy afflictions/injury flags; preserved trauma and target")
+ refresh();return true
+end
 function combat_v2_set_target(name)
  local previous=c.current.target_generation
  local ok,why=c.state.set_target(c.current,name)
@@ -307,6 +315,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  if cmd=="target" then ok,why=combat_v2_set_target(rest)
  elseif cmd=="approve" then ok,why=combat_v2_approve()
  elseif cmd=="stop" or cmd=="off" then combat_v2_stop()
+ elseif cmd=="enemy" then if rest=="reset" then ok,why=combat_v2_reset_enemy_afflictions() else ok,why=false,"cv2 enemy reset" end
  elseif cmd=="defense" then ok,why=combat_v2_defense(rest)
  elseif cmd=="curing" then if rest=="on" or rest=="off" then ok,why=combat_v2_set_curing(rest=="on") else ok,why=false,"cv2 curing on|off" end
  elseif cmd=="reload" then dofile(root.."bootstrap.lua")

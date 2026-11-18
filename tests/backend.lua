@@ -99,6 +99,15 @@ combat_v2_set_target('Enemy');command('track aff asthma on');check(combat_v2.cur
 command('track aff asthma off');check(not combat_v2.current.target.afflictions.asthma,'manual aff remove failed')
 command('track limb ll 23');check(combat_v2.current.target.limbs.left_leg==23,'manual trauma alias failed')
 combat_v2.current.config.finish_stance='manual';command('track crippled ll on');command('track prone on');check(combat_v2_propose().command=='bbt Enemy','manual state does not reach selector')
+
+local reset_state=combat_v2.current;local rt=reset_state.target;rt.broken.left_leg=true;rt.mangled.head=true;rt.crippled.left_leg=true;rt.prone=true;rt.afflictions={asthma=true,left_leg_broken=true,fallen=true};rt.restoration={active=true};rt.evidence={['aff:asthma']={},['broken:left_leg']={},['limb:left_leg']={confidence=.65}};reset_state.player.afflictions.own_fixture=true
+local oldgen=reset_state.target_generation;local trauma=rt.limbs.left_leg;combat_v2.runner.pending={command='bbt Enemy'};combat_v2.runner.waiting=true
+command('enemy reset')
+check(not next(rt.afflictions) and not next(rt.broken) and not next(rt.crippled) and not next(rt.mangled) and not rt.prone,'enemy reset left selector injury flags')
+check(rt.limbs.left_leg==trauma and rt.name=='Enemy' and reset_state.target_generation==oldgen,'enemy reset destroyed trauma/target identity')
+check(reset_state.player.afflictions.own_fixture and not rt.restoration and not rt.evidence['aff:asthma'] and rt.evidence['limb:left_leg'],'enemy reset crossed self/evidence scope')
+check(not combat_v2.runner.pending and combat_v2.runner.waiting and #sent==before,'enemy reset sent, retained stale approval or cleared physical wait')
+combat_v2.runner.waiting=false;reset_state.player.afflictions={}
 gmcp={Char={Afflictions={List={{name='asthma'},'paralysis'}}}};emit('gmcp.Char.Afflictions.List');check(combat_v2.current.player.afflictions.asthma and combat_v2.current.player.afflictions.paralysis,'GMCP list broken')
 gmcp.Char.Afflictions.Remove={name='asthma'};emit('gmcp.Char.Afflictions.Remove');check(not combat_v2.current.player.afflictions.asthma,'GMCP named remove broken')
 gmcp.Char.Afflictions.Remove={'paralysis'};emit('gmcp.Char.Afflictions.Remove');check(not next(combat_v2.current.player.afflictions),'GMCP list remove broken')

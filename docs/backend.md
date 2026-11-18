@@ -115,6 +115,10 @@ Confirmed named cripple/break/mangle messages and Discern observations update th
 
 The actual training-dummy messages `buckles to the ground with a shuddering fall` and `lifts itself upright from the ground` now update posture. Those lines alone do not prove a cripple. The observed dummy test emitted falls/stands but no named limb-cripple confirmations; a live opponent's confirmed injury messages are needed to validate the complete BBT progression in game. Supported generic injury templates were sourced from AC2.2 Kaido / Third Party Salve attacks; further unseen messages should be captured and replay-tested rather than guessed.
 
+## Enemy-affliction force reset
+
+Use the enemy-panel `RESET` button or `cv2 enemy reset` to clear tracked enemy afflictions plus linked cripple/break/mangle/prone state, active restoration and Sweep setup. Remove the corresponding affliction evidence and pending ASSIST action so an old BBT cannot survive the correction. Keep selected target/generation, numeric trauma, parry/shield/rebounding, own afflictions and actual physical recovery wait intact. Return the enemy list to page1 and refresh immediately. This is a local tracking correction, not a server cure or a promise that the target has no afflictions. New observations may populate it again. It sends no game command and does not tick/restart offense by itself.
+
 ## Self-survival governor and native curing
 
 `defense.lua` is a separate self-defense layer, run before mental and physical offense and also bound to the physical executor so manual approval cannot bypass its hold. It ingests explicit OWN affliction gains, discoveries, cures and transformations plus normalized GMCP. Opponent/reporter speech is not self-state. FIRSTAID's `unable to eat/apply/smoke` and `tree locked` messages are diagnostics only, not proof of their cause or proof of a cure.
