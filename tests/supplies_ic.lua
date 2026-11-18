@@ -347,4 +347,14 @@ for _,case in ipairs({{'purgative','Missing elixirs: purgative'},{'soothing','Mi
  eq(S.state(one).sources.fluidcache.complete,true,'full+one missing category completes coverage')
  eq(#S.state(one).empty,1,'absent category must not create extra zeroes')
 end
+-- Actual native replies retain empty category headers when no items are missing.
+for _,case in ipairs({{'purgative','Missing elixirs: purgative','Missing poultices: '},{'soothing','Missing elixirs: ','Missing poultices: soothing'}})do
+ local native=ctx();omitFC(native,case[1]);S.text(native,case[2]);S.text(native,case[3]);S.prompt(native)
+ eq(S.state(native).sources.fluidcache.complete,true,'empty native category is not malformed')
+ eq(S.state(native).stocks[case[1]].count,0,'listed zero committed')
+ eq(#S.state(native).empty,1,'empty native category invents no zeroes')
+end
+local allEmpty=ctx();S.text(allEmpty,'Missing elixirs: ');S.text(allEmpty,'Missing poultices: ');S.prompt(allEmpty)
+eq(#S.state(allEmpty).empty,0,'empty lists contain no evidence of zero')
+eq(S.state(allEmpty).sources.fluidcache.complete,false,'empty lists cannot prove unobserved positives')
 print('PASS supplies IC '..n..' assertions: curated scope, boundaries, independent frames/freshness, version fences, sticky zeros, bounded sends and full low-list UI')

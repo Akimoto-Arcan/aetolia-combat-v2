@@ -230,7 +230,7 @@ local function begin(c,name,section)
 end
 local function missingList(f,text,section)
   text=text:gsub(', and ', ', '):gsub(' and ', ', ')
-  if text=='' then f.bad=true; return end
+  if text=='' then f[section]=true; return end
   for token in (text..','):gmatch('(.-),') do
     local item=token:match('^%s*(.-)%s*$')
     if not item:match('^[%a]+$') then f.bad=true; return end
