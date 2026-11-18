@@ -15,12 +15,19 @@ with tempfile.TemporaryDirectory(prefix='cv2-test-') as tmp:
     profile.mkdir()
     target = installer.install(profile)
     assert {p.name for p in target.glob('*.lua')} == installer.MODULES
+    assert {p.name for p in (target / 'assets/body').glob('*.png')} == installer.BODY_ASSETS
+    sample = target / 'assets/body/head_clear.png'
+    original_art = sample.read_bytes()
+    sample.write_bytes(b'previous-art-fixture')
     original = (target / 'bootstrap.lua').read_bytes()
     (target / 'bootstrap.lua').write_text('-- previous version\n')
     installer.install(profile)
     backups = list((profile / 'combat-v2-backups').glob('*/bootstrap.lua'))
     assert len(backups) == 1 and backups[0].read_text() == '-- previous version\n'
     assert (target / 'bootstrap.lua').read_bytes() == original
+    old_art = list((profile / 'combat-v2-backups').glob('*/assets/body/head_clear.png'))
+    assert len(old_art) == 1 and old_art[0].read_bytes() == b'previous-art-fixture'
+    assert sample.read_bytes() == original_art
     for source in sorted(target.glob('*.lua')):
         subprocess.run(['luac', '-p', str(source)], check=True)
     for script in ['engine.lua', 'backend.lua', 'combat_text.lua', 'ih.lua', 'policy.lua', 'mental.lua', 'defense.lua', 'gui.lua']:

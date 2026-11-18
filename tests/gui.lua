@@ -4,10 +4,12 @@ local function obj(p,parent)
  local o={p=p,parent=parent}
  function o:setStyleSheet(s) self.css=s end
  function o:echo(s) self.html=s end
+ function o:setBackgroundImage(path)self.image=path end
  function o:setClickCallback(f) self.click=f end
  function o:move(x,y) self.p.x=x;self.p.y=y end
  function o:resize(w,h) self.p.width=w;self.p.height=h end
  function o:hide()self.hidden=true end
+ function o:show()self.hidden=false end
  function o:delete()self.deleted=true end
  return o
 end
@@ -103,4 +105,26 @@ local reset_clicks=0;function combat_v2_reset_enemy_afflictions()reset_clicks=re
 other.buttons.enemy_afflictions_reset.click();assert(reset_clicks==1 and other.cards.enemy_afflictions.html:find('[0]',1,true),'enemy RESET callback failed')
 local er=other.buttons.enemy_afflictions_reset.p;local prev=other.buttons.enemy_afflictions_prev.p;local nxt=other.buttons.enemy_afflictions_next.p
 assert(er.x>=prev.x+prev.width and er.x+er.width<=nxt.x,'enemy RESET overlaps paging')
+
+-- Paired limb cards and the read-only native body scanner.
+assert(other.cards.limbs.p.x+other.cards.limbs.p.width<other.cards.self_limbs.p.x,'self limbs not to the right of enemy limbs')
+assert(other.cards.self_limbs.html:find('YOUR LIMBS',1,true),'missing self limb panel')
+local d=other.limb_snapshot(state,'self','left_arm');assert(d.value==nil and d.percent=='—','unknown self trauma was invented from arm balance')
+state.player.afflictions.left_arm_broken=true;d=other.limb_snapshot(state,'self','left_arm');assert(d.marker=='BROKEN' and d.color=='broken' and d.value==nil,'own injury did not render independently of percentages')
+state.target.limbs.right_leg=41;state.target.evidence['limb:right_leg']={confidence=.65};state.target.mangled.head=true
+assert(other.limb_snapshot(state,'enemy','right_leg').percent=='~41.0%','enemy estimate lost uncertainty')
+Geyser.UserWindow={new=function(_,p)return obj(p)end};function getMudletHomeDir()return '/fixture' end
+local sends=0;function send()sends=sends+1;error('GUI must not send')end
+local before_mode=combat_v2.runner.mode;other.buttons.body_scan.click();local body=combat_v2_ui.body
+assert(body and body.window and body.sides.self.layers.left_arm.image:find('left_arm_broken.png',1,true),'scanner did not use own injured-arm art')
+assert(body.sides.enemy.layers.head.image:find('head_mangled.png',1,true),'scanner did not use confirmed enemy-head injury')
+assert(body.sides.self.rows.left_arm.html:find('BROKEN',1,true),'scanner readout missing own injury')
+local scanner_widgets=created;body.close.click();assert(body.window.hidden,'scanner Close did not hide')
+other.show_body();assert(created==scanner_widgets and not body.window.hidden,'scanner reopen duplicated widgets')
+state.player.afflictions.left_arm_broken=nil;state.target.mangled.head=nil;other.refresh(state,combat_v2.runner,combat_v2.cure)
+assert(body.sides.self.layers.left_arm.image:find('left_arm_clear.png',1,true),'own cure did not update scanner')
+assert(body.sides.enemy.layers.head.image:find('head_unknown.png',1,true),'enemy reset left stale injury art')
+assert(sends==0 and combat_v2.runner.mode==before_mode,'body scanner changed execution')
+local rebuilt=dofile(path..'gui.lua');combat_v2.gui=rebuilt;rebuilt.create();rebuilt.refresh(state,combat_v2.runner,combat_v2.cure);rebuilt.show_body();assert(created==scanner_widgets,'GUI reload leaked scanner objects')
+
 print('PASS GUI: reusable root, escaping, flags, separate large affliction panels, counts, independent paging, cure page clamp, responsive bounds at three resolutions; widgets='..created)

@@ -6,6 +6,98 @@ local function html(s) return "<div style='color:"..C.text..";font-family:DejaVu
 local function heading(s) return "<b style='color:"..C.accent..";'>"..s.."</b><br>" end
 local function flag(v) return v==true or tonumber(v)==1 end
 local function ready(v) return "<span style='color:"..(flag(v) and C.good or C.warn)..";'>"..(flag(v) and "READY" or "WAIT").."</span>" end
+local limb_keys={"head","torso","left_arm","right_arm","left_leg","right_leg"}
+local limb_short={left_arm="LA",right_arm="RA",left_leg="LL",right_leg="RL",torso="TORSO",head="HEAD"}
+local scan_ink={unknown="#365b47",clear="#78f7a3",warning="#ffd166",broken="#ff755f",mangled="#ec83ff"}
+-- This is a view of observations, never an estimator or a source of injuries.
+function M.limb_snapshot(state,side,key)
+ local actor=side=="self" and state.player or state.target
+ local e=actor.evidence and actor.evidence["limb:"..key]
+ local value=actor.limbs and tonumber(actor.limbs[key])
+ if value==0 and not e then value=nil end
+ local severity,marker=0,""
+ for i,kind in ipairs({"crippled","broken","mangled"})do if actor[kind] and flag(actor[kind][key])then severity=i;marker=kind:upper()end end
+ local compact=key:gsub("_","")
+ for aff,v in pairs(actor.afflictions or {})do
+  local a=tostring(aff):lower():gsub("[^%a]","")
+  if flag(v) and a:find(compact,1,true) then
+   for i,kind in ipairs({"crippled","broken","mangled"})do if a:find(kind,1,true) and i>severity then severity=i;marker=kind:upper()end end
+   if a:find("damaged",1,true) and severity<2 then severity=2;marker="DAMAGED" end
+  end
+ end
+ local color=severity==3 and "mangled" or severity==2 and "broken" or severity==1 and "warning" or value and value>=33.33 and "warning" or (value~=nil or side=="self" and state.connected) and "clear" or "unknown"
+ local approximate=value~=nil and (not e or (e.confidence or 1)<1)
+ local percent=value and ((approximate and "~" or "")..string.format("%.1f%%",value)) or "—"
+ return {key=key,value=value,percent=percent,marker=marker,severity=severity,color=color,ink=scan_ink[color],approximate=approximate}
+end
+local function limb_rows(state,side)
+ local rows={}
+ for _,pair in ipairs({{"left_arm","right_arm"},{"left_leg","right_leg"},{"torso","head"}})do
+  local cells={}
+  for _,key in ipairs(pair)do local d=M.limb_snapshot(state,side,key);local mark=({CRIPPLED="CRP",BROKEN="BRK",DAMAGED="DMG",MANGLED="MNG"})[d.marker] or ""
+   cells[#cells+1]="<span style='color:"..(d.color=="unknown" and C.muted or d.ink)..";'>"..limb_short[key].." "..d.percent.." "..mark.."</span>"
+  end
+  rows[#rows+1]=table.concat(cells," &nbsp; | &nbsp; ")
+ end
+ return "<span style='font-size:12px;'>"..table.concat(rows,"<br>").."</span>"
+end
+local function body_asset(name)
+ local path=(getMudletHomeDir and getMudletHomeDir() or "").."/combat_v2/assets/body/"..name..".png"
+ return path:gsub("\\","/")
+end
+local function scan_label(body,name,x,y,w,h,parent)
+ local o=Geyser.Label:new({name="cv2_scan_"..name,x=x,y=y,width=w,height=h},parent or body.window)
+ o:setStyleSheet("background-color:transparent;color:#78f7a3;border:0;padding:0;qproperty-alignment:'AlignTop | AlignLeft';")
+ return o
+end
+local function scan_html(s)return "<div style='font-family:DejaVu Sans Mono;font-size:13px;color:#78f7a3;'>"..s.."</div>"end
+function M.show_body()
+ if not Geyser.UserWindow then return false,"Native user window unavailable" end
+ if not combat_v2_ui then M.create()end
+ local ui=combat_v2_ui
+ if not ui.body then
+  local b={sides={}};ui.body=b
+  b.window=Geyser.UserWindow:new({name="Combat V2 Body Scan",titleText="COMBAT V2 // BIOMETRIC MONITOR",x=70,y=80,width=920,height=620,autoDock=false,docked=false,restoreLayout=false})
+  b.backdrop=scan_label(b,"backdrop",0,0,"100%","100%")
+  b.backdrop:setBackgroundImage(body_asset("crt_grid"))
+  b.title=scan_label(b,"title",22,17,740,32)
+  b.subtitle=scan_label(b,"subtitle",22,53,875,25)
+  b.close=scan_label(b,"close",806,18,90,28);b.close:setStyleSheet("background-color:#152e1e;color:#78f7a3;border:1px solid #4c9364;padding:3px;")
+  b.close:echo(scan_html("<center>CLOSE [X]</center>"));b.close:setClickCallback(function()combat_v2_ui.body.window:hide()end)
+  for i,side in ipairs({"self","enemy"})do
+   local x=18+(i-1)*450;local pane={layers={},rows={}};b.sides[side]=pane
+   pane.frame=scan_label(b,side.."_frame",x,88,434,448);pane.frame:setStyleSheet("background-color:rgba(7,18,11,175);border:1px solid #2f6946;")
+   pane.heading=scan_label(b,side.."_heading",x+14,100,406,28)
+   pane.sub=scan_label(b,side.."_sub",x+14,132,406,24)
+   for j,key in ipairs(limb_keys)do
+    pane.layers[key]=scan_label(b,side.."_"..key.."_art",x+216,171,200,320)
+    pane.rows[key]=scan_label(b,side.."_"..key.."_readout",x+14,173+(j-1)*52,192,46)
+   end
+   pane.footer=scan_label(b,side.."_footer",x+14,511,406,20)
+  end
+  b.legend=scan_label(b,"legend",22,551,880,54)
+  b.legend:echo(scan_html("<span style='color:#78f7a3;'>■ NO INJURY SEEN</span>  <span style='color:#ffd166;'>■ CRIPPLED / TRAUMA</span>  <span style='color:#ff755f;'>■ BROKEN</span>  <span style='color:#ec83ff;'>■ MANGLED</span><br><span style='color:#70987e;font-size:11px;'>— UNKNOWN TRAUMA · ~ ESTIMATE · INJURIES REQUIRE OBSERVATION · READ-ONLY DISPLAY</span>"))
+ end
+ M.refresh_body(combat_v2.current,combat_v2.runner)
+ ui.body.window:show();if raiseWindow then raiseWindow(ui.body.window.name) end;return true
+end
+function M.refresh_body(state,runner)
+ local b=combat_v2_ui and combat_v2_ui.body;if not b then return end
+ b.title:echo(scan_html("<b style='font-size:24px;letter-spacing:2px;'>V2 // BIOSTAT TERMINAL</b>"))
+ b.subtitle:echo(scan_html("MONK ANATOMY SYSTEM  /  "..(state.connected and "<span style='color:#78f7a3;'>SIGNAL LIVE</span>" or "<span style='color:#ffd166;'>OFFLINE · CACHED</span>").."  /  MODE: "..esc(runner.mode)))
+ for _,side in ipairs({"self","enemy"})do
+  local p=b.sides[side];local actor=side=="self" and state.player or state.target
+  p.heading:echo(scan_html("<b style='font-size:19px;'>"..(side=="self" and "01 // YOUR BODY" or "02 // ENEMY: "..esc(actor.name or "NO TARGET")).."</b>"))
+  p.sub:echo(scan_html(side=="self" and ("HP "..esc(actor.hp).." / "..esc(actor.maxhp).."  |  MANA "..esc(actor.mana)) or "TRACKED TRAUMA / CONFIRMED INJURIES"))
+  for _,key in ipairs(limb_keys)do
+   local d=M.limb_snapshot(state,side,key);local art=p.layers[key]
+   if art.cv2_color~=d.color then art:setBackgroundImage(body_asset(key.."_"..d.color));art.cv2_color=d.color end
+   p.rows[key]:echo(scan_html("<span style='color:#70987e;font-size:11px;'>"..key:gsub("_"," "):upper().."</span><br><b style='font-size:16px;color:"..d.ink..";'>"..d.percent.."</b> <span style='font-size:11px;color:"..d.ink..";'>"..(d.marker~="" and d.marker or d.color=="unknown" and "NO DATA" or "NO INJURY SEEN").."</span>"))
+  end
+  p.footer:echo(scan_html("<span style='font-size:11px;color:#70987e;'>"..(side=="self" and "SELF % UNREPORTED: —  /  NOT ARM BALANCE" or "FRONT VIEW: BODY LEFT IS VIEWER RIGHT").."</span>"))
+ end
+end
+
 -- Shared, observed-only stance presentation for sidebar and the console subprompt.
 function M.stance(state)
  if not state.connected then return "UNKNOWN (offline)",nil end
@@ -166,10 +258,10 @@ function M.layout()
  ui.width=rw;ui.height=rh;ui.root:move(w-rw-10,10);ui.root:resize(rw,rh);setBorderRight(rw+30)
  local y=0
  local function card(k,height) place(ui.cards[k],10,y,cw,height);y=y+height+8 end
- card("header",60);place(ui.buttons.help,rw-90,12,70,30)
+ card("header",60);place(ui.buttons.body_scan,rw-208,12,110,30);place(ui.buttons.help,rw-90,12,70,30)
  local bw=(cw-24)/5
  for i,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do place(ui.buttons[m],10+(i-1)*(bw+6),y,bw,30) end
- y=y+38;local compact=rh<800;card("status",compact and 110 or 120);card("target",compact and 86 or 96);card("limbs",compact and 90 or 102)
+ y=y+38;local compact=rh<800;card("status",compact and 110 or 120);card("target",compact and 86 or 96);local limbH=compact and 90 or 102;local limbW=(cw-10)/2;place(ui.cards.limbs,10,y,limbW,limbH);place(ui.cards.self_limbs,20+limbW,y,limbW,limbH);y=y+limbH+8
  local affY=y;local affH=rh-affY-188;local aw=(cw-10)/2
  ui.per_page=math.max(1,math.floor((affH-88)/19));ui.aff_height=affH
  for i,k in ipairs({"player_afflictions","enemy_afflictions"}) do
@@ -204,7 +296,7 @@ function M.create()
   ui={cards={},buttons={},pages={}};ui.root=Geyser.Container:new({name="cv2_live_root",x=0,y=10,width=620,height=900});combat_v2_ui=ui
  end
  ui.pages=ui.pages or {};M.root=ui.root;M.cards=ui.cards;M.buttons=ui.buttons
- for _,k in ipairs({"header","status","target","limbs","player_afflictions","enemy_afflictions","cure","events"}) do
+ for _,k in ipairs({"header","status","target","limbs","self_limbs","player_afflictions","enemy_afflictions","cure","events"}) do
   if not ui.cards[k] then label(ui,k) end
   ui.cards[k]:setStyleSheet("background-color:"..C.card..";color:"..C.text..";border:1px solid #294052;padding:8px;qproperty-alignment:'AlignTop | AlignLeft';")
  end
@@ -226,6 +318,7 @@ function M.create()
   end
  end
  if not ui.buttons.enemy_afflictions_reset then button(ui,"enemy_afflictions_reset","RESET",function()local ok,why=combat_v2_reset_enemy_afflictions();if not ok and why then print(why)end end) end
+ if not ui.buttons.body_scan then button(ui,"body_scan","BODY SCAN",function()combat_v2.gui.show_body()end) end
  if not ui.buttons.help then button(ui,"help","HELP",function()combat_v2.gui.show_help()end) end
  M.layout();return ui.root
 end
@@ -242,13 +335,9 @@ function M.refresh(state,runner,cure)
  local restore=t.restoration;local restoration=""
  if restore and restore.active then local remaining=math.max(0,(restore.expected_end or 0)-(getEpoch and getEpoch() or os.clock()));restoration="<br><span style='font-size:11px;color:"..C.warn..";'>RESTORE: "..esc(restore.limb:gsub("_"," "))..(remaining>0 and string.format(" ~%.1fs",remaining) or " awaiting cure confirmation").."</span>" end
  M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"..restoration))
- local rows={}
- for _,k in ipairs({"left_arm","right_arm","left_leg","right_leg","torso","head"}) do
-  local marker=t.mangled[k] and "MANGLED" or t.broken[k] and "BROKEN" or t.crippled[k] and "CRIPPLED" or ""
-  local evidence=t.evidence and t.evidence["limb:"..k];local prefix=evidence and (evidence.confidence or 1)<1 and "~" or ""
-  rows[#rows+1]=esc(k:gsub("_"," ")).." "..prefix..string.format("%.1f%%",tonumber(t.limbs[k]) or 0).." "..marker
- end
- M.cards.limbs:echo(html(heading("ENEMY LIMBS / OBSERVED STATE")..table.concat({rows[1].." &nbsp; | &nbsp; "..rows[2],rows[3].." &nbsp; | &nbsp; "..rows[4],rows[5].." &nbsp; | &nbsp; "..rows[6]},"<br>").."<br>Prone: "..(t.prone and "yes" or "no").." &nbsp; Parry: "..esc(t.parry_limb or "unknown")))
+ M.cards.limbs:echo(html(heading("ENEMY LIMBS")..limb_rows(state,"enemy").."<br><span style='font-size:11px;'>Prone: "..(t.prone and "yes" or "no").." · Parry: "..esc(t.parry_limb or "unknown").."</span>"))
+ M.cards.self_limbs:echo(html(heading("YOUR LIMBS")..limb_rows(state,"self").."<br><span style='font-size:11px;'>Prone: "..(flag(p.prone) and "yes" or "no").." · — = unreported %</span>"))
+ M.refresh_body(state,runner)
  affpanel(ui,"player_afflictions",p.afflictions,"YOUR AFFLICTIONS","GMCP observed",C.warn)
  affpanel(ui,"enemy_afflictions",t.afflictions,"ENEMY AFFLICTIONS","tracked / inferred",C.bad)
  local d=state.defense;local defense=not state.connected and "OFFLINE" or d and d.phase or "monitoring"
