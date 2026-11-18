@@ -161,5 +161,12 @@ gmcp.Room.RemovePlayer='Unknown';handlers['gmcp.Room.RemovePlayer']();combat_v2.
 receive('Your web has the following members:');receive('-------------------------------------------------');receive('Outsider, Self.');receive('-------------------------------------------------')
 check(#attacks()==2,'departure and fresh web roster did not resume attacks')
 combat_v2_config('group_web','off');check(not combat_v2.policy.allowed(s),'solo setting failed to reject a web member')
+
+s=fresh('rat');combat_v2_set_mode('FULL_AUTO');receive("The dummy's eyes dim as it ceases fighting.")
+check(combat_v2.mode=='OFF' and s.training_battle_ended,'training end did not stop AUTO')
+local end_count=#sent;s.player.hp=100;s.player.dead=false;advance(5)
+check(combat_v2.mode=='OFF' and #sent==end_count,'training full-heal reset restarted attacks')
+s=fresh('rat');combat_v2_set_mode('BASH');receive("The dummy's eyes dim as it ceases fighting.");advance(5)
+check(combat_v2.mode=='OFF','persistent BASH ignored training match end')
 print=realprint
 print('PASS IH '..count..' assertions: fresh presence gate, persistent two-second retries, recovery, actor filtering, stale callbacks and cancellation')

@@ -28,8 +28,9 @@ function M.text(s,text)
   if m.status~='locked' then m.status='unknown';m.retry_at=now()+10 end
  end
 end
-function M.tick(s,sender)
+function M.tick(s,sender,paused_health)
  local m=M.state(s);local p=s.player;local t=now()
+ if s.training_battle_ended then return false end
  -- Service an EQ cast even after a mode change; never invent readiness on a timeout.
  if m.eq_pending then
   if not p.equilibrium then m.saw_eq_loss=true end
@@ -37,6 +38,7 @@ function M.tick(s,sender)
   elseif t-m.eq_pending>8 then m.fault='Telepathy acknowledgement missing; inspect trace and cv2 reset' end
  end
  if s.mode~='FULL_AUTO' then return m.eq_pending~=nil end
+ if paused_health or ((tonumber(p.maxhp) or 0)>0 and 100*(tonumber(p.hp) or 0)/p.maxhp<((s.config or {}).health_pause or 30)) then return false end
  if not s.connected or p.dead or (tonumber(p.hp) or 0)<=0 or p.prone or p.afflictions.paralysis or p.afflictions.asleep or p.afflictions.frozen then return false end
  if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return false end end
  local target=s.target.name

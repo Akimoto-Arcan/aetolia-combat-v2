@@ -65,6 +65,10 @@ function combat_v2_start_ih(reason)
 end
 function combat_v2_stop(reason)
  cancel_ih()
+ if c.current.training_battle_ended then
+  local m=c.current.mental
+  if m then if m.target then pcall(send,"mind cease") end;m.status="stopped";m.target=nil;m.lock_target=nil;m.eq_pending=nil end
+ end
  c.runner_module.stop(c.runner,reason);c.mode="OFF";c.current.stop_reason=nil
  c.current.stats.stops=c.current.stats.stops+1;c.state.record(c.current,"stop",reason or "OFF")
  for _,key in ipairs({"retry_timer","watch_timer","ih_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
@@ -95,6 +99,7 @@ end
 function combat_v2_tick()
  local s=c.current
  if s.stop_reason then
+  if s.stop_reason=="training battle ended" then combat_v2_stop(s.stop_reason);return false,"training battle ended" end
   if s.stop_reason=="target slain" and c.mode=="BASH" and s.hunting.active then
    s.stop_reason=nil;local ok=c.bashing.killed(s)
    if not ok then s.hunting.active=true;s.stop_reason=nil end
@@ -119,7 +124,7 @@ function combat_v2_tick()
   if s.hunting.ih and s.hunting.ih.active then refresh();return false,"checking IH" end
   if not s.target.name or s.target.dead or s.hunting.verified_generation~=s.target_generation then combat_v2_start_ih("verify bashing target");return false,"checking IH" end
  end
- if c.mental.tick(s,c.mental_sender or c.runner.sender or send) then c.runner_module.update_balance(c.runner);refresh();return false,"Telepathy equilibrium pending" end
+ if c.mental.tick(s,c.mental_sender or c.runner.sender or send,c.runner.paused_health) then c.runner_module.update_balance(c.runner);refresh();return false,"Telepathy equilibrium pending" end
  local ok,why=c.runner_module.tick(c.runner);c.mode=c.runner.mode;s.mode=c.mode
  if why=="cooldown" and not c.retry_timer then c.retry_timer=tempTimer(.35,function() c.retry_timer=nil;combat_v2_tick() end) end
  refresh();return ok,why
@@ -129,6 +134,7 @@ function combat_v2_set_mode(mode)
  if not ({OFF=true,SHADOW=true,ASSIST=true,BASH=true,FULL_AUTO=true})[mode] then return false,"invalid mode" end
  if mode=="OFF" then return combat_v2_stop() end
  cancel_ih()
+ if c.current.training_battle_ended then c.current.training_battle_ended=nil;c.current.mental=nil end
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
  if mode=="BASH" then
   local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end

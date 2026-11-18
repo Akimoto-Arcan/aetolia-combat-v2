@@ -115,6 +115,12 @@ Confirmed named cripple/break/mangle messages and Discern observations update th
 
 The actual training-dummy messages `buckles to the ground with a shuddering fall` and `lifts itself upright from the ground` now update posture. Those lines alone do not prove a cripple. The observed dummy test emitted falls/stands but no named limb-cripple confirmations; a live opponent's confirmed injury messages are needed to validate the complete BBT progression in game. Supported generic injury templates were sourced from AC2.2 Kaido / Third Party Salve attacks; further unseen messages should be captured and replay-tested rather than guessed.
 
+## Training-room match termination
+
+The training room can defeat/reset the character without ordinary death text. The observed sequence was 9% HP, enemy Bladefire Retribution, reporting-dummy victory, `The dummy's eyes dim as it ceases fighting.`, then full HP/mana. Full restored vitals do not prove the character won or never lost.
+
+Either the scoped reporting-dummy victory or the exact dummy shutdown message latches match termination. All modes, including persistent BASH, stop; pending automated mental sends are blocked and the owned mindlock/channel is ceased. The subsequent full-heal reset does not restart attacks. Explicit user mode selection is required to re-arm, and reporting-proxy scope must be enabled again if needed. This is distinct from declaring the character dead. Mental attacks also respect the low-health pause/hysteresis used by the physical runner. This safety fix does not establish a complete defensive/cure-lock strategy.
+
 ## Concurrent mindlock and automatic PvP stances
 
 In FULL_AUTO, `mental.lua` acquires Mind Lock against the selected player currently present while physical attacks continue independently. Observed start/progress/success/ejection messages drive lock state; an unrelated or unknown existing lock never permits a targetless Blackout. Target changes revoke trust and cease the previous channel before acquiring the new target. Pending acquisition is not retried every combo. OFF/SHADOW/ASSIST/BASH never automatically send mental attacks. OFF stops automation, not an already-running server lock; use the game `MIND CEASE` command to end that explicitly.

@@ -45,6 +45,12 @@ function M.event(s,text)
  if type(text)~="string" then return s end
  text=text:gsub(string.char(27).."%[[%d;]*m",""):match("^%s*(.-)%s*$")
  s.last_event=text;local low=text:lower();local p=s.player
+ local training=s.training
+ local report_end=text=='A runed target dummy says, "I have triumphed in battle!"' and training and training.enabled and training.generation==s.target_generation and training.room==s.room.id
+ if text=="The dummy's eyes dim as it ceases fighting." or report_end then
+  if not s.training_battle_ended then s.training_battle_ended=true;s.stop_reason="training battle ended";s.hit_context=nil;s.training=nil end
+  return s
+ end
  if text=="Your bodily control allows you to maintain your balance." then s.stance_free_sequence=(s.stance_free_sequence or 0)+1;return s end
  if text=="You sink back into the menacing stance of the Scorpion." then p.stance="scorpion";return s end
  if text=="Making a call to your own, you kip yourself up and sink back into the Scorpion stance." then p.stance="scorpion";p.prone=false;return s end

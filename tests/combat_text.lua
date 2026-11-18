@@ -130,4 +130,10 @@ s=fresh();lines(s,"Enemy's left leg breaks from all the damage.");r=R.new(s,K);r
 lines(s,'You connect and send Enemy sprawling to the floor.');check(K.choose(s).name=='backbreaker','sweep guard suppressed valid BBT')
 lines(s,'Enemy stands up and stretches his arms out wide.');check(K.choose(s).name~='sweep','stood-up enemy caused endless repeated sweep')
 lines(s,'You discern that Enemy has cured the effects of a crippled left leg.','You discern that Enemy has been afflicted with a crippled left leg.');check(not s.target.sweep_attempted and K.choose(s).name=='sweep','new confirmed cripple did not rearm sweep setup')
+s=fresh();lines(s,"The dummy's eyes dim as it ceases fighting.")
+check(s.training_battle_ended and s.stop_reason=='training battle ended','training reset did not terminate match')
+check(not s.player.dead,'training reset falsely declared character dead')
+s=fresh();s.room.id=7;s.training={enabled=true,target=s.target.name,generation=s.target_generation,room=7}
+lines(s,'A runed target dummy says, "I have triumphed in battle!"')
+check(s.training_battle_ended and s.stop_reason=='training battle ended','reported training defeat ignored')
 print('PASS combat-text '..count..' assertions: sourced message correlation, estimates, parry/miss/hidden-hit guards, actor identity, affliction cures, shield, rebounding, independent balance events, duplicate kills and scorpion opening')

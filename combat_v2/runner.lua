@@ -39,6 +39,7 @@ function M.execute(r,a,approved)
  local s,p=r.state,r.state.player
  local function deny(msg) r.status=msg;return false,msg end
  if r.mode=="OFF" or r.mode=="SHADOW" then return deny(r.mode) end
+ if s.training_battle_ended then return deny("training battle ended; explicit mode re-arm required") end
  if r.fault then return deny(r.fault) end
  if r.mode=="BASH" then
   if not M.policy then return deny("BASH safety policy not initialized") end
