@@ -136,4 +136,16 @@ check(not s.player.dead,'training reset falsely declared character dead')
 s=fresh();s.room.id=7;s.training={enabled=true,target=s.target.name,generation=s.target_generation,room=7}
 lines(s,'A runed target dummy says, "I have triumphed in battle!"')
 check(s.training_battle_ended and s.stop_reason=='training battle ended','reported training defeat ignored')
+
+-- Prompts/blank lines never replace meaningful debug history; parsing still runs.
+s=fresh();E.event(s,'You use Tekura Spear on Enemy.');local last=s.last_event;local size=#s.recent_events
+for _,prompt in ipairs({'H:3475 (82%) M:2934 (100%) End:86% Will:100% Sandstorm: Soul:100% XP:30.80% [s e-]','4394h, 2934m e-','HP: 4394 (100%) MP: 2934 (100%)','[STANCE: SCORPION] [Kai: 0]','  ',string.char(27)..'[32mH:123 (50%) M:456 (50%)'..string.char(27)..'[0m'})do E.event(s,prompt);check(s.last_event==last and #s.recent_events==size,'prompt/blank overwrote event history')end
+E.event(s,'custom prompt with no known format',true);check(s.last_event==last,'native prompt metadata was ignored')
+local previous=isPrompt;isPrompt=function()return true end;E.event(s,'another custom prompt');check(s.last_event==last,'live Mudlet prompt flag was ignored');isPrompt=previous
+local eq=s.recoveries.equilibrium or 0;E.event(s,'You have recovered equilibrium.',true);check(s.recoveries.equilibrium==eq+1 and s.last_event==last,'display filter suppressed combat parsing')
+E.event(s,'You use Tekura Spear on Enemy.');E.event(s,'H:100 (100%) M:100 (100%)');E.event(s,'You connect to the left arm!');check(s.target.limbs.left_arm>0 and s.last_event=='You connect to the left arm!','prompt handling broke hit correlation')
+for i=1,25 do E.event(s,'Meaningful fixture event '..i)end
+check(#s.recent_events==20 and s.recent_events[1].text=='Meaningful fixture event 25' and s.recent_events[20].text=='Meaningful fixture event 6','event history unbounded or out of order')
+check(s.recent_events[1].time==clock,'event timestamp did not use observed time')
+
 print('PASS combat-text '..count..' assertions: sourced message correlation, estimates, parry/miss/hidden-hit guards, actor identity, affliction cures, shield, rebounding, independent balance events, duplicate kills and scorpion opening')

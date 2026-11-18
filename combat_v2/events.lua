@@ -41,10 +41,28 @@ local function injury(s,actor,raw,kind)
  if (kind=="broken" or kind=="mangled") and (limb:find("arm",1,true) or limb:find("leg",1,true)) then observe(s,"crippled",{limb=limb,value=true}) end
  return true
 end
-function M.event(s,text)
+-- Prompt filtering affects the debug display only, never combat parsing.
+function M.is_display_noise(text)
+ if type(text)~="string" then return true end
+ local t=text:gsub(string.char(27).."%[[%d;]*m",""):match("^%s*(.-)%s*$")
+ return t=="" or t:match("^H:%s*[%d,]+.-%sM:%s*[%d,]+")~=nil
+  or t:match("^[%d,]+h,%s*[%d,]+m")~=nil
+  or t:match("^HP:%s*[%d,]+.-%sMP:%s*[%d,]+")~=nil
+  or t:match("^%[STANCE:")~=nil
+end
+function M.display_event(s,text,is_prompt)
+ if is_prompt==nil and type(isPrompt)=="function" then local ok,v=pcall(isPrompt);is_prompt=ok and v==true end
+ if is_prompt or M.is_display_noise(text) then return false end
+ s.last_event=text;s.recent_events=s.recent_events or {}
+ table.insert(s.recent_events,1,{text=text,time=getEpoch and getEpoch() or os.time()})
+ while #s.recent_events>20 do table.remove(s.recent_events)end
+ return true
+end
+
+function M.event(s,text,is_prompt)
  if type(text)~="string" then return s end
  text=text:gsub(string.char(27).."%[[%d;]*m",""):match("^%s*(.-)%s*$")
- s.last_event=text;local low=text:lower();local p=s.player
+ M.display_event(s,text,is_prompt);local low=text:lower();local p=s.player
  local training=s.training
  local report_end=text=='A runed target dummy says, "I have triumphed in battle!"' and training and training.enabled and training.generation==s.target_generation and training.room==s.room.id
  if text=="The dummy's eyes dim as it ceases fighting." or report_end then

@@ -328,6 +328,20 @@ function M.create()
  if not ui.buttons.help then button(ui,"help","HELP",function()combat_v2.gui.show_help()end) end
  M.layout();return ui.root
 end
+function M.event_feed(state)
+ local history=state.recent_events;local rows={}
+ if history and #history>0 then
+  for i=1,math.min(3,#history)do
+   local item=history[i];local text=item.text or ""
+   if #text>84 then text=text:sub(1,81):gsub("[\194-\244][\128-\191]*$","").."…" end
+   local stamp=os.date("%H:%M:%S",math.floor(item.time or 0))
+   rows[#rows+1]="<span style='color:"..C.muted..";'>"..stamp.."</span> "..esc(text)
+  end
+ elseif state.last_event then rows[1]=esc(state.last_event)
+ else rows[1]="<span style='color:"..C.muted..";'>Waiting for non-prompt game events</span>" end
+ return html(heading("RECENT EVENTS").."<span style='font-size:11px;'>"..table.concat(rows,"<br>").."</span>")
+end
+
 function M.refresh(state,runner,cure)
  if not M.cards then M.create() end
  local ui=combat_v2_ui;local p,t=state.player,state.target
@@ -348,6 +362,6 @@ function M.refresh(state,runner,cure)
  affpanel(ui,"enemy_afflictions",t.afflictions,"ENEMY AFFLICTIONS","tracked / inferred",C.bad)
  local d=state.defense;local defense=not state.connected and "OFFLINE" or d and d.phase or "monitoring"
  M.cards.cure:echo(html(heading("DEFENSE / FIRSTAID").."<span style='color:"..(d and d.hold and C.bad or C.good)..";'>"..esc(defense).."</span> · FA: "..(cure.enabled and "requested" or "unverified")))
- M.cards.events:echo(html(heading("LAST EVENT")..esc(state.last_event or "Waiting for in-game data")))
+ M.cards.events:echo(M.event_feed(state))
 end
 return M

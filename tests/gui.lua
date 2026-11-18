@@ -127,4 +127,12 @@ assert(body.sides.enemy.layers.head.image:find('head_unknown.png',1,true),'enemy
 assert(sends==0 and combat_v2.runner.mode==before_mode,'body scanner changed execution')
 local rebuilt=dofile(path..'gui.lua');combat_v2.gui=rebuilt;rebuilt.create();rebuilt.refresh(state,combat_v2.runner,combat_v2.cure);rebuilt.show_body();assert(created==scanner_widgets,'GUI reload leaked scanner objects')
 
+
+state.last_event='H:3475 (82%) M:2934 (100%)';state.recent_events={{time=100,text='<injury> observed'},{time=99,text='A cure was confirmed.'},{time=98,text='An enemy was slain.'},{time=97,text='older invisible event'}}
+rebuilt.refresh(state,combat_v2.runner,combat_v2.cure)
+local feed=rebuilt.cards.events.html
+assert(feed:find('RECENT EVENTS',1,true) and feed:find('&lt;injury&gt;',1,true),'recent event rendering/escaping failed')
+assert(feed:find('%d%d:%d%d:%d%d') and feed:find('A cure was confirmed.',1,true),'event timestamps/history missing')
+assert(not feed:find('H:3475',1,true) and not feed:find('older invisible event',1,true),'prompt or old event replaced recent history')
+
 print('PASS GUI: reusable root, escaping, flags, separate large affliction panels, counts, independent paging, cure page clamp, responsive bounds at three resolutions; widgets='..created)
