@@ -26,8 +26,109 @@ function M.prompt_text(state,runner)
  local mount=flag(p.mounted) and "MOUNTED" or "ON FOOT"
  return "<white>[<cyan>STANCE: <"..color..">"..stance.."<white>] [<cyan>Kai: <white>"..(tonumber(p.kai) or "?").."] ["..balance("balance","B").." "..balance("equilibrium","E").." "..balance("left_arm_balance","L").." "..balance("right_arm_balance","R").."<white>] ["..posture.."<white> / "..mount.."] [<cyan>"..tostring(runner.mode or "OFF"):gsub("[^%w_]", "").."<white>]"
 end
+function M.vitals_text(state,g)
+ local p=state.player;local v=g and g.Char and g.Char.Vitals or {}
+ local function resource(title,value,maximum)
+  local n,m=tonumber(value),tonumber(maximum)
+  if not n or not m or m<=0 then return "<white>[<cyan>"..title..": <yellow>?<white>]" end
+  local pct=math.max(0,math.min(100,100*n/m));local color=pct<30 and "red" or pct<60 and "yellow" or "green"
+  return "<white>[<cyan>"..title..": <"..color..">"..n.." ("..string.format("%.0f",pct).."%)<white>]"
+ end
+ local out={resource("HP",p.hp,p.maxhp),resource("MP",p.mana,p.maxmana)}
+ if v.ep~=nil then out[#out+1]=resource("End",v.ep,v.maxep) end
+ if v.wp~=nil then out[#out+1]=resource("Will",v.wp,v.maxwp) end
+ if tonumber(v.xp) and (tonumber(v.maxxp) or 0)>0 then out[#out+1]="<white>[<cyan>XP: <white>"..string.format("%.2f%%",100*tonumber(v.xp)/tonumber(v.maxxp)).."]" end
+ return table.concat(out," ")
+end
 function M.render_prompt(state,runner)
- if cecho then cecho("\n"..M.prompt_text(state,runner).."<reset>\n") end
+ if not cecho then return end
+ -- This renderer is invoked only by the server-prompt trigger, never a GUI repaint.
+ -- Replace the original prompt in place, preserving GMCP and other prompt handlers.
+ if selectCurrentLine and replace then selectCurrentLine();replace("") end
+ cecho(M.vitals_text(state,gmcp).."\n"..M.prompt_text(state,runner).."<reset>")
+end
+function M.help_text()
+ return table.concat({
+  "<cyan>COMBAT V2  |  MONK COMMAND GUIDE<white>",
+  "Read-only help: nothing in this window starts attacks.",
+  "",
+  "<cyan>GET STARTED<white>",
+  "  t NAME / NPC-ID       Select a target (e.g. t teshen).",
+  "  cv2 bash              Arm persistent NPC bashing.",
+  "  cv2 off               Stop attacks immediately. FIRSTAID is separate.",
+  "  cv2 shadow            Observe proposals without attacking.",
+  "  cv2 assist            Prepare actions for manual approval.",
+  "  cv2 approve           Approve the current ASSIST action.",
+  "",
+  "<cyan>BASHING, AREAS & WEB MEMBERS<white>",
+  "  BASH stays armed across rooms; empty rooms recheck IH every 2s.",
+  "  Fresh room checks choose selected/queued or AC2-whitelisted mobs.",
+  "  Guards, corpses and loyal/protected NPCs are excluded.",
+  "  Unlisted areas ask permission; unverified players pause attacks.",
+  "  cv2 ih                Recheck current-room targets (BASH only).",
+  "  cv2 areas             Refresh the game's hunting-area list.",
+  "  cv2 area yes / no     Answer the current area's approval prompt.",
+  "  cv2 web               Refresh the current WEB MEMBERS roster.",
+  "  cv2 config group_web on / off",
+  "                        Allow verified web members / strict solo mode.",
+  "",
+  "<cyan>OPTIONAL TARGET QUEUE<white>",
+  "  cv2 queue add NAME    Add a preferred mob or numeric ID.",
+  "  cv2 queue list        Show queued targets.",
+  "  cv2 queue next        Skip to the next queued target.",
+  "  cv2 queue clear       Clear the queue.",
+  "",
+  "<cyan>PVP & ROUTES<white>",
+  "  cv2 pvp / auto       Select FULL_AUTO for the current player target.",
+  "  cv2 route legs / arms / head / torso / balanced",
+  "  PvP is a testing backend, not a fully validated unattended system.",
+  "",
+  "<cyan>CURING & SAFETY<white>",
+  "  cv2 curing on / off  Request native server FIRSTAID on/off.",
+  "  cv2 config health_pause 30",
+  "  cv2 config health_resume 60",
+  "  cv2 config ack_timeout 8",
+  "  Health/connection/recovery uncertainty blocks sending.",
+  "  An unknown attack acknowledgement latches a safe pause.",
+  "",
+  "<cyan>OBSERVED TARGET CORRECTIONS<white>",
+  "  cv2 track limb ll 25       Set an observed limb percentage.",
+  "  cv2 track damage ll 7.5    Add observed limb damage.",
+  "  cv2 track crippled ll on   Also: broken / mangled, on / off.",
+  "  cv2 track aff paralysis on",
+  "  cv2 track prone on / off",
+  "  cv2 track parry right_leg  Use none to clear.",
+  "  cv2 track shield on / off",
+  "  cv2 track rebounding on / off",
+  "  Limbs: la, ra, ll, rl, torso, head. PvP tracking is ignored in BASH.",
+  "",
+  "<cyan>DIAGNOSTICS<white>",
+  "  cv2 status            Show current execution state.",
+  "  cv2 trace 20          Show recent evidence and actions.",
+  "  cv2 reset             Clear a latched wait/fault AFTER reviewing trace.",
+  "  cv2 reload            Reload the full backend; always starts OFF.",
+  "  cv2 help              Reopen this movable, scrollable window.",
+  "",
+  "<cyan>PROMPT LEGEND<white>",
+  "  Green stance = observed. Red NOT STANCED = explicitly out of stance.",
+  "  Amber UNKNOWN = no current confirmation. Kai = observed Kai energy.",
+  "  B / E = balance / equilibrium. L / R = left / right arm readiness.",
+  "  The prompt also shows HP, mana, endurance, willpower, XP and mode.",
+  "",
+  "<white>Close with the window's X. Opening/closing help never changes modes.",
+ },"\n").."<reset>\n"
+end
+function M.show_help()
+ if not openUserWindow then print("Combat V2 help: see docs/backend.md");return false end
+ local ui=combat_v2_ui;local name="Combat V2 Help"
+ if not ui.help_created then
+  openUserWindow(name,false);ui.help_created=true
+  resizeWindow(name,860,680)
+  if setUserWindowTitle then setUserWindowTitle(name,"Combat V2 - Help & Commands") end
+  if setBackgroundColor then setBackgroundColor(name,25,39,53) end
+  if setFontSize then setFontSize(name,12) end
+ end
+ clearWindow(name);cecho(name,M.help_text());showWindow(name);if scrollTo then scrollTo(name,0) end;return true
 end
 local function sorted(t) local a={};for k,v in pairs(t or {}) do if v then a[#a+1]=tostring(k) end end;table.sort(a);return a end
 local function label(ui,k)
@@ -47,7 +148,7 @@ function M.layout()
  ui.width=rw;ui.height=rh;ui.root:move(w-rw-10,10);ui.root:resize(rw,rh);setBorderRight(rw+30)
  local y=0
  local function card(k,height) place(ui.cards[k],10,y,cw,height);y=y+height+8 end
- card("header",60)
+ card("header",60);place(ui.buttons.help,rw-90,12,70,30)
  local bw=(cw-24)/5
  for i,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do place(ui.buttons[m],10+(i-1)*(bw+6),y,bw,30) end
  y=y+38;local compact=rh<800;card("status",compact and 110 or 120);card("target",compact and 70 or 80);card("limbs",compact and 90 or 102)
@@ -105,6 +206,7 @@ function M.create()
    end) end
   end
  end
+ if not ui.buttons.help then button(ui,"help","HELP",function()combat_v2.gui.show_help()end) end
  M.layout();return ui.root
 end
 function M.refresh(state,runner,cure)

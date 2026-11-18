@@ -290,7 +290,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
   elseif sub=="next" then ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() elseif c.mode=="BASH" then c.current.hunting.active=true;c.current.stop_reason=nil;combat_v2_start_ih("queue empty") else combat_v2_stop(why) end
   elseif sub=="list" then print("Queued: "..table.concat(c.current.hunting.queue,", "))
   else ok,why=false,"cv2 queue add NAME | list | next | clear" end
- elseif cmd=="help" then print("t NAME; cv2 bash/pvp/assist/approve/off; route legs/arms/head/torso/balanced; queue add NAME/list/next/clear; areas; area yes/no; web; config group_web on/off; track; config; trace; curing on/off; reload")
+ elseif cmd=="help" then if c.gui.show_help then c.gui.show_help() else print("Help GUI unavailable; see docs/backend.md") end
  else ok,why=combat_v2_set_mode(cmd) end
  if not ok and why then print(why) end
 end)

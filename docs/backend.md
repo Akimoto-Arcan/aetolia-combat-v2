@@ -66,7 +66,7 @@ Boosted legacy values apply only to an observed Tiger/Cobra stance. Change calib
 
 ## Monk subprompt
 
-An observed-only colored line appears below each server prompt, modeled on Fallout's `prompt_sub`: stance, Kai, balance/equilibrium, each arm, posture/mount state, and current execution mode. The sidebar also shows a prominent STANCE label. Confirmed stance is green, explicit no-stance red, and missing/offline information amber UNKNOWN. Sending an attack never establishes a stance. The original game prompt and BaseUI processing are preserved; display refreshes send no game commands. GUI-only hot reload preserves the execution mode, and full bootstrap reload replaces the old prompt trigger rather than duplicating it.
+The game prompt is replaced in place with a colored two-line prompt modeled on Fallout's `prompt_sub`. The first line shows HP/mana and available endurance, willpower and XP data; the second shows stance, Kai, balance/equilibrium, each arm, posture/mount state, and current execution mode. The sidebar also shows a prominent STANCE label. Confirmed stance is green, explicit no-stance red, and missing/offline information amber UNKNOWN. Sending an attack never establishes a stance. The original server prompt is replaced only after receipt; GMCP and BaseUI processing remain intact. Display refreshes send no game commands. `cv2 help` or the HELP button opens a reusable, movable, scrollable native help window with grouped command reference; it never changes combat modes or executes attacks. GUI-only hot reload preserves the execution mode, and full bootstrap reload replaces the old prompt trigger rather than duplicating it.
 
 ## Review and correction controls
 

@@ -47,6 +47,28 @@ local output={};function cecho(value)output[#output+1]=value end
 other.render_prompt(state,combat_v2.runner);assert(#output==1 and output[1]:find('SCORPION',1,true),'subprompt renderer failed')
 state.player.dead=true;assert(other.stance(state)=='NOT STANCED (dead)','dead player displayed stanced');state.player.dead=false
 state.player.stance='scorpion';state.player.prone=false;state.player.mounted=false
+
+local selected,removed=false,nil
+function selectCurrentLine()selected=true end
+function replace(value)assert(selected,'replacement before prompt selection');removed=value end
+output={};other.render_prompt(state,combat_v2.runner)
+assert(selected and removed=='' and #output==1,'original game prompt was not replaced exactly once')
+assert(output[1]:find('HP:',1,true) and output[1]:find('MP:',1,true),'replacement lost health or mana')
+local vitals=other.vitals_text(state,{Char={Vitals={ep=50,maxep=100,wp=20,maxwp=100,xp=25,maxxp=100}}})
+assert(vitals:find('End:',1,true) and vitals:find('Will:',1,true) and vitals:find('25.00%',1,true),'extended prompt resources missing')
+state.player.hp=20;state.player.maxhp=100;assert(other.vitals_text(state):find('<red>20 (20%)',1,true),'low health lacks warning')
+local opened,shown,cleared,scrolled=0,0,0,0;local help_output
+function scrollTo(name,n)assert(name=="Combat V2 Help" and n==0);scrolled=scrolled+1 end
+function openUserWindow(name)assert(name=='Combat V2 Help');opened=opened+1 end
+function resizeWindow(name,w,h)assert(w>=800 and h>=600)end
+function clearWindow()cleared=cleared+1 end
+function showWindow()shown=shown+1 end
+function cecho(name,text)help_output=text or name end
+local prior_mode=combat_v2.runner.mode
+assert(other.show_help() and other.show_help(),'help window did not open/reopen')
+assert(opened==1 and shown==2 and cleared==2 and scrolled==2,'help duplicated the user window or did not open at the top')
+assert(help_output:find('GET STARTED',1,true) and help_output:find('cv2 area yes / no',1,true) and help_output:find('DIAGNOSTICS',1,true),'grouped command guide incomplete')
+other.buttons.help.click();assert(shown==3 and combat_v2.runner.mode==prior_mode,'HELP button changed mode or failed')
 local function bounds()
  for k,o in pairs(other.cards) do if not o.hidden then
   assert(o.p.x>=0 and o.p.x+o.p.width<=first.p.width,k..' horizontal overflow')
