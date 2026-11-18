@@ -8,7 +8,7 @@ import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parent
-MODULES = {'bootstrap.lua', 'state.lua', 'monk.lua', 'events.lua', 'runner.lua', 'curing.lua', 'gui.lua', 'tracker.lua', 'bashing.lua'}
+MODULES = {'bootstrap.lua', 'state.lua', 'monk.lua', 'events.lua', 'runner.lua', 'curing.lua', 'gui.lua', 'tracker.lua', 'bashing.lua', 'policy.lua', 'mobs.lua'}
 
 def default_profiles():
     if sys.platform == 'win32':

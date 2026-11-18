@@ -2,7 +2,7 @@
 local root=assert(arg[1]);local now=100;function getEpoch()return now end
 local sent={};function send(cmd)sent[#sent+1]=cmd end
 local S=dofile(root..'state.lua');local T=dofile(root..'tracker.lua');local B=dofile(root..'bashing.lua');B.bind(S)
-local K=dofile(root..'monk.lua');K.bind(T);local R=dofile(root..'runner.lua');local E=dofile(root..'events.lua');E.bind(T)
+local K=dofile(root..'monk.lua');K.bind(T);local R=dofile(root..'runner.lua');R.bind_policy(function()return true end);local E=dofile(root..'events.lua');E.bind(T)
 local count=0;local function check(v,msg)assert(v,msg);count=count+1 end
 local function fresh(mode)
  now=now+1;local s=S.new();S.set_target(s,'dummy');S.sync_gmcp(s,{Char={Vitals={hp='100',maxhp='100',balance='1',equilibrium='1',left_arm='1',right_arm='1'}}});s.mode=mode or 'FULL_AUTO'
@@ -53,13 +53,13 @@ s,r=fresh('BASH');s.player.prone=true;check(not R.tick(r),'prone player attacked
 s,r=fresh('BASH');s.player.afflictions.paralysis=true;check(not R.tick(r),'paralysed player attacked')
 s,r=fresh('BASH');now=now+120;check(not R.watchdog(r) and r.mode=='BASH','idle GMCP was treated as a disconnected session')
 check(R.tick(r),'quiet but connected session could not execute after idle')
-s,r=fresh('BASH');now=now+120;s.connected=false;check(not R.tick(r) and r.mode=='OFF','idle-vitals fix allowed disconnected execution')
+s,r=fresh('BASH');now=now+120;s.connected=false;check(not R.tick(r) and r.mode=='BASH','disconnect must pause armed BASH without sending')
 s,r=fresh('BASH');getConnectionInfo=function()return 'fixture',0,false end
-check(not R.tick(r) and r.mode=='OFF','closed TCP transport allowed execution');getConnectionInfo=nil
-s,r=fresh('BASH');check(R.tick(r),'initial send failed');local before=#sent;now=now+9;check(R.watchdog(r) and r.mode=='OFF' and #sent==before,'watchdog retried/spammed')
+check(not R.tick(r) and r.mode=='BASH','closed TCP transport must pause armed BASH');getConnectionInfo=nil
+s,r=fresh('BASH');check(R.tick(r),'initial send failed');local before=#sent;now=now+9;check(not R.watchdog(r) and r.mode=='BASH' and r.fault and #sent==before,'BASH watchdog must latch safe pause without resending')
 s,r=fresh('ASSIST');check(not R.tick(r) and r.pending,'assist not pending');S.set_target(s,'another');check(not R.approve(r),'old target approval accepted')
 s,r=fresh('ASSIST');R.tick(r);observe(s,'shield',{value=true});check(not R.approve(r),'changed defence stale approval accepted')
-s,r=fresh('BASH');r.sender=function()error('fake error')end;check(not R.tick(r) and r.mode=='OFF' and not r.waiting,'sender error left runner live')
+s,r=fresh('BASH');r.sender=function()error('fake error')end;check(not R.tick(r) and r.mode=='BASH' and r.fault,'sender error must latch safe pause in armed BASH')
 s,r=fresh('BASH');B.add(s,'second');B.add(s,'third');check(not B.add(s,'second'),'duplicate queue accepted');check(not B.add(s,'x;quit'),'unsafe queue accepted');B.start(s);R.tick(r)
 E.event(s,'You have slain dummy.');check(s.stop_reason=='target slain','selected kill unrecognised');s.stop_reason=nil;check(B.killed(s) and s.target.name=='second' and s.hunting.kills==1,'queue did not advance')
 E.event(s,'You have slain unrelated.');check(not s.stop_reason,'unrelated kill stopped target')
@@ -109,8 +109,8 @@ handlers['combat_v2.observation']('', 'affliction','Wrong','asthma',true,1);chec
 handlers['combat_v2.observation']('', 'affliction','Enemy','asthma',true,1);check(combat_v2.current.target.afflictions.asthma,'integration observation missing')
 for i=1,110 do S.record(combat_v2.current,'fixture',i)end;check(#combat_v2.current.history==100,'trace unbounded')
 command('trace 2');check(#sent==before,'tracking/config/trace sent commands')
-combat_v2.current.mode='BASH';combat_v2.mode='BASH';combat_v2.runner.mode='BASH';combat_v2.current.room.id=1;gmcp.Room={Info={num=2}};emit('gmcp.Room.Info');check(combat_v2.mode=='OFF','room change did not stop bashing')
-combat_v2.current.connected=true;emit('sysDisconnectionEvent');check(not combat_v2.current.connected and combat_v2.mode=='OFF','disconnect not stopped')
+combat_v2.current.mode='BASH';combat_v2.mode='BASH';combat_v2.runner.mode='BASH';combat_v2.current.room.id=1;gmcp.Room={Info={num=2}};emit('gmcp.Room.Info');check(combat_v2.mode=='BASH','room change unexpectedly disabled BASH')
+combat_v2.current.connected=true;emit('sysDisconnectionEvent');check(not combat_v2.current.connected and combat_v2.mode=='BASH','disconnect failed to retain armed but paused BASH')
 gmcp.Char.Vitals={hp=100,maxhp=100,balance=1,equilibrium=1,left_arm=1,right_arm=1};combat_v2.current.vitals_at=nil
 realdofile(root..'bootstrap.lua');check(#sent==before and combat_v2.mode=='OFF','reload sent or retained auto')
 check(not combat_v2.current.connected and combat_v2.current.vitals_at==nil,'reload promoted cached GMCP into live connection')

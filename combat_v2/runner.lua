@@ -7,6 +7,7 @@ local function connected(s)
  if getConnectionInfo then local _,_,tcp=getConnectionInfo();return tcp==true end
  return true
 end
+function M.bind_policy(fn) M.policy=fn end
 function M.new(s,monk) return {state=s,monk=monk,mode="OFF",waiting=false,enabled=true,last_send=-100,cooldown=.3,status="OFF"} end
 function M.ready(r,requirements)
  local p=r.state.player
@@ -18,20 +19,31 @@ function M.propose(r)
  r.state.mode=r.mode;local a=r.monk.choose(r.state);a.generation=r.state.target_generation;r.state.last_action=a;return a
 end
 function M.stop(r,reason)
- r.mode="OFF";r.state.mode="OFF";r.pending=nil;r.waiting=false;r.status=reason or "OFF";r.paused_health=false
+ r.mode="OFF";r.state.mode="OFF";r.pending=nil;r.waiting=false;r.status=reason or "OFF";r.paused_health=false;r.fault=nil
  if r.state.hunting then r.state.hunting.active=false end
 end
 function M.watchdog(r)
  if r.mode=="OFF" or r.mode=="SHADOW" then return false end
  -- Char.Vitals is event-driven, not a heartbeat; an idle timestamp is diagnostic only.
- if not connected(r.state) then M.stop(r,"not logged in / disconnected");return true end
- if r.waiting and now()-r.last_send>cfg(r,"ack_timeout",8) then M.stop(r,"attack acknowledgement timed out; inspect cv2 trace");return true end
+ if not connected(r.state) then
+  if r.mode=="BASH" then r.status="BASH paused: disconnected";return false end
+  M.stop(r,"not logged in / disconnected");return true
+ end
+ if r.waiting and now()-r.last_send>cfg(r,"ack_timeout",8) then
+  if r.mode=="BASH" then r.fault="Attack acknowledgement timed out; cv2 reset after review";r.status=r.fault;return false end
+  M.stop(r,"attack acknowledgement timed out; inspect cv2 trace");return true
+ end
  return false
 end
 function M.execute(r,a,approved)
  local s,p=r.state,r.state.player
  local function deny(msg) r.status=msg;return false,msg end
  if r.mode=="OFF" or r.mode=="SHADOW" then return deny(r.mode) end
+ if r.fault then return deny(r.fault) end
+ if r.mode=="BASH" then
+  if not M.policy then return deny("BASH safety policy not initialized") end
+  local ok,why=M.policy(s);if not ok then return deny(why) end
+ end
  if r.mode=="BASH" and s.hunting and s.hunting.ih and s.hunting.ih.active then return deny("waiting for IH target confirmation") end
  if not connected(s) then return deny("not logged in / disconnected") end
  if (tonumber(p.hp) or 0)<=0 or p.dead then return deny("dead / no vitals") end
@@ -51,7 +63,7 @@ function M.execute(r,a,approved)
  r.recovery_snapshot={};for key,n in pairs(s.recoveries or {}) do r.recovery_snapshot[key]=n end
  r.reject_snapshot=s.reject_sequence or 0;s.target.attacked_generation=s.target_generation;s.target.last_attack_at=now()
  local ok,err=pcall(sender,a.command)
- if not ok then M.stop(r,"sender error: "..tostring(err));return false,r.status end
+ if not ok then if r.mode=="BASH" then r.fault="sender error: "..tostring(err);r.status=r.fault else M.stop(r,"sender error: "..tostring(err)) end;return false,r.status end
  if s.stats then s.stats.sent=s.stats.sent+1 end
  if s.history then s.history[#s.history+1]={time=now(),kind="send",target=s.target.name,detail=a.command,reason=a.reason,generation=s.target_generation};while #s.history>100 do table.remove(s.history,1) end end
  return true,a.command
@@ -75,8 +87,8 @@ function M.update_balance(r)
  end
 end
 function M.tick(r)
- if M.watchdog(r) then return false,r.status end
  M.update_balance(r)
+ if M.watchdog(r) then return false,r.status end
  if r.mode=="OFF" then return false,r.status end
  return M.execute(r,M.propose(r))
 end

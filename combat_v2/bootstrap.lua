@@ -6,10 +6,11 @@ for _,key in ipairs({"line_trigger"}) do if c[key] then killTrigger(c[key]) end 
 for _,key in ipairs({"alias","target_alias"}) do if c[key] then killAlias(c[key]) end end
 for _,key in ipairs({"retry_timer","watch_timer","ih_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
 c.state=dofile(root.."state.lua");c.current=c.state.upgrade(c.current)
-c.tracker=dofile(root.."tracker.lua");c.bashing=dofile(root.."bashing.lua");c.bashing.bind(c.state)
+c.tracker=dofile(root.."tracker.lua");c.bashing=dofile(root.."bashing.lua");c.bashing.bind(c.state);c.mobs=dofile(root.."mobs.lua");c.bashing.bind_mobs(c.mobs)
 c.monk=dofile(root.."monk.lua");c.monk.bind(c.tracker)
 c.events=dofile(root.."events.lua");c.events.bind(c.tracker)
 c.runner_module=dofile(root.."runner.lua");c.curing=dofile(root.."curing.lua");c.gui=dofile(root.."gui.lua")
+c.policy=dofile(root.."policy.lua");c.policy.init(c.current,gmcp or {});c.runner_module.bind_policy(c.policy.attack_allowed)
 c.runner=c.runner_module.new(c.current,c.monk);c.cure=(c.cure and c.cure.status) and c.cure or c.curing.new()
 c.mode="OFF";c.current.mode="OFF";c.current.hunting.active=false;c.current.stop_reason=nil
 local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
@@ -28,20 +29,19 @@ function combat_v2_ih_result()
   return combat_v2_tick()
  end
  scan.last_failure=why;c.state.record(s,"ih_miss",scan.attempts.."/3: "..why)
- if scan.attempts>=3 then combat_v2_stop("No target found after 3 IH checks");return false end
- c.runner.status="IH "..scan.attempts.."/3: no target; next check in 2s";refresh();return false
+ c.runner.status="BASH armed: no matching target; IH check "..scan.attempts..", retry in 2s";refresh();return false
 end
 function combat_v2_request_ih()
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active then return false end
- if not s.connected or (tonumber(s.player.hp) or 0)<=0 or s.player.dead then combat_v2_stop("IH cancelled: not logged in / dead");return false end
+ if not s.connected or (tonumber(s.player.hp) or 0)<=0 or s.player.dead then cancel_ih();c.runner.status="BASH paused: disconnected / dead";refresh();return false end
+ local safe,reason=c.policy.allowed(s);if not safe then cancel_ih();c.runner.status=reason;refresh();return false end
  if not c.bashing.ih_request(s) then return false end
- c.runner.status="Checking IH "..scan.attempts.."/3";c.state.record(s,"ih_request",scan.attempts.."/3")
+ c.runner.status="Checking IH "..scan.attempts;c.state.record(s,"ih_request",scan.attempts.."/3")
  c.ih_timer=tempTimer(2,function()
   if c.mode~="BASH" or c.current.hunting.ih~=scan or not scan.active then return end
   c.ih_timer=nil
   if scan.pending then scan.pending=false;scan.last_failure="IH response unavailable";c.state.record(s,"ih_timeout",scan.attempts.."/3") end
-  if scan.attempts>=3 then combat_v2_stop("No target confirmed after 3 IH checks");return end
   combat_v2_request_ih()
  end)
  local ok,why=pcall(function()
@@ -50,7 +50,7 @@ function combat_v2_request_ih()
   sendGMCP([[Char.Items.Room ""]])
   local sender=c.ih_sender or send;sender("ih")
  end)
- if not ok then combat_v2_stop("IH send failed: "..tostring(why));return false end
+ if not ok then cancel_ih();c.runner.fault="IH send failed: "..tostring(why);c.runner.status=c.runner.fault;refresh();return false end
  refresh();return true
 end
 function combat_v2_start_ih(reason)
@@ -71,8 +71,25 @@ function combat_v2_stop(reason)
 end
 local function watchdog()
  c.watch_timer=nil
- if not (c.current.hunting.ih and c.current.hunting.ih.active) and c.runner_module.watchdog(c.runner) then combat_v2_stop(c.runner.status);return end
+ if c.mode=="BASH" then combat_v2_tick()
+ elseif c.runner_module.watchdog(c.runner) then combat_v2_stop(c.runner.status);return end
  if c.mode~="OFF" and c.mode~="SHADOW" then c.watch_timer=tempTimer(1,watchdog) end
+end
+function combat_v2_area_approve(visit,yes)
+ local ok,why=c.policy.approve(c.current,visit,yes~=false)
+ if ok then combat_v2_tick() end
+ return ok,why
+end
+local function area_prompt()
+ local p=c.current.policy
+ if p.areas_loaded and not c.policy.area_allowed(c.current) and p.prompted~=p.visit then
+  p.prompted=p.visit
+  print("BASH PAUSED: "..tostring(c.current.room.area).." is not in AREAS. Enable bashing for this area visit?")
+  if echoLink then
+   echoLink("[Enable here] ","combat_v2_area_approve("..p.visit..",true)","Approve only this area visit",true)
+   echoLink("[Keep paused]\n","combat_v2_area_approve("..p.visit..",false)","Do not attack here",true)
+  else print("cv2 area yes / cv2 area no") end
+ end
 end
 function combat_v2_tick()
  local s=c.current
@@ -85,9 +102,19 @@ function combat_v2_tick()
    local why=s.stop_reason;s.stop_reason=nil
    if why=="target unavailable" then c.runner.waiting=false end
    combat_v2_start_ih(why);return false,"checking IH"
+  elseif c.mode=="BASH" then local why=s.stop_reason;s.stop_reason=nil;cancel_ih();c.runner.status="BASH paused: "..why;refresh();return false,why
   else local why=s.stop_reason;combat_v2_stop(why);return false,why end
  end
  if c.mode=="BASH" then
+  c.runner_module.update_balance(c.runner);c.runner_module.watchdog(c.runner)
+  if c.runner.fault then cancel_ih();c.runner.status=c.runner.fault;refresh();return false,c.runner.fault end
+  for _,command in ipairs(c.policy.services(s)) do send(command) end
+  local safe,why=c.policy.allowed(s)
+  if not safe or not s.connected or s.player.dead or (tonumber(s.player.hp) or 0)<=0 then
+   cancel_ih();s.hunting.verified_generation=nil;c.runner.pending=nil
+   c.runner.status=not s.connected and "BASH paused: disconnected" or s.player.dead and "BASH paused: dead" or why
+   area_prompt();refresh();return false,c.runner.status
+  end
   if s.hunting.ih and s.hunting.ih.active then refresh();return false,"checking IH" end
   if not s.target.name or s.target.dead or s.hunting.verified_generation~=s.target_generation then combat_v2_start_ih("verify bashing target");return false,"checking IH" end
  end
@@ -106,7 +133,6 @@ function combat_v2_set_mode(mode)
   c.current.hunting.verified_generation=nil
  end
  if not c.watch_timer and mode~="SHADOW" then c.watch_timer=tempTimer(1,watchdog) end
- if mode=="BASH" then return combat_v2_start_ih("BASH started") end
  return combat_v2_tick()
 end
 function combat_v2_set_target(name)
@@ -114,7 +140,7 @@ function combat_v2_set_target(name)
  local ok,why=c.state.set_target(c.current,name)
  if ok then
   c.runner.pending=nil
-  if c.current.target_generation~=previous then c.current.hunting.target_name=nil;c.current.hunting.killed_ids={} end
+  if c.current.target_generation~=previous then c.current.hunting.target_name=nil;c.current.hunting.killed_ids={};c.current.hunting.query=c.current.target.name end
  end
  refresh();return ok,why
 end
@@ -122,7 +148,7 @@ function combat_v2_approve() local ok,why=c.runner_module.approve(c.runner);refr
 function combat_v2_set_curing(on) local ok,why=c.curing.set(c.cure,c.current,on==true);refresh();return ok,why end
 function combat_v2_reset_wait()
  -- Deliberate manual recovery; never release wait from a timer alone.
- c.runner.waiting=false;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
+ c.runner.fault=nil;c.runner.waiting=false;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
 end
 function combat_v2_propose() local a=c.runner_module.propose(c.runner);refresh();return a end
 function combat_v2_observe(e)
@@ -145,6 +171,7 @@ function combat_v2_set_route(route)
  c.current.config.route=route;c.runner.pending=nil;c.state.record(c.current,"route",route);refresh();return true
 end
 function combat_v2_config(key,value)
+ if key=="group_web" then if value~="on" and value~="off" then return false,"group_web on|off" end;c.current.policy.group_web=value=="on";c.current.policy.web.at=nil;combat_v2_tick();return true end
  if key=="estimate_trauma" then
   if value~="on" and value~="off" then return false,"estimate_trauma on|off" end
   c.current.config.estimate_trauma=value=="on";return true
@@ -167,7 +194,16 @@ end
 c.handlers={}
 local function handler(event,fn) c.handlers[#c.handlers+1]=registerAnonymousEventHandler(event,fn) end
 handler("gmcp.Char.Vitals",function() c.state.sync_gmcp(c.current,gmcp);combat_v2_tick() end)
-handler("sysDisconnectionEvent",function() c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected";combat_v2_stop("disconnected") end)
+handler("sysDisconnectionEvent",function()
+ c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
+ c.current.policy.players_known=false;c.current.policy.web.at=nil;cancel_ih()
+ if c.mode=="BASH" then if c.runner.waiting then c.runner.fault="Disconnected during attack; cv2 reset after review" end;c.runner.status="BASH paused: disconnected";refresh()
+ else combat_v2_stop("disconnected") end
+end)
+handler("gmcp.Char.Name",function() c.current.policy.self_name=tostring((gmcp.Char.Name or {}).name or ""):lower() end)
+handler("gmcp.Room.Players",function() c.policy.players(c.current,gmcp.Room.Players);combat_v2_tick() end)
+handler("gmcp.Room.AddPlayer",function() c.policy.player_add(c.current,gmcp.Room.AddPlayer);combat_v2_tick() end)
+handler("gmcp.Room.RemovePlayer",function() c.policy.player_remove(c.current,gmcp.Room.RemovePlayer);combat_v2_tick() end)
 local function collection(kind)
  handler("gmcp.Char."..kind..".List",function()
   local dest=kind=="Afflictions" and "afflictions" or "defences";local t={}
@@ -202,8 +238,12 @@ handler("gmcp.Char.Items.List",function()
 end)
 handler("gmcp.Char.Items.Remove",function() c.bashing.item_removed(c.current,gmcp.Char.Items.Remove);combat_v2_tick() end)
 handler("gmcp.Room.Info",function()
- local info=gmcp.Room.Info or {};local previous=c.current.room.id;c.current.room.id=info.num
- if previous and info.num~=previous then c.current.room.items={};if c.mode=="BASH" then combat_v2_stop("room changed; retarget before restarting") end end
+ local s=c.current;local info=gmcp.Room.Info or {};local changed=c.policy.room(s,info)
+ if changed then
+  s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
+  if c.mode=="BASH" then c.state.set_target(s,"");c.runner.pending=nil end
+ end
+ combat_v2_tick()
 end)
 handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
  local e={kind=kind,target=target,source="integration",confidence=tonumber(confidence) or 1}
@@ -216,6 +256,7 @@ handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
 end)
 c.line_trigger=tempRegexTrigger("^.*$",function()
  local text=line or matches[1]
+ if c.policy.text(c.current,text) then combat_v2_tick();refresh();return end
  if c.bashing.ih_text(c.current,text) then combat_v2_ih_result();refresh();return end
  c.events.event(c.current,text);combat_v2_tick()
 end)
@@ -231,6 +272,9 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  elseif cmd=="status" then combat_v2_status()
  elseif cmd=="trace" then combat_v2_trace(rest)
  elseif cmd=="ih" then ok,why=combat_v2_start_ih("manual IH verification")
+ elseif cmd=="area" then if rest=="yes" or rest=="no" then ok,why=combat_v2_area_approve(c.current.policy.visit,rest=="yes") else ok,why=false,"cv2 area yes|no" end
+ elseif cmd=="areas" then c.policy.request_areas(c.current);send("areas")
+ elseif cmd=="web" then c.policy.request_web(c.current);send("web members")
  elseif cmd=="route" then ok,why=combat_v2_set_route(rest)
  elseif cmd=="config" then local k,v=rest:match("^(%S+)%s+(%S+)$");ok,why=combat_v2_config(k,v)
  elseif cmd=="track" then local k,a,b=rest:match("^(%S+)%s*(%S*)%s*(%S*)$");ok,why=combat_v2_track(k,a,b)
@@ -238,10 +282,10 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
   local sub,name=rest:match("^(%S+)%s*(.*)$");sub=sub or "list"
   if sub=="add" then ok,why=c.bashing.add(c.current,name)
   elseif sub=="clear" then c.current.hunting.queue={};print("Queue cleared")
-  elseif sub=="next" then ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() else combat_v2_stop(why) end
+  elseif sub=="next" then ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() elseif c.mode=="BASH" then c.current.hunting.active=true;c.current.stop_reason=nil;combat_v2_start_ih("queue empty") else combat_v2_stop(why) end
   elseif sub=="list" then print("Queued: "..table.concat(c.current.hunting.queue,", "))
   else ok,why=false,"cv2 queue add NAME | list | next | clear" end
- elseif cmd=="help" then print("t NAME; cv2 bash/pvp/assist/approve/off; route legs/arms/head/torso/balanced; queue add NAME/list/next/clear; track; config; trace; curing on/off; reload")
+ elseif cmd=="help" then print("t NAME; cv2 bash/pvp/assist/approve/off; route legs/arms/head/torso/balanced; queue add NAME/list/next/clear; areas; area yes/no; web; config group_web on/off; track; config; trace; curing on/off; reload")
  else ok,why=combat_v2_set_mode(cmd) end
  if not ok and why then print(why) end
 end)

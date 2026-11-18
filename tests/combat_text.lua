@@ -2,7 +2,7 @@
 -- Actor names and sequences here are synthetic; legacy trauma numbers are estimates.
 local root=assert(arg[1]);local clock=100;function getEpoch()return clock end
 local S=dofile(root..'state.lua');local T=dofile(root..'tracker.lua');local E=dofile(root..'events.lua');E.bind(T)
-local K=dofile(root..'monk.lua');K.bind(T);local R=dofile(root..'runner.lua');local B=dofile(root..'bashing.lua');B.bind(S)
+local K=dofile(root..'monk.lua');K.bind(T);local R=dofile(root..'runner.lua');R.bind_policy(function()return true end);local B=dofile(root..'bashing.lua');B.bind(S)
 local sent={};function send(v)sent[#sent+1]=v end
 local count=0;local function check(ok,msg)assert(ok,msg);count=count+1 end
 local function fresh(mode)

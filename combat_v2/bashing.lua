@@ -1,5 +1,6 @@
 -- Explicit hunting queue. Never auto-select players, neutrals, or unknown room objects.
-local M={};local State
+local M={};local State;local Mobs={}
+function M.bind_mobs(list) Mobs=list or {} end
 function M.bind(state) State=state end
 function M.add(s,name)
  name=tostring(name or ""):match("^%s*(.-)%s*$")
@@ -74,13 +75,15 @@ function M.ih_select(s)
  scan.pending=false
  local ids={};for id,item in pairs(scan.items or {}) do
   local flags=item.attrib or ""
-  if tostring(id):match("^%d+$") and (flags:find("m",1,true) or item.icon=="monster") and not flags:find("d",1,true) and not flags:find("x",1,true) and not (s.hunting.killed_ids or {})[tostring(id)] then ids[#ids+1]=tostring(id) end
+  if tostring(id):match("^%d+$") and (flags:find("m",1,true) or item.icon=="monster") and not flags:find("d",1,true) and not flags:find("x",1,true) and not item.name:lower():find("guard",1,true) and not (s.hunting.killed_ids or {})[tostring(id)] then ids[#ids+1]=tostring(id) end
  end
  table.sort(ids,function(a,b)return (tonumber(a) or 0)<(tonumber(b) or 0) end)
  local wanted={}
  if s.target.name and not s.target.dead then wanted[#wanted+1]={token=tostring(s.target.name),display=s.target.display_name} end
  for i,name in ipairs(s.hunting.queue) do wanted[#wanted+1]={token=name,queue=i} end
+ if s.hunting.query and not s.hunting.query:match("^%d+$") then wanted[#wanted+1]={token=s.hunting.query} end
  if s.hunting.target_name then wanted[#wanted+1]={token=s.hunting.target_name,exact=true} end
+ for _,id in ipairs(ids)do local n=scan.items[id].name:lower();if Mobs[n] then wanted[#wanted+1]={token=n,exact=true} end end
  for _,candidate in ipairs(wanted) do
   for _,id in ipairs(ids) do
    local item=scan.items[id];local name=item.name:lower();local token=candidate.token:lower()

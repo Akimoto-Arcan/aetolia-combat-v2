@@ -2,7 +2,7 @@ local root=assert(arg[1], 'installed module path required')
 local sent={};local clock=100
 function getEpoch()return clock end
 function send(cmd)sent[#sent+1]=cmd end
-local S=dofile(root..'state.lua');local R=dofile(root..'runner.lua');local K=dofile(root..'monk.lua')
+local S=dofile(root..'state.lua');local R=dofile(root..'runner.lua');R.bind_policy(function()return true end);local K=dofile(root..'monk.lua')
 local s=S.new();local r=R.new(s,K)
 local function vit(b) S.sync_gmcp(s,{Char={Vitals={hp='100',maxhp='100',balance=b,equilibrium=b,left_arm=b,right_arm=b}}}) end
 local count=0
