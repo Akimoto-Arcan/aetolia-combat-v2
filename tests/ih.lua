@@ -108,5 +108,26 @@ combat_v2_set_mode('BASH')
 check(#gmcp_sent==1 and gmcp_sent[1]=='Char.Items.Room ""','IH did not explicitly request fresh room data before its prompt')
 check(s.target.name=='1001' and #attacks()==1,'three unchanged spiders were not acquired and attacked through fresh GMCP')
 check(not s.hunting.ih.active and combat_v2.ih_timer==nil,'synchronous refreshed response left a scan timer alive')
+-- Continue the selected NPC type after each confirmed kill; never hunt x/d flags.
+s=fresh('spider');auto_room_items={{id=1001,name='a medium pulsating spider',attrib='m'},{id=1002,name='a medium pulsating spider',attrib='m'},{id=1003,name='a medium pulsating spider',attrib='m'},{id=999,name='a medium pulsating spider',attrib='mx'}}
+combat_v2_set_mode('BASH')
+check(s.target.name=='1001','protected matching NPC was selected before a legal spider')
+auto_room_items={{id=1001,name='a medium pulsating spider',attrib='md'},{id=1002,name='a medium pulsating spider',attrib='m'},{id=1003,name='a medium pulsating spider',attrib='m'},{id=999,name='a medium pulsating spider',attrib='mx'}}
+receive('You have slain a medium pulsating spider.')
+check(s.target.name=='1002' and s.hunting.kills==1,'first kill forgot selected NPC type instead of selecting next spider')
+check(#attacks()==1,'target switch bypassed previous attack recovery')
+receive('You have recovered balance on your left arm.');receive('You have recovered balance on your legs.');receive('You have recovered balance on your right arm.');advance(.4)
+check(#attacks()==2 and attacks()[2].command=='combo 1002 sdk spp spp','second spider did not attack after real balance recovery')
+auto_room_items={{id=1003,name='a medium pulsating spider',attrib='m'},{id=999,name='a medium pulsating spider',attrib='mx'}}
+receive('You have slain a medium pulsating spider.');check(s.target.name=='1003','second kill did not select third spider')
+receive('You have recovered balance on your left arm.');receive('You have recovered balance on your legs.');receive('You have recovered balance on your right arm.');advance(.4)
+check(#attacks()==3,'third spider not attacked after recovery')
+auto_room_items={{id=999,name='a medium pulsating spider',attrib='mx'},{id=998,name='a medium pulsating spider',attrib='md'},{id=997,name='a stormwinged roc',attrib='m'}}
+receive('You have slain a medium pulsating spider.');advance(4)
+check(combat_v2.mode=='OFF' and #attacks()==3 and s.hunting.kills==3,'empty eligible pool did not halt after three IH checks, or attacked loyal/dead/unselected NPC')
+s=fresh('spider');auto_room_items={{id=1001,name='a medium pulsating spider',attrib='m'}};combat_v2_set_mode('BASH');combat_v2_stop();combat_v2_set_target('rat')
+check(s.hunting.target_name==nil,'manual retarget retained old NPC-type filter')
+auto_room_items={{id=1002,name='a medium pulsating spider',attrib='m'}};combat_v2_set_mode('BASH');advance(4)
+check(combat_v2.mode=='OFF' and #attacks()==1,'missing new target fell back to previous spider type')
 print=realprint
 print('PASS IH '..count..' assertions: fresh presence gate, exact two-second retries, three-check halt, recovery, actor filtering, stale callbacks and cancellation')

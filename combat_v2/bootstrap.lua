@@ -110,8 +110,12 @@ function combat_v2_set_mode(mode)
  return combat_v2_tick()
 end
 function combat_v2_set_target(name)
+ local previous=c.current.target_generation
  local ok,why=c.state.set_target(c.current,name)
- if ok then c.runner.pending=nil end
+ if ok then
+  c.runner.pending=nil
+  if c.current.target_generation~=previous then c.current.hunting.target_name=nil;c.current.hunting.killed_ids={} end
+ end
  refresh();return ok,why
 end
 function combat_v2_approve() local ok,why=c.runner_module.approve(c.runner);refresh();return ok,why end
