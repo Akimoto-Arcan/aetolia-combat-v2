@@ -88,7 +88,7 @@ function combat_v2_supplies(action)
  action=tostring(action or"status"):lower()
  if not c.supplies then return false,"Supply monitor unavailable"end
  if action=="check"or action=="audit"then
-  return c.supplies.audit(c,function(command)assert(command=="fluidcache","Read-only supply command rejected");return send(command)end)
+  return c.supplies.audit(c,function(command)assert(command=="fluidcache"or command=="ic"or command=="fc missing"or command=="ic missing","Read-only supply command rejected");return send(command)end)
  elseif action~="status"then return false,"cv2 supplies status | check"end
  local s=c.supplies.state(c);print("FLUIDCACHE",s.level,s.status,"health",s.stocks.health and s.stocks.health.count or"unknown","mana",s.stocks.mana and s.stocks.mana.count or"unknown");return true
 end

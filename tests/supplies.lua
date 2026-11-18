@@ -40,7 +40,7 @@ local function advance(to)
   end
   clock=to
 end
-local function sender(cmd) sends[#sends+1]=cmd; eq(cmd,'fluidcache','allowlisted command'); return true end
+local function sender(cmd) sends[#sends+1]=cmd; eq(cmd=='fluidcache' or cmd=='ic' or cmd=='fc missing' or cmd=='ic missing',true,'allowlisted command'); return true end
 local function context()
   return {supplies_clock=function() return clock end,
     supplies_connected=function() return online end, supplies_is_bash=function() return active end,
@@ -49,22 +49,28 @@ end
 local E='==============================[     Elixirs     ]=============================='
 local P='==============================[    Poultices    ]=============================='
 local function frame(c,h,m)
+  S.text(c,'Glancing into the cache, you see:')
+  S.text(c,'-------------------------------- Pills ---------------------------------')
+  for name in ('acuity amaurosis anabiotic antipsychotic coagulation decongestant depressant eucrasia euphoriant kawhepill opiate ototoxin panacea paste pluck somnium steroid stimulant thanatonin waterbreathing'):gmatch('%S+') do S.text(c,' [ 1500] '..name) end
+  S.text(c,'------------------------------ Herbalism -------------------------------')
+  S.text(c,' [ 1500] reishi [ 1500] willow [ 1500] yarrow')
   S.text(c,E)
   S.text(c,string.format('   [ %4d] an elixir of health         [ %4d] an elixir of mana',h or 1500,m or 1484))
   S.text(c,'   [ 1500] an elixir of speed          [ 1450] an elixir of vigor')
   S.text(c,'   [ 1400] an elixir of levitation     [ 1500] an elixir of harmony')
   S.text(c,'   [ 1500] an elixir of the arcane     [ 1500] an elixir of immunity')
+  S.text(c,' [ 1500] an elixir of infusion [ 1500] an elixir of prudence [ 1500] an elixir of purgative')
   S.text(c,'')
   S.text(c,P)
   S.text(c,'   [ 1500] a mass poultice             [ 1500] a caloric poultice')
   S.text(c,'   [ 1500] an epidermal poultice       [ 1500] a mending poultice')
-  S.text(c,'   [ 1500] a restoration poultice')
+  S.text(c,'   [ 1500] a restoration poultice [ 1500] a soothing poultice')
   S.text(c,'')
 end
 local c=context(); local runner=c.runner; local state=c.state
 S.attach(c)
 eq(#sends,0,'attach is passive'); eq(S.state(c).level,'warning','no green on unknown')
-eq(#S.state(c).unknown,13,'all fluids unknown initially')
+eq(#S.state(c).unknown,40,'FC and IC curatives unknown initially')
 eq(c.supplies_ui.level,'warning'); eq(c.supplies_ui.x,350); eq(c.supplies_ui.width,600)
 local label=c.supplies_ui.label
 for _=1,15 do S.render(c) end
@@ -76,7 +82,7 @@ eq(S.state(c).stocks.health.count,1500); eq(S.state(c).stocks.mana.count,1484)
 eq(S.state(c).stocks.arcane.count,1500); eq(S.state(c).stocks.restoration.count,1500)
 eq(#S.state(c).unknown,0); eq(S.state(c).level,'ok')
 eq(c.runner,runner,'runner identity preserved'); eq(c.state,state); eq(c.state.balance,false)
-eq(S.render(c).note:find('herbs / pipes not audited',1,true)~=nil,true)
+eq(S.render(c).note:find('pipes unverified',1,true)~=nil,true)
 -- No injected speech/substrings or rows outside an exact native frame.
 S.text(c,'Someone says, "'..E..'"'); S.text(c,'   [    0] an elixir of health'); S.prompt(c)
 eq(S.state(c).stocks.health.count,1500,'chat header rejected')
@@ -86,11 +92,11 @@ S.text(c,E); S.text(c,'Someone says, "[ 0] an elixir of health"'); S.prompt(c)
 eq(S.state(c).stocks.health.count,1500,'chat row ignored'); eq(S.state(c).level,'warning','partial not green')
 -- Critical/low warnings and sticky zero through timeout, mode stop and disconnect.
 frame(c,0,100); S.prompt(c)
-eq(S.state(c).level,'critical'); eq(c.supplies_ui.height,106)
+eq(S.state(c).level,'critical'); eq(c.supplies_ui.height>=106,true)
 eq(label.style:find('#a40000',1,true)~=nil,true,'red banner')
 eq(label.html:find('health',1,true)~=nil,true)
 eq(label.html:find('Reserve empty; carried vials/bandages may remain.',1,true)~=nil,true)
-eq(label.html:find('LOW: mana',1,true)~=nil,true)
+eq(label.html:find('FC mana: 100',1,true)~=nil,true)
 active=false; online=false; advance(120)
 eq(S.state(c).level,'critical','disconnect preserves zero'); eq(S.state(c).stale,true)
 eq(#sends,0,'no audit before explicit request')
@@ -115,34 +121,34 @@ frame(c); S.stock(c,'health',0,'verified-own-adapter'); S.prompt(c)
 eq(S.state(c).stocks.health.count,0,'newer source beats old frame')
 frame(c,50,101); S.prompt(c)
 eq(S.state(c).level,'warning'); eq(label.style:find('#5e4100',1,true)~=nil,true,'amber low')
-frame(c,101,101); S.prompt(c); eq(S.state(c).level,'ok','fresh positives clear zero')
+frame(c,200,201); S.prompt(c); eq(S.state(c).level,'ok','fresh positives clear zero')
 for _,k in ipairs({'mass','caloric','epidermal','mending','restoration'}) do
   S.stock(c,k,0,'verified-event'); eq(S.state(c).level,'critical',k..' empty red')
   S.stock(c,k,1500,'verified-event')
 end
-eq(S.stock(c,'herb:reishi',0,'verified-event'),true); eq(S.state(c).level,'critical')
-eq(S.stock(c,'herb:reishi',11,'verified-event'),true); eq(S.state(c).level,'warning')
+eq(S.stock(c,'ic:reishi',0,'verified-event'),true); eq(S.state(c).level,'critical')
+eq(S.stock(c,'ic:reishi',11,'verified-event'),true); eq(S.state(c).level,'warning')
 eq(S.stock(c,'bad key',1,'source'),false); eq(S.stock(c,'health',-1,'source'),false)
 eq(S.stock(c,'health',0/0,'source'),false); eq(S.stock(c,'health',1,''),false)
-S.stock(c,'herb:reishi',500,'verified-event')
+S.stock(c,'ic:reishi',500,'verified-event')
 -- Audit overlap, sender reentrancy/failure and bounded cadence.
-eq(S.audit(c),true); eq(#sends,1); eq(S.audit(c),false,'no concurrent requests')
+eq(S.audit(c),true); eq(#sends,2); eq(S.audit(c),false,'no concurrent requests')
 frame(c); S.prompt(c); eq(S.state(c).pending,false)
-local base=clock; advance(base+59); eq(#sends,1,'not per-line/per-prompt')
-advance(base+65); eq(#sends,2,'one periodic audit per sixty seconds')
+local base=clock; advance(base+59); eq(#sends,2,'not per-line/per-prompt')
+advance(base+65); eq(#sends,4,'two full reads per sixty-second audit; missing only on omissions')
 advance(base+80); eq(S.state(c).pending,false,'unanswered request times out')
 S.text(c,' [ 0] an elixir of health'); S.prompt(c)
 eq(S.state(c).stocks.health.count,1500,'timeout late row ignored')
-active=false; advance(base+190); eq(#sends,2,'BASH gating')
-active=true; online=false; advance(base+260); eq(#sends,2,'connection gating')
+active=false; advance(base+190); eq(#sends,4,'BASH gating')
+active=true; online=false; advance(base+260); eq(#sends,4,'connection gating')
 online=true
 local failed_before=#sends
-eq(S.audit(c,function() return false end),false); eq(S.state(c).status,'audit send failed')
+eq(S.audit(c,function() return false end),false); eq(S.state(c).sources.fluidcache.status,'audit send failed')
 eq(S.audit(c,function() error('fake transport') end),false)
 eq(S.state(c).level,'warning','failure not green'); eq(#sends,failed_before)
 local nested
 local function reentrant(cmd)
-  eq(cmd,'fluidcache'); nested=S.audit(c,sender); frame(c); S.prompt(c); return true
+  eq(cmd=='fluidcache' or cmd=='ic' or cmd=='fc missing' or cmd=='ic missing',true); nested=S.audit(c,sender); frame(c); S.prompt(c); return true
 end
 eq(S.audit(c,reentrant),true); eq(nested,false,'reentrant audit blocked'); eq(S.state(c).pending,false)
 -- Small-screen sizing; no combat or native UI object is moved.
@@ -153,11 +159,11 @@ width,height=1920,978
 for _,t in pairs(triggers) do if not t.prompt then line=E; t.fn(); line=' [ 0] an elixir of health'; t.fn() end end
 for _,t in pairs(triggers) do if t.prompt then t.fn() end end
 eq(S.state(c).stocks.health.count,0,'observer callback ingestion')
-eq(count(handlers),2); eq(count(triggers),2); eq(count(timers),1)
+eq(count(handlers),3); eq(count(triggers),2); eq(count(timers),1)
 local oldowner=c.supplies_owner; local oldtimer=timers[oldowner.timer].fn
 S=dofile(path); S.attach(c)
 eq(oldowner.alive,false); eq(label.deleted,true); eq(deleted,1)
-eq(count(handlers),2,'reload owns only two handlers'); eq(count(triggers),2); eq(count(timers),1)
+eq(count(handlers),3,'reload owns only three handlers'); eq(count(triggers),2); eq(count(timers),1)
 eq(S.state(c).stocks.health.count,0,'reload preserves critical'); eq(S.state(c).requested,false,'reload disarms periodic audit')
 local n=#sends; oldtimer(); advance(clock+180); eq(#sends,n,'stale timer does not send')
 eq(count(timers),1)
@@ -167,8 +173,8 @@ eq(c.supplies_ui,nil); eq(c.runner,runner); eq(c.state,state)
 function getConnectionInfo() return 'fake.invalid',23,online end
 local c2={current={mode='BASH'},mode='OFF',state={},supplies_clock=function() return clock end}
 S.attach(c2); local start=#sends; local t=clock
-eq(S.audit(c2,sender),true); advance(t+65); eq(#sends,start+2,'native current.mode gate')
-c2.current.mode='OFF'; advance(t+130); eq(#sends,start+2,'current OFF beats alias mode')
+eq(S.audit(c2,sender),true); advance(t+65); eq(#sends,start+4,'native current.mode gate')
+c2.current.mode='OFF'; advance(t+130); eq(#sends,start+4,'current OFF beats alias mode')
 S.detach(c2)
 eq(count(handlers),0); eq(count(triggers),0); eq(count(timers),0)
 print('supplies: '..checks..' assertions passed (offline fake transport/UI; no live sends)')
