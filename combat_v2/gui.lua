@@ -382,8 +382,8 @@ function M.layout()
  end
  local resetW=math.min(80,aw-100);place(ui.buttons.enemy_afflictions_reset,10+aw+10+(aw-resetW)/2,affY+affH-33,resetW,25)
  y=affY+affH+8;card("cure",52)
- local tw=(cw-16)/3
- for i,k in ipairs({"approve","curing","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
+ local tw=(cw-24)/4
+ for i,k in ipairs({"approve","curing","globe","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
  y=y+38;place(ui.cards.events,10,y,cw,rh-y)
  if ui.cards.help then ui.cards.help:hide() end
 end
@@ -415,8 +415,8 @@ function M.create()
  for _,mode in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do
   if not ui.buttons[mode] then button(ui,mode,mode=="FULL_AUTO" and "AUTO" or mode,function() combat_v2_set_mode(mode);combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end
  end
- local callbacks={approve=function()combat_v2_approve()end,curing=function()combat_v2_set_curing(not combat_v2.cure.enabled)end,stop=function()combat_v2_stop()end}
- for _,k in ipairs({"approve","curing","stop"}) do if not ui.buttons[k] then button(ui,k,k:upper(),function() callbacks[k]();combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end end
+ local callbacks={approve=function()combat_v2_approve()end,curing=function()combat_v2_set_curing(not combat_v2.cure.enabled)end,stop=function()combat_v2_stop()end,globe=function()local b=combat_v2.elemental_recovery;local on=b and b.armed and combat_v2.mode=="BASH";if combat_v2_globe then local ok,why=combat_v2_globe(on and "off"or"on");if not ok and why then print(why)end end end}
+ for _,k in ipairs({"approve","curing","globe","stop"}) do if not ui.buttons[k] then button(ui,k,k:upper(),function() callbacks[k]();combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end end
  for _,k in ipairs({"player_afflictions","enemy_afflictions"}) do
   for _,direction in ipairs({"prev","next"}) do
    local key=k.."_"..direction
@@ -451,6 +451,9 @@ end
 function M.refresh(state,runner,cure)
  if not M.cards then M.create() end
  local ui=combat_v2_ui;local p,t=state.player,state.target
+ local globe=combat_v2 and combat_v2.elemental_recovery;local globe_on=runner.mode=="BASH"and globe and globe.armed and not globe.fault
+ M.buttons.globe:echo(html("<center>GLOBE "..(globe_on and"ON"or"OFF").."</center>"))
+ M.buttons.globe:setStyleSheet("background-color:"..(globe_on and"#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:3px;font-size:10px;")
  local mental=state.mental;local mind=mental and (mental.fault or mental.status) or "idle"
  M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; MONK / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>MIND: "..esc(mind).." &nbsp; · &nbsp; cv2 help</span>"))
  for _,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do M.buttons[m]:setStyleSheet("background-color:"..(m==runner.mode and "#386386" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:5px;") end

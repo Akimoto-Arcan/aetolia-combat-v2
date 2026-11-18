@@ -94,6 +94,16 @@ end
 local function buff_wake()
  if c.buffs.has_work(c.current) and not c.buff_timer then c.buff_timer=tempTimer(1,buff_timer)end
 end
+function combat_v2_globe(action)
+ action=tostring(action or"status"):lower()
+ if not c.elementals then return false,"Globe recovery module unavailable"end
+ local b=c.elementals.state(c)
+ if action=="on"or action=="off"then
+  if action=="on"and not b.attached then c.elementals.attach(c)end
+  local ok=c.elementals.arm(c,action=="on");refresh();return ok,b.status
+ elseif action~="status"then return false,"cv2 globe on|off|status"end
+ print("GLOBE: "..(c.mode=="BASH"and b.armed and"ON"or"OFF").." - "..tostring(b.status));return true,b.status
+end
 function combat_v2_buffs(action,rest)
  action=(action or "status"):lower();rest=(rest or ""):lower():match("^%s*(.-)%s*$")
  if action=="defup"then action=rest~="" and rest or "start";rest=""end
@@ -189,6 +199,7 @@ function combat_v2_start_ih(reason,force)
  return combat_v2_request_ih()
 end
 function combat_v2_stop(reason)
+ if c.elementals then c.elementals.arm(c,false)end
  c.buffs.stop(c.current,reason or "OFF; upkeep disarmed")
  cancel_ih();c.current.hunting.watch=nil
  if c.current.training_battle_ended then
@@ -275,6 +286,7 @@ end
 function combat_v2_set_mode(mode)
  mode=string.upper(mode or "OFF");if mode=="AUTO" or mode=="PVP" then mode="FULL_AUTO" end
  if not ({OFF=true,SHADOW=true,ASSIST=true,BASH=true,FULL_AUTO=true})[mode] then return false,"invalid mode" end
+ if mode~="BASH"and c.elementals then c.elementals.arm(c,false)end
  if mode=="OFF" then return combat_v2_stop() end
  cancel_ih();c.current.hunting.watch=nil
  if c.current.training_battle_ended then c.current.training_battle_ended=nil;c.current.mental=nil end
@@ -478,6 +490,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  elseif cmd=="approve" then ok,why=combat_v2_approve()
  elseif cmd=="stop" or cmd=="off" then combat_v2_stop()
  elseif cmd=="enemy" then if rest=="reset" then ok,why=combat_v2_reset_enemy_afflictions() else ok,why=false,"cv2 enemy reset" end
+ elseif cmd=="globe"then ok,why=combat_v2_globe(rest~=""and rest or"status")
  elseif cmd=="defup"then ok,why=combat_v2_buffs("defup",rest)
  elseif cmd=="defkeep"then ok,why=combat_v2_buffs("keep",rest)
  elseif cmd=="defs"or cmd=="defences"then ok,why=combat_v2_buffs("show",rest)
@@ -511,5 +524,7 @@ local cached_connected,cached_vitals=c.current.connected,c.current.vitals_at
 c.state.sync_gmcp(c.current,gmcp or {})
 c.current.connected=cached_connected;c.current.vitals_at=cached_vitals
 if getConnectionInfo then local _,_,connected=getConnectionInfo();if not connected then c.current.connected=false end end
+if c.elementals then c.elementals.detach(c)end
+c.elementals=dofile(root.."elementals.lua");c.elementals.arm(c,false)
 c.gui.create();refresh()
 print("Combat V2 backend ready (OFF). t NAME; cv2 bash / pvp / assist; cv2 help; cv2 trace.")
