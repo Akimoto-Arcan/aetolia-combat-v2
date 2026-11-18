@@ -34,7 +34,7 @@ s=fresh();s.config.pvp_stance='eagle';s.player.stance='scorpion';s.player.balanc
 s.player.stance='eagle';R.update_balance(r);check(not r.waiting,'intrinsically free Eagle stance waited for nonexistent balance loss')
 E.event(s,'Your bodily control allows you to maintain your balance.');R.update_balance(r);check(not r.waiting,'confirmed free stance did not release wait')
 
-s=fresh();s.player.balance=true;s.player.kai=50;s.player.defences.kai_trance=true;s.target.restoration={active=true,limb='left_leg',started=clock-.5};s.mental.status='acquiring';s.mental.target='Enemy';s.mental.started=clock
+s=fresh();s.player.balance=true;s.player.kai=60;s.player.defences.kai_trance=true;s.target.restoration={active=true,limb='left_leg',started=clock-.5};s.mental.status='acquiring';s.mental.target='Enemy';s.mental.started=clock
 check(M.tick(s,send) and sent[#sent]=='kai cripple Enemy','Kaido did not punish restoration while lock acquires')
 n=#sent;M.tick(s,send);check(#sent==n,'Kaido retried during EQ cast')
 s=fresh();s.player.kai=39;s.player.defences.kai_trance=true;s.target.restoration={active=true,started=clock-.5};M.tick(s,send);check(sent[#sent]~='kai cripple Enemy','unaffordable Kai Cripple sent')

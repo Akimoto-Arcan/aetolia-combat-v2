@@ -1,5 +1,6 @@
 -- Independent Mind Lock channel; physical waits are never used as channel timers.
 local M={}
+function M.bind_defense(d) M.defense=d end
 local function now()return getEpoch and getEpoch() or os.clock()end
 local function norm(v)return tostring(v or ''):lower()end
 function M.state(s)
@@ -38,6 +39,7 @@ function M.tick(s,sender,paused_health)
   elseif t-m.eq_pending>8 then m.fault='Telepathy acknowledgement missing; inspect trace and cv2 reset' end
  end
  if s.mode~='FULL_AUTO' then return m.eq_pending~=nil end
+ if M.defense and M.defense.hold(s) then return false end
  if paused_health or ((tonumber(p.maxhp) or 0)>0 and 100*(tonumber(p.hp) or 0)/p.maxhp<((s.config or {}).health_pause or 30)) then return false end
  if not s.connected or p.dead or (tonumber(p.hp) or 0)<=0 or p.prone or p.afflictions.paralysis or p.afflictions.asleep or p.afflictions.frozen then return false end
  if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return false end end
@@ -48,7 +50,7 @@ function M.tick(s,sender,paused_health)
  if m.fault or m.eq_pending then return true end
  if m.needs_cease then m.needs_cease=nil;pcall(sender or send,'mind cease');m.retry_at=t+.5;return false end
  local restore=s.target.restoration
- if m.kaido~=false and p.equilibrium and p.balance and (tonumber(p.kai) or 0)>=40 and p.defences.kai_trance and
+ if m.kaido~=false and p.equilibrium and p.balance and (tonumber(p.kai) or 0)>=40+((s.config or {}).defense_kai_reserve or 20) and p.defences.kai_trance and
     not (p.afflictions.left_arm_crippled and p.afflictions.right_arm_crippled) and
     restore and restore.active and t-restore.started>=.4 and t-restore.started<=1.2 and t-(m.last_kai or -1000)>=8 then
   m.last_kai=t;m.eq_pending=t;m.eq_snapshot=s.recoveries.equilibrium or 0;m.saw_eq_loss=false
@@ -64,7 +66,7 @@ function M.tick(s,sender,paused_health)
  if m.status=='unknown' and t>=m.retry_at then m.status='idle' end
  local command
  if m.enabled and m.status=='locked' and norm(m.lock_target)==norm(target) then
-  if p.equilibrium and p.balance and p.left_arm_balance and p.right_arm_balance and t>=(m.blackout_retry or 0) and (tonumber(p.mana) or 0)>=1000 and t-m.last_blackout>=25 then
+  if p.equilibrium and p.balance and p.left_arm_balance and p.right_arm_balance and t>=(m.blackout_retry or 0) and (tonumber(p.mana) or 0)>=1000 and (not M.defense or M.defense.mana_safe(s,1000)) and t-m.last_blackout>=25 then
    command='mind blackout';m.previous_blackout=m.last_blackout;m.last_blackout=t;m.eq_pending=t;m.eq_snapshot=s.recoveries.equilibrium or 0;m.saw_eq_loss=false
   end
  elseif m.enabled and m.status=='idle' and t>=m.retry_at then

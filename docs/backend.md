@@ -115,6 +115,26 @@ Confirmed named cripple/break/mangle messages and Discern observations update th
 
 The actual training-dummy messages `buckles to the ground with a shuddering fall` and `lifts itself upright from the ground` now update posture. Those lines alone do not prove a cripple. The observed dummy test emitted falls/stands but no named limb-cripple confirmations; a live opponent's confirmed injury messages are needed to validate the complete BBT progression in game. Supported generic injury templates were sourced from AC2.2 Kaido / Third Party Salve attacks; further unseen messages should be captured and replay-tested rather than guessed.
 
+## Self-survival governor and native curing
+
+`defense.lua` is a separate self-defense layer, run before mental and physical offense and also bound to the physical executor so manual approval cannot bypass its hold. It ingests explicit OWN affliction gains, discoveries, cures and transformations plus normalized GMCP. Opponent/reporter speech is not self-state. FIRSTAID's `unable to eat/apply/smoke` and `tree locked` messages are diagnostics only, not proof of their cause or proof of a cure.
+
+During BASH/FULL_AUTO, confirmed anorexia, asthma, slickness, paralysis, paresis and impatience receive one native `FIRSTAID ELEVATE <aff>` request per affliction episode. Elevations are temporary until cured; base priorities and curesets are not overwritten. Native FIRSTAID still chooses and executes actual cures. No guessed herb commands, duplicated tree/focus spam, or blind cure balance timers are used. These elevation requests are not confirmation that the server cured anything.
+
+Confirmed anorexia+asthma+slickness holds offense regardless of HP. Low HP pauses at45%, with resumption at65%; prone also holds. These settings do not stop the opponent or guarantee escape from an existing hard lock. Blackout leaves a35% maximum-mana reserve, and automatic Kai Cripple reserves20 Kai beyond its40 cost. Emergency Kai Heal, Transmute, Numbness and other class recovery require live AB/ownership/cost/restriction verification and are not auto-enabled. The observed loss had Kai0; no ability or resource is inferred from class alone.
+
+Commands:
+
+- `cv2 defense status`: show defensive phase, blocked native channels and proposals.
+- `cv2 defense audit`: request FIRSTAID settings/priorities/elevations, defences and Monk ability references; no attacks.
+- `cv2 defense setup`: explicit operator action, stops attacks and requests a conservative native healing/stand/wake/focus/tree baseline plus health-over-mana preference. Does not reset priorities/curesets; requests FIRSTAID readback and remains unconfirmed until checked. Refuses offline.
+- `cv2 defense on|off`: enable/disable blocker-elevation/lock governor; does not disable native FIRSTAID.
+- `cv2 config defense_health_pause 45`, `defense_health_resume 65`, `defense_mana_reserve 35`, `defense_kai_reserve 20`: tune survival thresholds/reserves. Resume must exceed pause.
+
+OFF/SHADOW/ASSIST do not automatically send defensive elevation requests. Explicit audit/setup are separate commands. Reload and disconnect do not trigger setup. A failed defensive sender latches a hold until operator `cv2 reset` after review. Tests replay the native blocked-channel loss sequence, verify own/other actor separation and prevent offense during a confirmed lock. Offline tests cannot establish survival in a new live spar.
+
+Mechanics/syntax reference: https://www.aetolia.com/game-help/?what=first-aid. Its ELEVATE facility avoids permanently changing the player's base cure order. Current character configuration must be audited online before changing priorities or validating a complete lock-break strategy.
+
 ## Training-room match termination
 
 The training room can defeat/reset the character without ordinary death text. The observed sequence was 9% HP, enemy Bladefire Retribution, reporting-dummy victory, `The dummy's eyes dim as it ceases fighting.`, then full HP/mana. Full restored vitals do not prove the character won or never lost.

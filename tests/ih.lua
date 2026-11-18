@@ -168,5 +168,19 @@ local end_count=#sent;s.player.hp=100;s.player.dead=false;advance(5)
 check(combat_v2.mode=='OFF' and #sent==end_count,'training full-heal reset restarted attacks')
 s=fresh('rat');combat_v2_set_mode('BASH');receive("The dummy's eyes dim as it ceases fighting.");advance(5)
 check(combat_v2.mode=='OFF','persistent BASH ignored training match end')
+
+s=fresh('rat');s.player.hp=100;s.player.maxhp=100;combat_v2_set_mode('FULL_AUTO')
+receive('You are afflicted with anorexia.');receive('You are afflicted with asthma.');receive('You are afflicted with slickness.')
+check(combat_v2.defense.hold(s) and combat_v2.runner.status:find('DEFENSE:',1,true),'live text ingestion did not pause full-auto at cure-lock')
+local offense_before=0;for _,v in ipairs(sent)do if v.command:match('^combo ') or v.command:match('^mind ')then offense_before=offense_before+1 end end
+advance(3)
+local offense_after=0;for _,v in ipairs(sent)do if v.command:match('^combo ') or v.command:match('^mind ')then offense_after=offense_after+1 end end
+check(offense_after==offense_before,'watchdog bypassed locked defense hold')
+receive('You have cured slickness.');check(not combat_v2.defense.hold(s),'own cure did not release lock phase')
+check(not combat_v2_config('defense_health_resume','40'),'invalid defensive hysteresis accepted')
+
+s=fresh('rat');combat_v2_set_mode('FULL_AUTO');gmcp.Char={Afflictions={List={{name='ANOREXIA'},{name='asthma'},{name='slickness'}}}}
+handlers['gmcp.Char.Afflictions.List']();check(combat_v2.defense.hold(s),'GMCP list did not run defensive gate immediately')
+gmcp.Char.Afflictions.Remove='SLICKNESS';handlers['gmcp.Char.Afflictions.Remove']();check(not s.player.afflictions.slickness and not combat_v2.defense.hold(s),'normalized GMCP cure did not release lock')
 print=realprint
 print('PASS IH '..count..' assertions: fresh presence gate, persistent two-second retries, recovery, actor filtering, stale callbacks and cancellation')

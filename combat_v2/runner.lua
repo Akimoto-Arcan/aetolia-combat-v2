@@ -8,6 +8,7 @@ local function connected(s)
  return true
 end
 function M.bind_policy(fn) M.policy=fn end
+function M.bind_defense(fn) M.defense=fn end
 function M.new(s,monk) return {state=s,monk=monk,mode="OFF",waiting=false,enabled=true,last_send=-100,cooldown=.3,status="OFF"} end
 function M.ready(r,requirements)
  local p=r.state.player
@@ -48,6 +49,7 @@ function M.execute(r,a,approved)
  if r.mode=="BASH" and s.hunting and s.hunting.ih and s.hunting.ih.active then return deny("waiting for IH target confirmation") end
  if not connected(s) then return deny("not logged in / disconnected") end
  if (tonumber(p.hp) or 0)<=0 or p.dead then return deny("dead / no vitals") end
+ if M.defense then local hold,why=M.defense(s);if hold then return deny("DEFENSE: "..why) end end
  if not s.target.name or s.target.dead or not tostring(s.target.name):match("^[%w%s'%-]+$") or tostring(s.target.name):find("[\r\n]") then return deny("no valid living target") end
  local pct=(tonumber(p.maxhp) or 0)>0 and 100*p.hp/p.maxhp or 100
  if pct<cfg(r,"health_pause",30) then r.paused_health=true end

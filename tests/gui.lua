@@ -29,6 +29,7 @@ local other=dofile(path..'gui.lua');combat_v2.gui=other;other.create();other.ref
 assert(created==n and other.root==first,'reload leaked widgets')
 assert(other.cards.target.html:find('&lt;test&gt;',1,true),'target HTML not escaped')
 assert(other.cards.status.html:find('WAIT',1,true),'string zero rendered ready')
+state.defense={hold=true,phase='cure-lock + paralysis'};other.refresh(state,combat_v2.runner,combat_v2.cure);assert(other.cards.cure.html:find('cure-lock + paralysis',1,true),'survival phase missing');state.defense=nil
 
 assert(other.cards.status.html:find('STANCE: SCORPION',1,true),'observed stance not visible in sidebar')
 local stance,stanced=other.stance(state);assert(stance=='SCORPION' and stanced==true,'confirmed stance presentation failed')

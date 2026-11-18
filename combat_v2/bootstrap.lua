@@ -12,7 +12,8 @@ c.events=dofile(root.."events.lua");c.events.bind(c.tracker)
 c.runner_module=dofile(root.."runner.lua");c.curing=dofile(root.."curing.lua");c.gui=dofile(root.."gui.lua")
 c.policy=dofile(root.."policy.lua");c.policy.init(c.current,gmcp or {});c.runner_module.bind_policy(c.policy.attack_allowed)
 c.runner=c.runner_module.new(c.current,c.monk);c.cure=(c.cure and c.cure.status) and c.cure or c.curing.new()
-c.mental=dofile(root.."mental.lua");c.current.mental=nil;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
+c.defense=dofile(root.."defense.lua");c.runner_module.bind_defense(c.defense.hold)
+c.mental=dofile(root.."mental.lua");c.mental.bind_defense(c.defense);c.current.mental=nil;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
 c.mode="OFF";c.current.mode="OFF";c.current.hunting.active=false;c.current.stop_reason=nil
 local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
 local function cancel_ih()
@@ -111,6 +112,8 @@ function combat_v2_tick()
   elseif c.mode=="BASH" then local why=s.stop_reason;s.stop_reason=nil;cancel_ih();c.runner.status="BASH paused: "..why;refresh();return false,why
   else local why=s.stop_reason;combat_v2_stop(why);return false,why end
  end
+ local defense=c.defense.service(s,c.defense_sender or send)
+ if defense.hold and (c.mode=="FULL_AUTO" or c.mode=="BASH") then c.runner_module.update_balance(c.runner);c.runner.pending=nil;c.runner.status="DEFENSE: "..defense.phase;refresh();return false,c.runner.status end
  if c.mode=="BASH" then
   c.runner_module.update_balance(c.runner);c.runner_module.watchdog(c.runner)
   if c.runner.fault then cancel_ih();c.runner.status=c.runner.fault;refresh();return false,c.runner.fault end
@@ -153,10 +156,22 @@ function combat_v2_set_target(name)
  refresh();return ok,why
 end
 function combat_v2_approve() local ok,why=c.runner_module.approve(c.runner);refresh();return ok,why end
+function combat_v2_defense(cmd)
+ local s=c.current;cmd=cmd~="" and cmd or "status"
+ if cmd=="audit" then return c.defense.audit(s,c.defense_sender or send)
+ elseif cmd=="setup" then combat_v2_stop("Explicit defensive FIRSTAID setup");return c.defense.setup(s,c.defense_sender or send)
+ elseif cmd=="on" or cmd=="off" then s.config.defense_enabled=cmd=="on";refresh();return true
+ elseif cmd~="status" then return false,"cv2 defense status|audit|setup|on|off" end
+ local d=c.defense.plan(s);print("DEFENSE: "..d.phase.." (hold="..tostring(d.hold)..")")
+ for channel,b in pairs(d.blocked)do print("FIRSTAID blocked "..channel.." curing "..b.aff.." at "..b.time)end
+ for _,a in ipairs(d.proposals)do print("Proposed: "..a.command)end
+ print("Class emergency skills require live AB verification; none auto-enabled")
+ return true
+end
 function combat_v2_set_curing(on) local ok,why=c.curing.set(c.cure,c.current,on==true);refresh();return ok,why end
 function combat_v2_reset_wait()
  -- Deliberate manual recovery; never release wait from a timer alone.
- c.mental.reset(c.current);c.runner.fault=nil;c.runner.waiting=false;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
+ c.defense.reset(c.current);c.mental.reset(c.current);c.runner.fault=nil;c.runner.waiting=false;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
 end
 function combat_v2_propose() local a=c.runner_module.propose(c.runner);refresh();return a end
 function combat_v2_observe(e)
@@ -194,10 +209,11 @@ function combat_v2_config(key,value)
   if value~="on" and value~="off" then return false,"estimate_trauma on|off" end
   c.current.config.estimate_trauma=value=="on";return true
  end
- local bounds={health_pause={1,95},health_resume={2,100},ack_timeout={2,60},parry_ttl={1,60},parry_min_confidence={0,1},kick_trauma={0,100},punch_trauma={0,100},boost_kick_trauma={0,100},boost_punch_trauma={0,100}}
+ local bounds={defense_health_pause={1,94},defense_health_resume={2,100},defense_mana_reserve={0,90},defense_kai_reserve={0,80},health_pause={1,95},health_resume={2,100},ack_timeout={2,60},parry_ttl={1,60},parry_min_confidence={0,1},kick_trauma={0,100},punch_trauma={0,100},boost_kick_trauma={0,100},boost_punch_trauma={0,100}}
  local b=bounds[key];local n=tonumber(value)
  if not b or not n or n~=n or n<b[1] or n>b[2] then return false,"invalid config value/key" end
  local cfg=c.current.config
+ if key=="defense_health_pause" and n>=(cfg.defense_health_resume or 65) or key=="defense_health_resume" and n<=(cfg.defense_health_pause or 45) then return false,"defense resume must exceed pause" end
  if key=="health_pause" and n>=cfg.health_resume or key=="health_resume" and n<=cfg.health_pause then return false,"resume must exceed pause" end
  cfg[key]=n;c.state.record(c.current,"config",key.."="..n);return true
 end
@@ -213,7 +229,7 @@ c.handlers={}
 local function handler(event,fn) c.handlers[#c.handlers+1]=registerAnonymousEventHandler(event,fn) end
 handler("gmcp.Char.Vitals",function() c.state.sync_gmcp(c.current,gmcp);combat_v2_tick() end)
 handler("sysDisconnectionEvent",function()
- c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
+ c.current.defense=nil;c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
  c.current.policy.players_known=false;c.current.policy.web.at=nil;cancel_ih()
  if c.mode=="BASH" then if c.runner.waiting then c.runner.fault="Disconnected during attack; cv2 reset after review" end;c.runner.status="BASH paused: disconnected";refresh()
  else combat_v2_stop("disconnected") end
@@ -225,24 +241,24 @@ handler("gmcp.Room.RemovePlayer",function() c.policy.player_remove(c.current,gmc
 local function collection(kind)
  handler("gmcp.Char."..kind..".List",function()
   local dest=kind=="Afflictions" and "afflictions" or "defences";local t={}
-  for _,a in ipairs(gmcp.Char[kind].List or {}) do local n=type(a)=="table" and a.name or a;if n then t[n]=true end end
+  for _,a in ipairs(gmcp.Char[kind].List or {}) do local n=type(a)=="table" and a.name or a;if n then t[c.defense.key(n)]=true end end
   c.current.player[dest]=t
   if kind=="Afflictions" then c.current.player.prone=(t.prone or t.fallen) and true or false end
-  refresh()
+  combat_v2_tick()
  end)
  handler("gmcp.Char."..kind..".Add",function()
   local a=gmcp.Char[kind].Add;local n=type(a)=="table" and a.name or a
-  if n then c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=true end
+  if n then n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=true end
   if kind=="Afflictions" and (n=="prone" or n=="fallen") then c.current.player.prone=true end
-  refresh()
+  combat_v2_tick()
  end)
  handler("gmcp.Char."..kind..".Remove",function()
   local a=gmcp.Char[kind].Remove;local values=type(a)=="table" and (a.name and {a.name} or a) or {a}
   for _,n in ipairs(values) do
-   c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=nil
+   n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=nil
    if kind=="Afflictions" and (n=="prone" or n=="fallen") then local aff=c.current.player.afflictions;c.current.player.prone=(aff.prone or aff.fallen) and true or false end
   end
-  refresh()
+  combat_v2_tick()
  end)
 end
 collection("Afflictions");collection("Defences")
@@ -274,6 +290,7 @@ handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
 end)
 c.line_trigger=tempRegexTrigger("^.*$",function()
  local text=line or matches[1]
+ c.defense.text(c.current,text)
  c.mental.text(c.current,text)
  if c.policy.text(c.current,text) then combat_v2_tick();refresh();return end
  if c.bashing.ih_text(c.current,text) then combat_v2_ih_result();refresh();return end
@@ -290,6 +307,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  if cmd=="target" then ok,why=combat_v2_set_target(rest)
  elseif cmd=="approve" then ok,why=combat_v2_approve()
  elseif cmd=="stop" or cmd=="off" then combat_v2_stop()
+ elseif cmd=="defense" then ok,why=combat_v2_defense(rest)
  elseif cmd=="curing" then if rest=="on" or rest=="off" then ok,why=combat_v2_set_curing(rest=="on") else ok,why=false,"cv2 curing on|off" end
  elseif cmd=="reload" then dofile(root.."bootstrap.lua")
  elseif cmd=="reset" then combat_v2_reset_wait()

@@ -92,6 +92,14 @@ function M.help_text()
   "",
   "<cyan>CURING & SAFETY<white>",
   "  cv2 curing on / off  Request native server FIRSTAID on/off.",
+  "  cv2 defense status  Show cure blockers and survival hold.",
+  "  cv2 defense audit   Read FIRSTAID/defences and Monk ability help.",
+  "  cv2 defense setup   Stop attacks; request baseline FIRSTAID settings.",
+  "  cv2 defense on/off  Enable/disable blocker-elevation governor.",
+  "  cv2 config defense_health_pause 45 / defense_health_resume 65",
+  "  cv2 config defense_mana_reserve 35 / defense_kai_reserve 20",
+  "  Known blockers are elevated once per episode, not cured speculatively.",
+  "  Emergency class abilities remain gated pending live AB verification.",
   "  cv2 config health_pause 30",
   "  cv2 config health_resume 60",
   "  cv2 config ack_timeout 8",
@@ -225,6 +233,7 @@ function M.refresh(state,runner,cure)
  local stance,stanced=M.stance(state);local stance_color=stanced==true and C.good or stanced==false and C.bad or C.warn
  M.cards.status:echo(html(heading("PLAYER STATUS").."<b style='font-size:16px;color:"..stance_color..";'>STANCE: "..esc(stance).."</b> &nbsp; Kai: "..esc(p.kai or "?").."<br>"..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>Balance %s &nbsp; Eq %s &nbsp; Arms %s / %s<br>Executor: %s",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana),ready(p.balance),ready(p.equilibrium),ready(p.left_arm_balance),ready(p.right_arm_balance),esc(runner.status or "idle"))))
  local a=runner.pending or state.last_action or {}
+ if state.defense and state.defense.hold and runner.mode~="OFF" then a={command="",reason="DEFENSE: "..state.defense.phase} end
  local restore=t.restoration;local restoration=""
  if restore and restore.active then local remaining=math.max(0,(restore.expected_end or 0)-(getEpoch and getEpoch() or os.clock()));restoration="<br><span style='font-size:11px;color:"..C.warn..";'>RESTORE: "..esc(restore.limb:gsub("_"," "))..(remaining>0 and string.format(" ~%.1fs",remaining) or " awaiting cure confirmation").."</span>" end
  M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"..restoration))
@@ -237,7 +246,8 @@ function M.refresh(state,runner,cure)
  M.cards.limbs:echo(html(heading("ENEMY LIMBS / OBSERVED STATE")..table.concat({rows[1].." &nbsp; | &nbsp; "..rows[2],rows[3].." &nbsp; | &nbsp; "..rows[4],rows[5].." &nbsp; | &nbsp; "..rows[6]},"<br>").."<br>Prone: "..(t.prone and "yes" or "no").." &nbsp; Parry: "..esc(t.parry_limb or "unknown")))
  affpanel(ui,"player_afflictions",p.afflictions,"YOUR AFFLICTIONS","GMCP observed",C.warn)
  affpanel(ui,"enemy_afflictions",t.afflictions,"ENEMY AFFLICTIONS","tracked / inferred",C.bad)
- M.cards.cure:echo(html(heading("SERVER FIRSTAID")..(cure.enabled and "ON requested" or "not enabled here").." &nbsp; "..esc(cure.status or "Use CURING to toggle")))
+ local d=state.defense;local defense=not state.connected and "OFFLINE" or d and d.phase or "monitoring"
+ M.cards.cure:echo(html(heading("DEFENSE / FIRSTAID").."<span style='color:"..(d and d.hold and C.bad or C.good)..";'>"..esc(defense).."</span> · FA: "..(cure.enabled and "requested" or "unverified")))
  M.cards.events:echo(html(heading("LAST EVENT")..esc(state.last_event or "Waiting for in-game data")))
 end
 return M
