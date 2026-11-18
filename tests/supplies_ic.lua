@@ -35,16 +35,41 @@ local function ic(c,counts)
  S.text(c,'-------------------------- Inks & Commodities --------------------------')
  S.text(c,' [ 0] blueink [ 0] goldink [ 0] iron')
 end
-local function fc(c,count)
+local function fc(c,count,nativePurgative)
  S.text(c,E)
  for _,k in ipairs({'health','mana','speed','vigor','levitation','harmony','arcane','immunity','infusion','prudence','purgative'}) do
-  S.text(c,' [ '..(count or 300)..'] an elixir of '..(k=='arcane' and 'the arcane' or k))
+  local description=nativePurgative and k=='purgative' and 'a purgative concoction'
+    or 'an elixir of '..(k=='arcane' and 'the arcane' or k)
+  S.text(c,' [ '..(count or 300)..'] '..description)
  end
  S.text(c,P)
  for _,k in ipairs({'mass','caloric','epidermal','mending','restoration','soothing'}) do
   S.text(c,' [ '..(count or 300)..'] '..(k=='epidermal' and 'an' or 'a')..' '..k..' poultice')
  end
 end
+-- Native purgative wording shares the existing key; legacy fixtures stay covered.
+local nativeFC=ctx();local fcKeys={}
+for _,key in ipairs(S.state(nativeFC).unknown) do
+ if not key:match('^ic:') then fcKeys[#fcKeys+1]=key end
+end
+table.sort(fcKeys)
+eq(#fcKeys,17,'FC allowlist remains exactly 17 unique keys')
+eq(table.concat(fcKeys,','),'arcane,caloric,epidermal,harmony,health,immunity,infusion,levitation,mana,mass,mending,prudence,purgative,restoration,soothing,speed,vigor','FC key identities unchanged')
+S.stock(nativeFC,'purgative',0,'verified-empty');ic(nativeFC)
+fc(nativeFC,300,true)
+eq(S.state(nativeFC).stocks.purgative.count,0,'native full waits for prompt')
+S.prompt(nativeFC)
+eq(S.state(nativeFC).sources.fluidcache.status,'complete','native FC is valid')
+eq(S.state(nativeFC).sources.fluidcache.complete,true,'native FC covers all 17 fluids')
+eq(S.state(nativeFC).stocks.purgative.count,300,'native positive clears old zero')
+eq(S.state(nativeFC).stocks.purgative.source,'fluidcache','full FC is authoritative')
+eq(#S.state(nativeFC).empty,0,'old purgative warning cleared')
+eq(S.state(nativeFC).level,'ok','complete native FC/IC is healthy')
+local committedFC=0
+for key in pairs(S.state(nativeFC).stocks) do
+ if not key:match('^ic:') then committedFC=committedFC+1 end
+end
+eq(committedFC,17,'description alias adds no stock key')
 local function missing(c,cmd)
  if cmd=='fc missing' then
   S.text(c,'Missing elixirs: unsupported');S.text(c,'Missing poultices: unsupported')

@@ -17,6 +17,7 @@ local keys = {'infusion','prudence','purgative','soothing','health','mana','spee
 groups.elixirs['an elixir of infusion']='infusion'
 groups.elixirs['an elixir of prudence']='prudence'
 groups.elixirs['an elixir of purgative']='purgative'
+groups.elixirs['a purgative concoction']='purgative'
 groups.poultices['a soothing poultice']='soothing'
 local commands={'fluidcache','ic','fc missing','ic missing'}
 local baseSource={fluidcache='fluidcache',ic='ic',['fc missing']='fluidcache',['ic missing']='ic'}

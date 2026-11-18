@@ -21,4 +21,15 @@ t=106;local tick=c.supplies_owner.timer;local callback=timers[tick].fn;timers[ti
 check(#commands==2 and commands[1]=='fluidcache'and commands[2]=='ic','SHADOW receipt refresh failed')
 check(not S.state(c).stocks.infusion,'purchase delta falsely assigned total')
 check(c.current.mode=='SHADOW','mode changed');S.detach(c);check(next(events)==nil,'event owner leaked')
+local native={current={mode='SHADOW'},supplies_clock=function()return t end,supplies_connected=function()return true end}
+commands={};native.supplies_sender=function(command)commands[#commands+1]=command end
+S.attach(native);S.stock(native,'purgative',0,'verified-empty')
+S.text(native,'You pay 300 gold sovereigns to add 300 sips of a purgative concoction to your fluidcache.')
+check(#commands==0,'native purgative receipt must defer audit')
+check(S.state(native).stocks.purgative.count==0,'native purchase delta must not clear zero')
+t=112;tick=native.supplies_owner.timer;callback=timers[tick].fn;timers[tick]=nil;callback()
+check(#commands==2 and commands[1]=='fluidcache'and commands[2]=='ic','native purgative receipt schedules existing SHADOW audit')
+check(S.state(native).stocks.purgative.count==0,'audit dispatch is not a resulting total')
+check(native.current.mode=='SHADOW','native receipt changed mode')
+S.detach(native);check(next(events)==nil,'native receipt event owner leaked')
 print('PASS refill adapters '..checks..' assertions: absolute INCALL/withdrawal, strict cure filter, debounced FC purchase refresh, SHADOW preserved')
