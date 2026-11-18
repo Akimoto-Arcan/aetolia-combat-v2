@@ -50,12 +50,12 @@ end)
 
 test('one-shot deterministic sequencing and completion',function()
  local s,sent,tick=fixture();eq(B.start(s),true);eq(#sent,0)
- for i=1,8 do
+ for i=1,7 do
   local e=B.catalog[i];eq(tick().busy,true);eq(sent[#sent],e.command)
   eq(B.state(s).master,false);ack(s,e.key);eq(tick().busy,false)
  end
- eq(tick().busy,false);eq(B.state(s).sequence,false);eq(#sent,8)
- B.sync(s,'Remove','weathering');tick();eq(#sent,8,'one shot never arms upkeep')
+ eq(tick().busy,false);eq(B.state(s).sequence,false);eq(#sent,7)
+ B.sync(s,'Remove','weathering');tick();eq(#sent,7,'one shot never arms upkeep')
 end)
 
 test('maintenance loss reapplies once after backoff',function()
@@ -158,7 +158,7 @@ end)
 test('boost depends on confirmed regeneration, not sent intent',function()
  local s,sent,tick=fixture();only(s,'boosting');B.start(s);tick();eq(#sent,0)
  B.sync(s,'Add','regeneration');B.start(s);tick();eq(sent[1],'boost regeneration')
- B.text(s,'You are regenerating lost health through the power of Kaido.');B.on_prompt(s);tick()
+ B.text(s,'You call upon your Kai power to boost your health regeneration.');B.on_prompt(s);tick()
  eq(B.state(s).have.boosting,true);eq(s.player.defences.boosted_regen,true)
 end)
 
@@ -376,6 +376,169 @@ test('event-driven known snapshots do not poll on idle age',function()
  B.sync(s,'Remove','regeneration');tick();eq(sent[1],'regeneration on','observed down failed to reapply')
  B.text(s,'You begin to concentrate on regeneration of your wounds.');B.on_prompt(s);tick();eq(B.state(s).pending,nil,'observed up failed to acknowledge')
 end)
+local function row(s,k)
+ for _,e in ipairs(B.rows(s)) do if e.key==k then return e end end
+ error('missing row '..k)
+end
+local function priority_rows(s,lines)
+ local seen={}
+ for _,line in ipairs(lines) do B.text(s,line);seen[tonumber(line:match('^%s*(%d+):')) or 0]=true end
+ for i=1,25 do if not seen[i]then B.text(s,i..':')end end
+end
+local function priorities(s,lines,raw)
+ B.text(s,'Your defense priorities:')
+ if raw then for _,line in ipairs(lines)do B.text(s,line)end else priority_rows(s,lines)end
+ B.text(s,'Defs with priority 26 are ignored.')
+end
+
+test('rows ordered deduplicated tri-state metadata and actual extras',function()
+ local s,sent,tick=fixture({unknown=true});local rows=B.rows(s);local seen={};local count=0
+ for i,e in ipairs(rows) do
+  eq(seen[e.key],nil);seen[e.key]=true;eq(e.active,nil);eq(type(e.drain),'boolean')
+  if i<=#B.catalog then eq(e.key,B.catalog[i].key) end
+ end
+ for _ in pairs(B.native_catalog) do count=count+1 end
+ eq(count,12);eq(#rows,58);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
+ eq(row(s,'courage').wanted,nil);eq(row(s,'weathering').owner,'MONK');eq(row(s,'regeneration').drain,true)
+ eq(row(s,'blindness').wanted,nil);eq(row(s,'blindness').control,'observed')
+ s.player.defences['blind']=true;s.player.defences.deaf=true;s.player.defences.new_power=true
+ eq(row(s,'blindness').active,true);eq(row(s,'deafness').active,true);eq(row(s,'new_power').owner,'OBSERVED')
+ eq(#B.rows(s),59);eq(#sent,0);eq(B.state(s).master,false)
+ B.sync(s,'List',{'regeneration','insomnia','unlisted_power'})
+ -- Simulate bootstrap replacing canonical state after our sync.
+ s.player.defences={}
+ eq(row(s,'regeneration').active,true);eq(row(s,'insomnia').active,true);eq(row(s,'unlisted_power').active,true)
+ eq(row(s,'weathering').active,false);eq(row(s,'boar').active,false)
+ B.sync(s,'List',{});eq(row(s,'insomnia').active,false);eq(row(s,'unlisted_power').active,false)
+end)
+
+test('all twelve native priorities atomic full readback and enable memory',function()
+ local s,sent,tick=fixture();local expected={fangbarrier=1,insomnia=1,arcane=2,speed=3,instawake=3,waterbreathing=3,courage=3,levitation=4}
+ B.text(s,'Your defense priorities:');B.text(s,'1: fangbarrier, insomnia')
+ eq(B.native_priority(s,'fangbarrier'),nil);eq(B.native_enable_priority(s,'fangbarrier'),8)
+ for i=2,25 do local entries={[2]='arcane',[3]='speed, instawake, waterbreathing, courage',[4]='levitation',[5]='unfamiliar'};B.text(s,i..': '..(entries[i]or''))end
+ eq(B.native_priority(s,'arcane'),nil);B.text(s,'Defs with priority 26 are ignored.')
+ for k in pairs(B.native_catalog) do
+  local pri=expected[k] or 26
+  eq(B.native_priority(s,k),pri,k);eq(row(s,k).priority,pri);eq(row(s,k).wanted,pri<26)
+  eq(B.native_enable_priority(s,k),expected[k] or 8)
+ end
+ eq(B.native_catalog.unfamiliar,nil);eq(B.native_priority(s,'unfamiliar'),nil);eq(B.native_enable_priority(s,'unfamiliar'),nil)
+ B.text(s,"You have set the 'speed' defence to the 26 priority.")
+ eq(B.native_priority(s,'speed'),26);eq(B.native_enable_priority(s,'speed'),3)
+ B.text(s,"You have set the 'density' defence to the 7 priority.")
+ eq(B.native_enable_priority(s,'density'),7)
+ priorities(s,{'1: courage'});eq(B.native_priority(s,'density'),26);eq(B.native_enable_priority(s,'density'),7)
+ B.text(s,'Status: ON');B.text(s,'Defences: ON')
+ eq(B.state(s).native_status,true);eq(B.state(s).native_defences,true);eq(B.state(s).master,false)
+ tick();eq(#sent,0)
+end)
+
+test('native malformed incomplete and speech readbacks fail closed',function()
+ local s=fixture();priorities(s,{'3: speed'})
+ for _,lines in ipairs({{}, {'0: speed'}, {'27: speed'}, {'1: speed,'}, {'1: speed,,courage'}, {'1: speed','2: speed'}, {'1: speed','not a priority row'}, {'1.5: speed'}, {'1: speed;quit'}}) do
+  priorities(s,lines,true);eq(B.native_priority(s,'speed'),3)
+ end
+ B.text(s,'Your defense priorities:');B.text(s,'2: speed');eq(B.native_priority(s,'speed'),3)
+ B.text(s,'You are regenerating lost health through the power of Kaido.')
+ eq(B.state(s).have.regeneration,true,'incomplete priority capture must not swallow actual own observations')
+ B.text(s,'Defs with priority 26 are ignored.');eq(B.native_priority(s,'speed'),3)
+ for _,line in ipairs({"You have set the 'speed' defence to the 0 priority.","You have set the 'speed' defence to the 27 priority.","You have set the 'toughness' defence to the 1 priority.","Reporter says, \"You have set the 'speed' defence to the 1 priority.\""}) do B.text(s,line) end
+ eq(B.native_priority(s,'speed'),3);eq(B.state(s).master,false)
+end)
+
+test('general exact own up down evidence no consumption or affliction mutation',function()
+ local s,sent,tick=fixture({unknown=true});s.player.afflictions.blind=true;s.player.afflictions.deaf=true
+ local cases={
+ {'instawake','You are feeling extremely energetic.','You feel yourself calm down as the stimulant wears off.'},
+ {'rebounding','You feel an aura of rebounding surround you.','Your aura of weapons rebounding disappears.'},
+ {'levitation','You walk on a small cushion of air.','You gently lower yourself to the ground.'},
+ {'density','You are extremely heavy and difficult to move.','You feel your density return to normal.'},
+ {'speed','Your sense of time is heightened, and your reactions are speeded.','Your speed defence defence erodes away.'},
+ {'waterbreathing','You are surrounded by a pocket of air.','Your waterbreathing defence has been washed away.'},
+ {'fangbarrier','The paste solidifies into a thick, hardened shell.','Your protective coating rots away under the noxious attack.'},
+ {'venom_resistance','Your resistance to damage by poison has been increased.','You feel your defense against venoms weaken and fade.'},
+ {'hypersight','You are utilising hypersight.','You cease to concentrate on hypersight.'},
+ {'shielded','You are surrounded by a nearly invisible magical shield.','Your magical shield is sheared straight through.'},
+ {'bolstered','You have prepared yourself for incoming attacks.','You allow your muscles to relax once more as you cease to bolster them.'}
+ }
+ for _,c in ipairs(cases) do
+  B.text(s,'Reporter says, "'..c[2]..'"');eq(row(s,c[1]).active,nil)
+  B.text(s,c[2]);eq(row(s,c[1]).active,true)
+  B.text(s,'Reporter says, "'..c[3]..'"');eq(row(s,c[1]).active,true)
+  B.text(s,c[3]);eq(row(s,c[1]).active,nil,'Remove alone does not establish full-list absence')
+  B.sync(s,'List',{});eq(row(s,c[1]).active,false)
+  B.state(s).defs_known=false
+ end
+ B.text(s,'You eat an acuity pill.');eq(row(s,'clarity').active,nil)
+ B.text(s,'You are blind.');B.text(s,'You are deaf.')
+ eq(row(s,'blindness').active,true);eq(row(s,'deafness').active,true)
+ eq(s.player.afflictions.blind,true);eq(s.player.afflictions.deaf,true);eq(s.player.afflictions.blindness,nil)
+ tick();eq(#sent,0)
+end)
+
+test('named own gains strips degradation and aliases shared without speech',function()
+ local s,sent,tick=fixture();B.master(s,true);only(s,'trance')
+ B.text(s,'You have gained the kai_trance defence.');tick();eq(#sent,0)
+ B.text(s,'Reporter says, "Your kai_trance defence has been stripped."');tick();eq(#sent,0)
+ B.text(s,'Your kai_trance defence has been stripped.');tick();eq(sent[1],'kai trance')
+ B.text(s,'You have gained the Trance defence.');B.on_prompt(s);tick()
+ B.text(s,'You have gained the kai_trance defence.');clock=clock+3;tick();eq(#sent,1)
+ B.text(s,'Your Trance defence is degraded away.');tick();eq(#sent,2)
+ B.sync(s,'Add','kai_trance');B.on_prompt(s);tick();clock=clock+3;tick();eq(#sent,2)
+ B.text(s,'You have gained the blind defence.');eq(row(s,'blindness').active,true)
+ B.text(s,'Your blindness defence has been stripped.');eq(row(s,'blindness').active,false)
+ B.text(s,'You have gained the strange_aura defence.');eq(row(s,'strange_aura').active,true)
+ B.text(s,'Your strange_aura defence is degraded away.');eq(row(s,'strange_aura').active,false)
+end)
+
+test('native ownership never casts courage or general commands even disabled',function()
+ local s,sent,tick=fixture();only(s,'courage');priorities(s,{})
+ B.start(s);tick();B.master(s,true)
+ for k in pairs(B.native_catalog) do B.sync(s,'Remove',k);tick();eq(B.toggle(s,k,true),false) end
+ B.text(s,'Your courage defence has been stripped.');clock=clock+1000;tick()
+ eq(#sent,0);eq(B.state(s).pending,nil);eq(row(s,'courage').wanted,false)
+ for _,k in ipairs({'clarity','blindness','flame','owl','strange_aura'}) do
+  B.text(s,'You have gained the '..k..' defence.');B.text(s,'Your '..k..' defence has been stripped.');tick()
+  eq(row(s,k).owner,'OBSERVED');eq(row(s,k).wanted,nil);eq(#sent,0)
+ end
+end)
+
+test('general positives survive partial raw listing but full GMCP clears them',function()
+ local s,sent,tick=fixture();B.sync(s,'List',{'arcane','telesense','regeneration','boosted_regen'})
+ B.text(s,'You have the following active defences:')
+ B.text(s,'You are regenerating lost health through the power of Kaido.')
+ B.text(s,'You are blind.');B.text(s,'You are protected by 30 defences.')
+ for _,k in ipairs({'arcane','telesense','regeneration','boosting','blindness'}) do eq(row(s,k).active,true,k) end
+ eq(B.state(s).defs_known,true);B.sync(s,'List',{'regeneration'})
+ for _,k in ipairs({'arcane','telesense','boosting','blindness'}) do eq(row(s,k).active,false,k) end
+ eq(row(s,'regeneration').active,true);eq(#sent,0)
+end)
+test('remaining audited native and general own-list positives',function()
+ local s,sent,tick=fixture({unknown=true})
+ local lines={
+  courage='You are brimming with courage.',insomnia='You have insomnia, and cannot easily go to sleep.',
+  arcane='You are already tempered against elemental magic.',harmony='Your thoughts are harmonized.',vigor='You have been invigorated with strength.',
+  insulation='You are coated in an insulating caloric salve.',temperance='You are tempered against fire damage.',
+  cloak='You are surrounded by a cloak of protection.',clarity='Your mind is filled with clarity.',
+  deathsight='Your mind has been touched by the essence of the Underking.',divertmelee='You are diverting melee attacks.',
+  dodgemelee='You are dodging melee attacks.',divine_speed='You have been granted the speed of the Divine.',
+  irongrip='Your hands are gripping your wielded items tightly.',metawake='You are concentrating on maintaining distance from the dreamworld.',
+  thirdeye='You possess the sight of the third eye.',vigilance='You are vigilant to attempts to hypnotise you.',
+  skywatch='You are aware of movement in the skies.',tremorsense='You are listening for underground movement.',
+  recognition='You are recognizing masking afflictions.',selfishness='You are feeling quite selfish.',
+  alertness='Your senses are attuned to nearby movement.',telesense='You are attuned to local telepathic interference.',
+  safeguard='You are surrounded by a safeguard charm.',flame='Your flame tattoo is glowing faintly.',
+  firefly='Your firefly tattoo glows softly.',mindseye='Your senses are magically heightened.',starburst='You walk with the grace of the stars.'
+ }
+ for k,line in pairs(lines) do B.text(s,line);eq(row(s,k).active,true,k) end
+ B.text(s,'You are regenerating lost health through the power of Kaido.')
+ eq(row(s,'regeneration').active,true);eq(row(s,'boosting').active,nil)
+ B.text(s,'Your regeneration is boosted.');eq(row(s,'boosting').active,true)
+ B.text(s,'You call a halt to the regenerative process.');eq(row(s,'regeneration').active,nil)
+ eq(row(s,'boar').active,nil);eq(row(s,'moon').active,nil);eq(row(s,'moss').active,nil);eq(row(s,'owl').active,nil)
+ tick();eq(#sent,0)
+end)
 
 test('newer GMCP removal and full absence beat an earlier text row',function()
  for _,kind in ipairs({'Remove','List'})do
@@ -386,6 +549,70 @@ test('newer GMCP removal and full absence beat an earlier text row',function()
   B.text(s,'You are protected by 25 defences.')
   eq(B.state(s).have.regeneration,nil,kind..' was overwritten by an older buffered row')
   tick();eq(sent[1],'regeneration on',kind..' did not allow one reapplication')
+ end
+end)
+
+test('actual padded FIRSTAID readback and empty priority rows parse atomically',function()
+ local s=fixture();B.text(s,'Status:             ON');B.text(s,'Defences:           ON')
+ eq(B.state(s).native_status,true);eq(B.state(s).native_defences,true)
+ B.text(s,'Your defense priorities:')
+ local entries={[1]='fangbarrier, insomnia',[2]='arcane',[3]='speed, instawake, waterbreathing, courage',[4]='levitation'}
+ for i=1,25 do B.text(s,i..':  '..(entries[i]or''))end
+ eq(B.native_priority(s,'arcane'),nil,'transaction applied before footer')
+ B.text(s,'Defs with priority 26 are ignored.')
+ eq(B.native_priority(s,'arcane'),2);eq(B.native_priority(s,'courage'),3);eq(B.native_priority(s,'vigor'),26)
+end)
+test('native complete unique rows required before absence implies ignored',function()
+ local s=fixture();priorities(s,{'3: speed','4: courage'})
+ priorities(s,{'1: arcane'},true)
+ eq(B.native_priority(s,'speed'),3);eq(B.native_priority(s,'courage'),4);eq(B.native_priority(s,'arcane'),26)
+ for _,rows in ipairs({{'1: arcane','1: vigor'},{'3: speed','26: courage'},{'1: mystery','2: mystery'},{'1: arcane','2: bad;name'}})do
+  priorities(s,rows);eq(B.native_priority(s,'speed'),3);eq(B.native_priority(s,'courage'),4)
+ end
+ priorities(s,{});eq(B.native_priority(s,'speed'),26)
+end)
+test('native ACK inside old full transaction fences stale footer',function()
+ local s=fixture();priorities(s,{'3: speed'})
+ B.text(s,'Your defense priorities:');priority_rows(s,{'3: speed'})
+ B.text(s,"You have set the 'speed' defence to the 26 priority.")
+ eq(B.native_priority(s,'speed'),26)
+ B.text(s,'Defs with priority 26 are ignored.')
+ eq(B.native_priority(s,'speed'),26);eq(B.native_enable_priority(s,'speed'),3)
+end)
+test('native pending hides proof and only fresh matching evidence resolves',function()
+ local s=fixture();priorities(s,{'3: speed'})
+ B.text(s,'Your defense priorities:');priority_rows(s,{'3: speed'})
+ eq(B.native_request(s,'speed',26),true);eq(B.native_priority(s,'speed'),nil)
+ eq(B.native_enable_priority(s,'speed'),3);eq(row(s,'speed').wanted,nil)
+ eq(B.native_request(s,'speed',3),false)
+ B.text(s,'Defs with priority 26 are ignored.');eq(B.native_priority(s,'speed'),nil)
+ priorities(s,{'3: speed'});eq(B.native_priority(s,'speed'),nil)
+ priorities(s,{},true);eq(B.native_priority(s,'speed'),nil)
+ priorities(s,{});eq(B.native_priority(s,'speed'),26)
+ eq(B.native_request(s,'speed',3),true)
+ B.text(s,"You have set the 'speed' defence to the 3 priority.");eq(B.native_priority(s,'speed'),3)
+ for _,case in ipairs({{'unknown',1},{'speed',0},{'speed',27},{'speed',1.5}})do eq(B.native_request(s,case[1],case[2]),false)end
+end)
+test('conflicting older own ACK cannot resolve native pending or revive old listing',function()
+ for _,listing in ipairs({false,true})do
+  local s=fixture();priorities(s,{'3: speed','4: courage'})
+  eq(B.native_request(s,'speed',26),true)
+  if listing then B.text(s,'Your defense priorities:');priority_rows(s,{'3: speed','5: courage'})end
+  local version=B.state(s).native_version
+  B.text(s,"You have set the 'speed' defence to the 3 priority.")
+  eq(B.native_priority(s,'speed'),nil);eq(B.state(s).native_pending.speed,26)
+  eq(B.state(s).native_version,version+1);eq(B.native_enable_priority(s,'speed'),3)
+  eq(row(s,'speed').wanted,nil);eq(B.native_request(s,'speed',3),false)
+  if listing then
+   B.text(s,'Defs with priority 26 are ignored.')
+   eq(B.native_priority(s,'speed'),nil);eq(B.state(s).native_pending.speed,26)
+   eq(B.native_priority(s,'courage'),4,'conflicting ACK must still fence older listing')
+  end
+  B.text(s,"You have set the 'speed' defence to the 26 priority.")
+  eq(B.native_priority(s,'speed'),26);eq(B.state(s).native_pending.speed,nil)
+  eq(B.native_enable_priority(s,'speed'),3);eq(B.native_request(s,'speed',3),true)
+  B.text(s,"You have set the 'speed' defence to the 3 priority.")
+  eq(B.native_priority(s,'speed'),3)
  end
 end)
 print(string.format('buffs: %d tests, %d assertions passed (pure fake senders)',tests,assertions))

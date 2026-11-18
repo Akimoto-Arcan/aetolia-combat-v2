@@ -1,13 +1,13 @@
 -- Offline actual-bootstrap tests. No real Mudlet/network or preference writes.
 local root=assert(arg[1]);local realdofile=dofile;local clock=100
-local handlers,aliases,timers,sent={},{},{},{};local serial=0;local prompt
+local handlers,aliases,timers,sent={},{},{},{};local serial=0;local prompt;local triggers={}
 local output={};local realprint=print;print=function(...)output[#output+1]=table.concat({...},' ')end
 function getEpoch()return clock end
 function getMudletHomeDir()return root:gsub('/combat_v2/$','')end
 function getConnectionInfo()return 'fixture',0,true end
 function registerAnonymousEventHandler(name,fn)handlers[name]=fn;return name end
 function killAnonymousEventHandler(name)handlers[name]=nil end
-function tempRegexTrigger(_,fn)serial=serial+1;return serial end
+function tempRegexTrigger(_,fn)serial=serial+1;triggers[serial]=fn;return serial end
 function killTrigger()end
 function tempPromptTrigger(fn)prompt=fn;serial=serial+1;return serial end
 function tempAlias(pattern,fn)aliases[pattern]=fn;return pattern end
@@ -37,6 +37,13 @@ local function check(ok,why)assert(ok,why);n=n+1 end
 local function tick()clock=clock+1;combat_v2_tick()end
 local function only(key)for _,e in ipairs(M.catalog)do s.buffs.wanted[e.key]=e.key==key end end
 local function def(kind,data)gmcp.Char.Defences=gmcp.Char.Defences or{};gmcp.Char.Defences[kind]=data;handlers['gmcp.Char.Defences.'..kind]()end
+local function text(value)line=value;triggers[c.line_trigger]();line=nil end
+local function priority_rows(entries)
+ for i=1,25 do text(i..': '..(entries[i]or''))end
+end
+local function priorities(entries)
+ text('Your defense priorities:');priority_rows(entries);text('Defs with priority 26 are ignored.')
+end
 check(#sent==0 and not s.buffs.master and not s.buffs.sequence,'bootstrap armed or cast buffs')
 handlers['gmcp.Char.Vitals']() -- genuine fresh-session event, not cached login evidence
 check(aliases[ [[^defup(?:\s+(.*))?$]] ] and aliases[ [[^defkeep(?:\s+(.*))?$]] ],'plain aliases missing')
@@ -65,6 +72,86 @@ before=#sent;check(combat_v2_buffs('keep','off') and not s.buffs.master and #sen
 check(not combat_v2_buffs('keep','regeneration;quit on') and #sent==before,'unvalidated command escaped defense selector')
 combat_v2_buffs('stop');check(not M.has_work(s),'stop left routine/upkeep armed')
 check(combat_v2_buffs('save') and #sent==before,'save armed or cast defenses')
+-- Native generic upkeep has one owner; configure only on explicit validated action.
+priorities({[1]='fangbarrier, insomnia',[2]='arcane',[3]='speed, courage',[4]='levitation'})
+check(M.native_priority(s,'arcane')==2,'native priority readback did not populate backend')
+before=#sent;local arming=s.buffs.master
+check(combat_v2_buffs('native','arcane off'),'native OFF refused')
+check(sent[before+1]=='firstaid priority defence arcane 26' and sent[before+2]=='firstaid priority defence list','native OFF did not use verified priority26/readback')
+check(M.native_priority(s,'arcane')==nil and M.native_enable_priority(s,'arcane')==2 and s.buffs.master==arming,'native request retained proof or armed class upkeep')
+priorities({[1]='fangbarrier, insomnia',[3]='speed, courage'})
+check(M.native_priority(s,'arcane')==26,'native OFF readback not authoritative')
+before=#sent;check(combat_v2_buffs('keep','arcane on'),'defkeep generic did not route to FIRSTAID')
+check(sent[before+1]=='firstaid priority defence arcane 2','native reenable lost previously known priority')
+text("You have set the 'arcane' defence to the 2 priority.")
+before=#sent
+check(not combat_v2_buffs('native','arcane;quit on') and not combat_v2_buffs('native','weathering on') and not combat_v2_buffs('native','arcane maybe') and #sent==before,'invalid native key/action sent commands')
+c.mode='SHADOW';c.runner.mode='SHADOW';s.mode='SHADOW'
+check(not combat_v2_buffs('native','arcane off') and #sent==before,'SHADOW configured native upkeep')
+c.mode='OFF';c.runner.mode='OFF';s.mode='OFF'
+-- Exercise the actual native callback and registered text trigger, not a copied dispatcher.
+for _,failure in ipairs({'false','throw'})do
+ for _,stage in ipairs({'write','readback'})do
+  priorities({[3]='speed'})
+  text('Your defense priorities:');priority_rows({[3]='speed'})
+  local calls=0
+  c.buff_sender=function(command)
+   calls=calls+1
+   if calls==1 then check(M.native_priority(s,'speed')==nil,'write dispatched before uncertainty marker')end
+   if (stage=='write'and calls==1)or(stage=='readback'and calls==2)then
+    if failure=='throw'then error('offline transport failure')else return false end
+   end
+   send(command)
+  end
+  check(not combat_v2_buffs('native','speed off'),'failed transport reported success')
+  check(calls==(stage=='write'and 1 or 2),'unexpected retry or missing readback')
+  check(M.native_priority(s,'speed')==nil and M.native_enable_priority(s,'speed')==3,'uncertain write retained usable old proof')
+  text('Defs with priority 26 are ignored.')
+  check(M.native_priority(s,'speed')==nil,'old transaction resolved pending write')
+  local count=#sent
+  check(not combat_v2_buffs('native','speed on')and #sent==count,'uncertain write allowed another configuration')
+  priorities({[3]='speed'})
+  check(M.native_priority(s,'speed')==nil,'conflicting late readback resolved write')
+  text('Your defense priorities:');text('1: arcane');text('Defs with priority 26 are ignored.')
+  check(M.native_priority(s,'speed')==nil,'incomplete readback resolved write')
+  if stage=='write'then text("You have set the 'speed' defence to the 26 priority.")else priorities({})end
+  check(M.native_priority(s,'speed')==26,'fresh authoritative evidence did not resolve write')
+  c.buff_sender=nil;count=#sent
+  check(combat_v2_buffs('native','speed on')and sent[count+1]=='firstaid priority defence speed 3','confirmed OFF could not restore last-active priority')
+  text("You have set the 'speed' defence to the 3 priority.")
+ end
+end
+-- A delayed own ACK for old priority3 cannot acknowledge an unresolved OFF26.
+for _,listing in ipairs({false,true})do
+ priorities({[3]='speed',[4]='courage'})
+ check(combat_v2_buffs('native','speed off'),'conflicting ACK fixture OFF refused')
+ check(M.native_priority(s,'speed')==nil and s.buffs.native_pending.speed==26,'OFF did not retain uncertainty')
+ if listing then text('Your defense priorities:');priority_rows({[3]='speed',[5]='courage'})end
+ text("You have set the 'speed' defence to the 3 priority.")
+ check(M.native_priority(s,'speed')==nil and s.buffs.native_pending.speed==26,'older own ACK resolved pending OFF')
+ check(M.native_enable_priority(s,'speed')==3,'older own ACK lost restoration memory')
+ before=#sent
+ check(not combat_v2_buffs('native','speed on')and #sent==before,'older own ACK allowed second native write')
+ if listing then
+  text('Defs with priority 26 are ignored.')
+  check(M.native_priority(s,'speed')==nil and s.buffs.native_pending.speed==26,'old ACK/list footer cleared pending OFF')
+  check(M.native_priority(s,'courage')==4,'conflicting own ACK failed to fence old listing')
+  check(not combat_v2_buffs('native','speed on')and #sent==before,'old footer allowed second native write')
+ end
+ text("You have set the 'speed' defence to the 26 priority.")
+ check(M.native_priority(s,'speed')==26 and not s.buffs.native_pending.speed,'matching own ACK did not resolve OFF')
+ before=#sent
+ check(combat_v2_buffs('native','speed on')and #sent==before+2 and sent[before+1]=='firstaid priority defence speed 3'and sent[before+2]=='firstaid priority defence list','confirmed OFF did not restore priority3/readback')
+ text("You have set the 'speed' defence to the 3 priority.")
+ check(M.native_priority(s,'speed')==3,'restored ON did not confirm')
+end
+priorities({[3]='speed'});text('Your defense priorities:');priority_rows({[3]='speed'})
+text("You have set the 'speed' defence to the 26 priority.");text('Defs with priority 26 are ignored.')
+check(M.native_priority(s,'speed')==26,'old full listing overwrote interleaved own ACK')
+before=#sent
+local wasconnected=s.connected;s.connected=false
+check(not combat_v2_buffs('native','arcane off') and #sent==before,'disconnected native request escaped gate');s.connected=wasconnected
+before=#sent
 combat_v2_set_mode('SHADOW');check(not combat_v2_buffs('start') and not combat_v2_buffs('keep','on'),'SHADOW allowed automatic buffs')
 combat_v2_stop();gmcp.Char.Status.class='Shaman';tick();check(not combat_v2_buffs('start') and #sent==before,'wrong class allowed defup')
 -- Ownership regressions use the real registered bootstrap handlers.
@@ -116,4 +203,14 @@ before=#sent;tick();handlers['gmcp.Char.Vitals']();tick()
 check(next(s.buffs.known)==nil and not s.buffs.known_ready and #sent==before,'reconnect reused cached ownership or sent commands')
 M.reset(s);skills('List',{group='Kaido',list={}})
 check(s.buffs.known_ready and not s.buffs.master and not s.buffs.sequence and #sent==before,'fresh reconnect List armed or cast buffs')
+-- Bootstrap-owned Flurry lifecycle hooks must not survive manual scope changes.
+local previous_cancel=c.monk.cancel_flurry;local cancelled={}
+c.monk.cancel_flurry=function(_,why)cancelled[why or "runner stop"]=true end
+combat_v2_set_mode('SHADOW');check(cancelled['mode changed'],'mode transition omitted Flurry cancellation')
+combat_v2_set_target('Lifecycle');check(cancelled['manual target changed'],'manual retarget omitted Flurry cancellation')
+gmcp.Room.Info={num=2,area='Fixture Hunt'};handlers['gmcp.Room.Info']();check(cancelled['room changed'],'room transition omitted Flurry cancellation')
+handlers['sysDisconnectionEvent']();check(cancelled.disconnect,'disconnect omitted Flurry cancellation')
+combat_v2_stop();check(cancelled.OFF,'OFF omitted Flurry cancellation')
+combat_v2_reset_wait();check(cancelled["reviewed reset"],"reviewed reset omitted Flurry cancellation")
+c.monk.cancel_flurry=previous_cancel
 print=realprint;print('PASS buffs integration '..n..' assertions: aliases, snapshots, prompt/EQ, opt-in/cancel, preferences, modes, class/session ownership and fresh skill events')

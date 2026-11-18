@@ -19,7 +19,8 @@ local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
 -- Buff preparation/upkeep is separate from FIRSTAID's survival governor.
 c.buffs=dofile(root.."buffs.lua");c.buffs.stop(c.current,"reload; upkeep disarmed");c.buff_class_seen=nil;c.buff_skill_seen=nil
 local function buff_invalidate()
- local b=c.buffs.state(c.current);b.known={};b.known_ready=false;c.buff_skill_seen=nil
+  local b=c.buffs.state(c.current);b.known={};b.known_ready=false;c.buff_skill_seen=nil
+  b.native_priorities={};b.native_pending={};b.native_version=(b.native_version or 0)+1;b.native_listing=nil;b.native_status=nil;b.native_defences=nil
  if b.query and b.query.kind=="skills"then b.query=nil end
  if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false end
  -- Fence cached payloads across class/session boundaries, including in-place GMCP tables.
@@ -114,7 +115,24 @@ function combat_v2_buffs(action,rest)
  if action=="audit"then
   if not c.current.connected or c.current.player.dead then return false,"Disconnected: defense audit unavailable"end
   if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return false,"Disconnected"end end
-  send("ab kaido");send("defences");return true,"Read-only defense/ability audit requested"
+  send("ab kaido");send("defences");send("firstaid");send("firstaid priority defence list");return true,"Read-only defense/ability/native FIRSTAID audit requested"
+ elseif action=="native"then
+   local key,value=rest:match("^([%a_]+)%s+(%a+)$")
+   if not key or not c.buffs.native_catalog or not c.buffs.native_catalog[key] or (value~="on"and value~="off")then return false,"Native defense requires a supported name and on|off"end
+   if c.mode=="SHADOW"then return false,"SHADOW is read-only"end
+   if not c.current.connected or c.current.player.dead or (tonumber(c.current.player.hp)or 0)<=0 then return false,"Disconnected/dead: native defense configuration unavailable"end
+   if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return false,"Disconnected"end end
+   if c.buffs.native_priority(c.current,key)==nil then return false,"Native priorities unknown; use defup audit first"end
+   local priority=value=="off"and 26 or c.buffs.native_enable_priority(c.current,key)
+   if type(priority)~="number"or priority%1~=0 or priority<1 or priority>26 or (value=="on"and priority==26)then return false,"Invalid native priority"end
+   local command="firstaid priority defence "..key.." "..priority
+   if not c.buffs.native_request(c.current,key,priority)then return false,"Native priorities unknown; use defup audit first"end
+   local sent,result=pcall(c.buff_sender or send,command)
+   if not sent or result==false then return false,"Native defense setting failed; readback required"end
+   c.state.record(c.current,"buff_native",command)
+   local queried,qresult=pcall(c.buff_sender or send,"firstaid priority defence list")
+   if not queried or qresult==false then return false,"Setting requested but readback failed; use defup audit"end
+   return true,"Native priority requested; server readback required. Global FIRSTAID switches unchanged."
  elseif action=="status"then
   local d=c.buffs.state(c.current);print("DEFUP: "..tostring(c.buff_status or d.status or "idle").."; upkeep="..tostring(d.master))
   for _,entry in ipairs(c.buffs.catalog)do print(entry.key.." wanted="..tostring(d.wanted[entry.key]).." active="..tostring(d.have and d.have[entry.key]or false)..(entry.drain and " [DRAIN / OPT-IN]"or""))end;return true
@@ -132,6 +150,7 @@ function combat_v2_buffs(action,rest)
    local key,value=rest:match("^([%a_]+)%s+(%a+)$")
    if not key or (value~="on"and value~="off")then return false,"defkeep on|off|NAME on|off"end
    if c.mode=="SHADOW"then return false,"SHADOW is read-only; use cv2 off first"end
+   if c.buffs.native_catalog and c.buffs.native_catalog[key]then return combat_v2_buffs("native",rest)end
    ok,why=c.buffs.toggle(c.current,key,value=="on")
    if ok then local saved,err=buff_preferences(true);if not saved then print("Defense choice applied but NOT saved: "..tostring(err))end end
   end
@@ -201,6 +220,7 @@ end
 function combat_v2_stop(reason)
  if c.elementals then c.elementals.arm(c,false)end
  c.buffs.stop(c.current,reason or "OFF; upkeep disarmed")
+ if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"OFF")end
  cancel_ih();c.current.hunting.watch=nil
  if c.current.training_battle_ended then
   local m=c.current.mental
@@ -250,7 +270,8 @@ function combat_v2_tick()
  end
  local defense=c.defense.service(s,c.defense_sender or send)
  c.runner_module.update_balance(c.runner)
- local buffs=c.buffs.service(s,c.runner,buff_dispatch,defense.hold);c.buff_status=buffs.status
+ local flurry_hold=c.mode=="BASH"and c.monk.flurry_active and c.monk.flurry_active(s)
+ local buffs=c.buffs.service(s,c.runner,buff_dispatch,defense.hold or flurry_hold);c.buff_status=buffs.status
  if buffs.busy then c.runner.status="DEFUP: "..tostring(buffs.status);refresh();return false,c.runner.status end
  if defense.hold and (c.mode=="FULL_AUTO" or c.mode=="BASH") then c.runner_module.update_balance(c.runner);c.runner.pending=nil;c.runner.status="DEFENSE: "..defense.phase;refresh();return false,c.runner.status end
  if c.mode=="BASH" then
@@ -286,6 +307,7 @@ end
 function combat_v2_set_mode(mode)
  mode=string.upper(mode or "OFF");if mode=="AUTO" or mode=="PVP" then mode="FULL_AUTO" end
  if not ({OFF=true,SHADOW=true,ASSIST=true,BASH=true,FULL_AUTO=true})[mode] then return false,"invalid mode" end
+ if c.monk.cancel_flurry and mode~=c.mode then c.monk.cancel_flurry(c.current,"mode changed")end
  if mode~="BASH"and c.elementals then c.elementals.arm(c,false)end
  if mode=="OFF" then return combat_v2_stop() end
  cancel_ih();c.current.hunting.watch=nil
@@ -313,6 +335,7 @@ function combat_v2_set_target(name)
  local ok,why=c.state.set_target(c.current,name)
  if ok then
   c.runner.pending=nil
+  if c.current.target_generation~=previous and c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual target changed")end
   if c.current.target_generation~=previous then c.current.hunting.watch=nil;c.current.hunting.target_name=nil;c.current.hunting.killed_ids={};c.current.hunting.query=c.current.target.name end
  end
  refresh();return ok,why
@@ -333,6 +356,7 @@ end
 function combat_v2_set_curing(on) local ok,why=c.curing.set(c.cure,c.current,on==true);refresh();return ok,why end
 function combat_v2_reset_wait()
  -- Deliberate manual recovery; never release wait from a timer alone.
+ if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"reviewed reset")end
  c.defense.reset(c.current);c.mental.reset(c.current);c.runner.fault=nil;c.runner.waiting=false;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
 end
 function combat_v2_propose() local a=c.runner_module.propose(c.runner);refresh();return a end
@@ -395,6 +419,7 @@ for _,kind in ipairs({"Groups","List"})do
  handler(event,function()buff_snapshot(event);combat_v2_tick()end)
 end
 handler("sysDisconnectionEvent",function()
+ if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"disconnect")end
  c.buffs.stop(c.current,"disconnect; upkeep disarmed");buff_invalidate();local b=c.buffs.state(c.current);b.defs_known=false;b.defs_at=nil
  c.current.defense=nil;c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
  c.current.policy.players_known=false;c.current.policy.web.at=nil;cancel_ih()
@@ -447,6 +472,7 @@ end
 handler("gmcp.Char.Items.Remove",function() c.bashing.item_removed(c.current,gmcp.Char.Items.Remove);combat_v2_tick() end)
 handler("gmcp.Room.Info",function()
  local s=c.current;local info=gmcp.Room.Info or {};local changed=c.policy.room(s,info)
+ if changed and c.monk.cancel_flurry then c.monk.cancel_flurry(s,"room changed")end
  if changed then
   s.hunting.watch=nil;s.training=nil;s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
   if c.mode=="BASH" then c.state.set_target(s,"");c.runner.pending=nil end
@@ -511,7 +537,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
   local sub,name=rest:match("^(%S+)%s*(.*)$");sub=sub or "list"
   if sub=="add" then ok,why=c.bashing.add(c.current,name)
   elseif sub=="clear" then c.current.hunting.queue={};print("Queue cleared")
-  elseif sub=="next" then ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() elseif c.mode=="BASH" then c.current.hunting.active=true;c.current.stop_reason=nil;combat_v2_start_ih("queue empty") else combat_v2_stop(why) end
+  elseif sub=="next" then if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual queue next")end; ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() elseif c.mode=="BASH" then c.current.hunting.active=true;c.current.stop_reason=nil;combat_v2_start_ih("queue empty") else combat_v2_stop(why) end
   elseif sub=="list" then print("Queued: "..table.concat(c.current.hunting.queue,", "))
   else ok,why=false,"cv2 queue add NAME | list | next | clear" end
  elseif cmd=="help" then if c.gui.show_help then c.gui.show_help() else print("Help GUI unavailable; see docs/backend.md") end

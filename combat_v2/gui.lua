@@ -107,22 +107,23 @@ end
 -- Defense-manager rendering is read-only; only explicit operator clicks dispatch.
 local function buff_core()
  local c=combat_v2
- if not c or not c.current or not c.buffs or type(c.buffs.catalog)~="table" or type(c.buffs.state)~="function" then return nil,"Defense manager core unavailable" end
+ if not c or not c.current or not c.buffs or type(c.buffs.rows)~="function" then return nil,"Defense manager core unavailable" end
  return c
 end
 local function buff_entry(key)
  if type(key)~="string" or not key:match("^[%a][%w_]*$") then return nil end
  local c=buff_core();if not c then return nil end
- for _,entry in ipairs(c.buffs.catalog)do if entry.key==key then return entry end end
+ for _,entry in ipairs(c.buffs.rows(c.current))do if entry.key==key then return entry end end
 end
 function M.defense_action(action,rest)
  local c,why=buff_core();if not c then return false,why end
- if action=="keep" then
-  if rest~="on" and rest~="off" then
+ if action=="keep" or action=="native" then
+  if action=="native" or (rest~="on" and rest~="off") then
    local key=type(rest)=="string" and rest:match("^([%a][%w_]*) on$")
-   -- Lua patterns have no alternation; parse OFF independently.
    if not key and type(rest)=="string" then key=rest:match("^([%a][%w_]*) off$")end
-   if not key or not buff_entry(key) then return false,"Unknown defense selection" end
+   local entry=key and buff_entry(key)
+   if not entry or (action=="keep" and entry.control~="class") or (action=="native" and entry.control~="native") then return false,"Unknown defense selection" end
+   if action=="native" and (type(entry.priority)~="number" or entry.priority<1 or entry.priority>26 or entry.priority%1~=0) then return false,"Native priority UNKNOWN; audit FIRSTAID first" end
   end
  elseif action~="start" and action~="stop" then return false,"Unsupported defense action" end
  if type(combat_v2_buffs)~="function" then return false,"Defense manager callback unavailable" end
@@ -138,13 +139,48 @@ end
 local function defense_click(action,rest)
  local ok,why=combat_v2.gui.defense_action(action,rest);if ok==false and why then print(why)end
 end
+local function defense_rows(c,state,filter)
+ local rows={};local seen={}
+ for _,e in ipairs(c.buffs.rows(state))do
+  if type(e.key)=="string" and e.key:match("^[%a][%w_]*$") and not seen[e.key] then
+   seen[e.key]=true
+   if filter=="ALL" or filter=="ACTIVE" and e.active==true or e.owner==filter then rows[#rows+1]=e end
+  end
+ end
+ return rows
+end
+function M.defense_page(delta,filter)
+ local p=combat_v2_ui and combat_v2_ui.defenses;if not p then return false end
+ if filter then
+  if filter~="ALL" and filter~="MONK" and filter~="FIRSTAID" and filter~="ACTIVE" then return false end
+  p.filter=filter;p.page=1
+ else p.page=(p.page or 1)+delta end
+ return M.refresh_defenses()
+end
+function M.defense_slot(slot)
+ local p=combat_v2_ui and combat_v2_ui.defenses;local c=buff_core()
+ local row=p and p.rows[slot];if not row or not c or not row.key then return false,"Unknown defense slot" end
+ local entries=defense_rows(c,c.current,p.filter)
+ local e=entries[(p.page-1)*14+slot]
+ if not e or e.key~=row.key or e.control~=row.control or row.toggle.hidden then return false,"Stale defense slot" end
+ if e.control~="class" and e.control~="native" then return false,"Read-only observation" end
+ return M.defense_action(e.control=="native" and "native" or "keep",e.key..(e.wanted==true and " off" or " on"))
+end
 function M.show_defenses()
  local c,why=buff_core();if not c then return false,why end
  if not Geyser.UserWindow then return false,"Native user window unavailable" end
  if not combat_v2_ui then M.create()end
  local ui=combat_v2_ui
+ -- Retire the old catalog-keyed manager only; preserve every other popup.
+ if ui.defenses and not ui.defenses.page then
+  local old=ui.defenses
+  for _,row in pairs(old.rows or {})do row.info:delete();row.toggle:delete()end
+  for _,button in pairs(old.buttons or {})do button:delete()end
+  for _,key in ipairs({"header","warning","columns","footer","window"})do if old[key]then old[key]:delete()end end
+  ui.defenses=nil
+ end
  if not ui.defenses then
-  local p={rows={},buttons={}};ui.defenses=p
+  local p={rows={},buttons={},page=1,filter="ALL"};ui.defenses=p
   p.window=Geyser.UserWindow:new({name="Combat V2 Defenses",titleText="COMBAT V2 // DEFENSE MANAGER",x=80,y=60,width=860,height=740,autoDock=false,docked=false,restoreLayout=false})
   p.header=defense_label(p,"header",12,10,836,42)
   p.warning=defense_label(p,"warning",12,54,836,40)
@@ -154,16 +190,30 @@ function M.show_defenses()
    b:echo(html("<center>"..spec[2].."</center>"))
    b:setClickCallback(function()if action then defense_click(action,rest)else combat_v2.gui.refresh_defenses(combat_v2.current)end end)
   end
-  p.columns=defense_label(p,"columns",12,138,836,26)
-  p.columns:echo(html("<b>DEFENSE / COST &nbsp; · &nbsp; OBSERVED STATE &nbsp; · &nbsp; WANTED (click ON/OFF)</b>"))
-  p.footer=defense_label(p,"footer",12,680,836,48)
+  for i,filter in ipairs({"ALL","MONK","FIRSTAID","ACTIVE"})do
+   local f=filter;local b=defense_label(p,"filter_"..f,12+(i-1)*120,134,110,26);p.buttons[f]=b
+   b:echo(html("<center>"..f.."</center>"));b:setClickCallback(function()return combat_v2.gui.defense_page(0,f)end)
+  end
+  p.buttons.prev=defense_label(p,"prev",504,134,65,26);p.buttons.prev:echo(html("PREV"));p.buttons.prev:setClickCallback(function()return combat_v2.gui.defense_page(-1)end)
+  p.page_label=defense_label(p,"page",574,134,194,26)
+  p.buttons.next=defense_label(p,"next",778,134,70,26);p.buttons.next:echo(html("NEXT"));p.buttons.next:setClickCallback(function()return combat_v2.gui.defense_page(1)end)
+  p.columns=defense_label(p,"columns",12,164,836,26)
+  p.columns:echo(html("<b>DEFENSE · STATE · OWNER / PRIORITY &nbsp; | &nbsp; WANTED</b>"))
+  for i=1,14 do
+   local slot=i;local y=194+(i-1)*34
+   local row={info=defense_label(p,"slot_"..i,12,y,690,32),toggle=defense_label(p,"toggle_"..i,714,y,134,30)};p.rows[i]=row
+   row.toggle:setClickCallback(function()
+    local ok,message=combat_v2.gui.defense_slot(slot);if ok==false and message then print(message)end;return ok,message
+   end)
+  end
+  p.footer=defense_label(p,"footer",12,674,836,62)
  end
  M.refresh_defenses(c.current)
  ui.defenses.window:show();if raiseWindow then raiseWindow(ui.defenses.window.name)end
  return true
 end
 function M.refresh_defenses(state)
- local p=combat_v2_ui and combat_v2_ui.defenses;if not p then return end
+ local p=combat_v2_ui and combat_v2_ui.defenses;if not p or not p.page then return end
  local c,why=buff_core()
  if not c then
   p.header:echo(html(heading("DEFENSE MANAGER")..esc(why)))
@@ -172,40 +222,39 @@ function M.refresh_defenses(state)
  end
  state=state or c.current
  -- Do not initialize the service or infer upkeep observations from native defences.
- local b=state.buffs or {};local wanted=b.wanted or {};local have=b.have or {}
+ local b=state.buffs or {}
  local status=c.buff_status
  if type(status)=="table" then status=status.reason or status.status or status.phase end
  p.header:echo(html(heading("DEFENSE MANAGER · MASTER "..(b.master==true and "ON" or "OFF"))..(state.connected and "LIVE" or "OFFLINE / CACHED").." · Mana "..esc(state.player.mana).." / "..esc(state.player.maxmana).." · "..esc(status or (b.sequence and "DEFUP in progress" or "idle"))))
- p.warning:echo(html("<span style='color:"..C.warn..";'>Selecting a row ON arms upkeep. Draining defenses are opt-in.<br>UPKEEP OFF pauses maintenance; it does NOT cancel active drains.</span>"))
- local visible={};local count=0
- for _,entry in ipairs(c.buffs.catalog)do
-  local key=entry.key
-  if buff_entry(key) then
-   count=count+1;visible[key]=true;local row=p.rows[key]
-   if not row then
-    row={info=defense_label(p,"row_"..key,12,0,690,32),toggle=defense_label(p,"toggle_"..key,714,0,134,30)};p.rows[key]=row
-    row.toggle:setClickCallback(function()
-     local current=buff_core();if not current or not buff_entry(key)then return false,"Unknown defense selection" end
-     local latest=current.current.buffs or {};local on=latest.wanted and latest.wanted[key]==true
-     return defense_click("keep",key..(on and " off" or " on"))
-    end)
-   end
-   local y=170+(count-1)*34;row.info:move(12,y);row.toggle:move(714,y);row.info:show();row.toggle:show()
-   local observed=b.defs_known==true and (have[key]==true and "ACTIVE" or "MISSING") or "UNKNOWN"
-   local color=observed=="ACTIVE" and C.good or C.warn
-   local notes={}
+ p.warning:echo(html("<span style='color:"..C.warn..";'>Row ON arms its owner; drains are opt-in. MASTER / DEFUP / STOP: MONK only.<br>FIRSTAID is independent. UPKEEP OFF does NOT cancel active drains.</span>"))
+ local entries=defense_rows(c,state,p.filter);local pages=math.max(1,math.ceil(#entries/14))
+ p.page=math.max(1,math.min(p.page,pages))
+ p.page_label:echo(html("Page "..p.page.." / "..pages.." · "..#entries.." rows"))
+ for _,f in ipairs({"ALL","MONK","FIRSTAID","ACTIVE"})do p.buttons[f]:setStyleSheet("background-color:"..(p.filter==f and "#315b46" or "#233c51")..";color:"..C.text..";padding:3px;")end
+ for slot,row in ipairs(p.rows)do
+  local entry=entries[(p.page-1)*14+slot]
+  row.key=entry and entry.key;row.control=entry and entry.control
+  if not entry then row.info:hide();row.toggle:hide()
+  else
+   row.info:show()
+   local observed=entry.active==true and "ACTIVE" or entry.active==false and "MISSING" or "UNKNOWN"
+   local color=entry.active==true and C.good or entry.active==false and C.bad or C.warn
+   local priority=type(entry.priority)=="number" and entry.priority>=1 and entry.priority<=26 and entry.priority%1==0 and entry.priority or nil
+   local notes={entry.owner or "OBSERVED"}
+   if entry.control=="native" then notes[#notes+1]=priority==26 and "P26 OFF" or priority and "P"..priority or "PRIORITY UNKNOWN" end
    if entry.drain then notes[#notes+1]="DRAIN: "..(type(entry.drain)=="string" and entry.drain or "resources")end
    if entry.requires_full then notes[#notes+1]="full resources"end
    if entry.cooldown_loss then notes[#notes+1]="loss cooldown"end
    notes[#notes+1]=entry.off and "OFF: verified cancel" or "OFF: upkeep only"
-   row.info:echo(html("<b>"..esc(entry.label or key).."</b> · <span style='color:"..color..";'>"..observed.."</span> · <span style='font-size:11px;color:"..C.muted..";'>"..esc(table.concat(notes," · ")).."</span>"))
-   row.toggle:setStyleSheet("background-color:"..(wanted[key]==true and "#315b46" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:4px;")
-   row.toggle:echo(html("<center>WANTED "..(wanted[key]==true and "ON" or "OFF").."</center>"))
+   row.info:echo(html("<span style='font-size:12px;'><b>"..esc(entry.label or entry.key).."</b> · <span style='color:"..color..";'>"..observed.."</span> · "..esc(table.concat(notes," · ")).."</span>"))
+   if entry.control=="class" or entry.control=="native" then
+    row.toggle:show()
+    row.toggle:setStyleSheet("background-color:"..(entry.wanted==true and "#315b46" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:4px;")
+    row.toggle:echo(html("<center>WANTED "..(entry.wanted==true and "ON" or entry.wanted==false and "OFF" or "UNKNOWN").."</center>"))
+   else row.toggle:hide()end
   end
  end
- for key,row in pairs(p.rows)do if not visible[key]then row.info:hide();row.toggle:hide()end end
- local bottom=174+count*34;p.footer:move(12,bottom);p.window:resize(860,bottom+66)
- p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE/MISSING requires a service defense snapshot; wanted is not proof of activation.<br>OFF without a verified cancel command stops upkeep only. STOP disarms DEFUP/upkeep; no emergency casts.</span>"))
+ p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE is observed, never inferred from wanted. OBSERVED rows are read-only.<br>FIRSTAID ON: saved priority or default P8 only after full priority snapshot; OFF = P26.<br>Fetch native priorities: defup audit (4 read-only queries). REFRESH only redraws.<br>OFF without verified cancellation only stops upkeep; MASTER controls MONK, not FIRSTAID.</span>"))
  return true
 end
 

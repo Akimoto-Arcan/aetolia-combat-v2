@@ -135,83 +135,107 @@ assert(feed:find('RECENT EVENTS',1,true) and feed:find('&lt;injury&gt;',1,true),
 assert(feed:find('%d%d:%d%d:%d%d') and feed:find('A cure was confirmed.',1,true),'event timestamps/history missing')
 assert(not feed:find('H:3475',1,true) and not feed:find('older invisible event',1,true),'prompt or old event replaced recent history')
 
--- Defense popup: pure rendering, authoritative observations, explicit dispatch only.
-local ok,why=rebuilt.show_defenses();assert(ok==false and why:find('core unavailable',1,true),'missing core did not fail gracefully')
+-- Defense popup: pure B.rows view, fixed slots and explicit scoped dispatch.
+local ok,why=rebuilt.show_defenses();assert(ok==false and why:find('core unavailable',1,true))
+local entries={
+ {key='toughness',label='<Toughness>',active=false,wanted=true,owner='MONK',control='class'},
+ {key='cloak',label='Cloak',active=true,wanted=false,owner='MONK',control='class',drain=true},
+ {key='speed',label='Speed',active=false,wanted=true,owner='FIRSTAID',control='native',priority=3},
+ {key='levitation',label='Levitation',wanted=false,owner='FIRSTAID',control='native',priority=26},
+ {key='unknown',label='Unknown',owner='FIRSTAID',control='native'},
+ {key='tattoo',label='<Tattoo>',active=true,owner='OBSERVED',control='observed'},
+ {key='bad;send',label='Invalid',control='class'},
+}
+for i=7,47 do entries[#entries+1]={key='def_'..i,label='Defense '..i,active=i%2==0,wanted=false,owner='MONK',control='class'}end
 local calls={};local initializations=0
-combat_v2.buffs={catalog={
- {key='toughness',label='<Toughness>',command='toughness',default=true},
- {key='vitality',label='Vitality',command='vitality',default=true,requires_full=true,cooldown_loss=true},
- {key='cloak',label='Cloak',command='cloak',off='uncloak',default=false,drain='mana'},
- {key='bad;send',label='Invalid',command='no'},
-},state=function()initializations=initializations+1;error('GUI initialized service')end}
-state.buffs={master=false,sequence=false,wanted={toughness=true,cloak=false},have={cloak=true},defs_known=true}
-state.player.defences={toughness=true};combat_v2.buff_status='<paused>'
+combat_v2.buffs={rows=function(s)assert(s==state);return entries end,state=function()initializations=initializations+1;error('GUI initialized service')end}
+state.buffs={master=false,have={cloak=true},wanted={}};combat_v2.buff_status='<paused>'
 function combat_v2_buffs(action,rest)
  calls[#calls+1]={action,rest}
- if action=='keep' then
-  if rest=='on' or rest=='off' then state.buffs.master=rest=='on'
-  else local key,value=rest:match('^([%w_]+) (%a+)$');state.buffs.wanted[key]=value=='on';if value=='on' then state.buffs.master=true end end
- elseif action=='stop' then state.buffs.master=false;state.buffs.sequence=false end
+ if action=='keep' and (rest=='on' or rest=='off') then state.buffs.master=rest=='on'
+ elseif action=='stop' then state.buffs.master=false
+ elseif action=='keep' or action=='native' then
+  local key,value=rest:match('^([%w_]+) (%a+)$')
+  for _,e in ipairs(entries)do if e.key==key then e.wanted=value=='on';if action=='keep' and e.wanted then state.buffs.master=true end end end
+ end
  return true
 end
 local raised={};function raiseWindow(name)raised[#raised+1]=name end
 local mode_before=combat_v2.runner.mode;local pending={command='unchanged'};combat_v2.runner.pending=pending
 local root_before=rebuilt.root;local walker_before=combat_v2_ui.walk_popup
-assert(rebuilt.buttons.defenses.click(),'DEFENSES did not open')
-local manager=combat_v2_ui.defenses;local manager_count=created
-assert(manager.window.p.autoDock==false and manager.window.p.docked==false and manager.window.p.restoreLayout==false,'defenses not native floating')
-assert(raised[#raised]=='Combat V2 Defenses','defenses not raised after show')
-assert(manager.header.html:find('MASTER OFF',1,true) and manager.header.html:find('&lt;paused&gt;',1,true),'master/service status missing or unescaped')
-assert(manager.rows.toughness.info.html:find('MISSING',1,true) and manager.rows.toughness.toggle.html:find('WANTED ON',1,true),'wanted/native list incorrectly treated as active')
-assert(manager.rows.cloak.info.html:find('ACTIVE',1,true) and manager.rows.cloak.toggle.html:find('WANTED OFF',1,true),'active state conflated with wanted')
-assert(manager.rows.toughness.info.html:find('&lt;Toughness&gt;',1,true),'defense label not escaped')
-assert(manager.rows.cloak.info.html:find('DRAIN: mana',1,true) and manager.rows.cloak.info.html:find('verified cancel',1,true),'drain/cancel warning missing')
-assert(manager.rows.toughness.info.html:find('upkeep only',1,true) and manager.warning.html:find('ON arms upkeep',1,true) and manager.warning.html:find('NOT cancel active drains',1,true),'arming/pause warnings missing')
-assert(not manager.rows['bad;send'],'invalid catalog key rendered')
+assert(rebuilt.buttons.defenses.click());local manager=combat_v2_ui.defenses;local manager_count=created
+assert(manager.window.p.autoDock==false and manager.window.p.docked==false and manager.window.p.restoreLayout==false)
+assert(raised[#raised]=='Combat V2 Defenses' and #manager.rows==14)
+local function contains(o,s)assert(o.html:find(s,1,true),'missing '..s)end
+contains(manager.header,'MASTER OFF');contains(manager.header,'&lt;paused&gt;')
+contains(manager.rows[1].info,'&lt;Toughness&gt;');contains(manager.rows[1].info,'MISSING');contains(manager.rows[1].info,'#ee8897');contains(manager.rows[1].toggle,'WANTED ON')
+contains(manager.rows[2].info,'ACTIVE');contains(manager.rows[2].info,'#76d39b');contains(manager.rows[2].info,'DRAIN: resources');contains(manager.rows[2].toggle,'WANTED OFF')
+contains(manager.rows[3].info,'FIRSTAID · P3');contains(manager.rows[4].info,'P26 OFF');contains(manager.rows[4].info,'UNKNOWN');contains(manager.rows[4].info,'#e5c07b')
+contains(manager.rows[5].info,'PRIORITY UNKNOWN');contains(manager.footer,'default P8');contains(manager.warning,'MONK only');contains(manager.warning,'NOT cancel active drains');contains(manager.footer,'defup audit')
+assert(manager.rows[6].toggle.hidden and rebuilt.defense_slot(6)==false,'observed row actionable')
+assert(manager.rows[5].toggle.click()==false and #calls==0,'unknown priority dispatched')
 manager.buttons.refresh.click();manager.window:hide();rebuilt.refresh(state,combat_v2.runner,combat_v2.cure)
-assert(manager.window.hidden,'refresh opened a hidden manager')
-assert(rebuilt.show_defenses() and created==manager_count and not manager.window.hidden,'reopen duplicated defense widgets')
-assert(#calls==0 and initializations==0 and sends==0,'opening/refreshing dispatched or mutated service')
-state.buffs.defs_known=false;rebuilt.refresh_defenses(state)
-assert(manager.rows.cloak.info.html:find('UNKNOWN',1,true),'stale defense snapshot claimed ACTIVE')
-state.buffs.defs_known=true
-manager.rows.cloak.toggle.click();assert(calls[#calls][1]=='keep' and calls[#calls][2]=='cloak on' and state.buffs.master,'row ON not explicit upkeep arm')
-assert(manager.header.html:find('MASTER ON',1,true),'master ON not refreshed')
-manager.rows.cloak.toggle.click();assert(calls[#calls][2]=='cloak off','row OFF wrong selector')
-manager.rows.toughness.toggle.click();assert(calls[#calls][2]=='toughness off','safe-defense OFF wrong selector')
-manager.buttons.defup.click();assert(calls[#calls][1]=='start','DEFUP did not route one-shot')
-manager.buttons.keep_on.click();assert(calls[#calls][1]=='keep' and calls[#calls][2]=='on','global ON incorrect')
-manager.buttons.keep_off.click();assert(calls[#calls][1]=='keep' and calls[#calls][2]=='off' and state.buffs.have.cloak==true,'global pause cancelled active defense')
-manager.buttons.stop.click();assert(calls[#calls][1]=='stop','STOP did not disarm service')
-local dispatched=#calls
-for _,input in ipairs({'unknown on','cloak on;send','bad;send on','cloak ON'})do assert(rebuilt.defense_action('keep',input)==false,'invalid selector accepted')end
-assert(rebuilt.defense_action('reset','')==false and rebuilt.defense_action('audit','')==false,'GUI allowed reset/audit dispatch')
-local old_catalog=combat_v2.buffs.catalog;combat_v2.buffs.catalog={old_catalog[1],old_catalog[2]}
-rebuilt.refresh_defenses(state);assert(manager.rows.cloak.info.hidden and manager.rows.cloak.toggle.hidden,'removed defense remained visible')
-manager.rows.cloak.toggle.click();assert(#calls==dispatched,'stale selector dispatched removed key')
-combat_v2.buffs.catalog=old_catalog
-local reloaded=dofile(path..'gui.lua');combat_v2.gui=reloaded;reloaded.create();reloaded.show_defenses()
-assert(created==manager_count and combat_v2_ui.defenses==manager,'GUI reload leaked manager widgets')
-local public_callback=combat_v2_buffs;combat_v2_buffs=nil;assert(reloaded.defense_action('start')==false,'missing public callback not guarded');combat_v2_buffs=public_callback
-local core=combat_v2.buffs;combat_v2.buffs=nil;assert(reloaded.refresh_defenses(state)==false and reloaded.show_defenses()==false,'lost core not guarded');combat_v2.buffs=core
-assert(#calls==dispatched and sends==0 and initializations==0,'invalid selection/render unexpectedly executed')
-assert(combat_v2.runner.mode==mode_before and combat_v2.runner.pending==pending and reloaded.root==root_before and combat_v2_ui.walk_popup==walker_before,'defenses changed mode, executor or existing UI')
-local db=reloaded.buttons.defenses.p;local bb=reloaded.buttons.body_scan.p;local hb=reloaded.buttons.help.p
-assert(db.width==90 and db.x+db.width<bb.x and bb.x+bb.width<hb.x,'header defense button overlap')
--- A complete fourteen-row catalog remains ordered and inside its native content.
-local full={};for i=1,14 do full[i]={key='def_'..i,label='Defense '..i,command='fixture',default=i<=8,drain=i>8 and 'mana' or nil}end
-combat_v2.buffs.catalog=full;reloaded.refresh_defenses(state)
-for i,entry in ipairs(full)do
- local row=manager.rows[entry.key];assert(row.info.p.y==170+(i-1)*34,'catalog order lost')
- assert(row.info.p.x+row.info.p.width<row.toggle.p.x and row.toggle.p.x+row.toggle.p.width<=860,'defense row overlap/overflow')
- assert(row.info.p.y+row.info.p.height<=manager.footer.p.y,'defense row overlaps footer')
+assert(manager.window.hidden,'refresh opened hidden manager')
+assert(rebuilt.show_defenses() and created==manager_count and #calls==0 and initializations==0 and sends==0)
+manager.rows[3].toggle.click();assert(calls[#calls][1]=='native' and calls[#calls][2]=='speed off' and not state.buffs.master)
+manager.rows[4].toggle.click();assert(calls[#calls][1]=='native' and calls[#calls][2]=='levitation on' and not state.buffs.master)
+assert(entries[4].active==nil,'native toggle fabricated active state')
+-- Received observations update the view without requesting anything.
+local before_event=#calls;entries[3].active=true;entries[4].active=false;rebuilt.refresh_defenses(state)
+contains(manager.rows[3].info,'ACTIVE');contains(manager.rows[4].info,'MISSING');assert(#calls==before_event)
+for _,priority in ipairs({0,27,1.5})do
+ entries[5].priority=priority;assert(manager.rows[5].toggle.click()==false and #calls==before_event,'invalid native priority dispatched')
 end
-assert(manager.footer.p.y+manager.footer.p.height<=manager.window.p.height,'defense footer overflow')
-manager.rows.def_14.toggle.click();assert(calls[#calls][2]=='def_14 on','row closure did not retain validated key')
-manager.rows.def_1.toggle.click();assert(calls[#calls][2]=='def_1 on','row callback captured wrong key')
-assert(state.buffs.wanted.def_9==nil,'render auto-selected a drain')
-local full_count=created;manager.window:hide();reloaded.show_defenses();assert(created==full_count and raised[#raised]=='Combat V2 Defenses','full manager reopen leaked or failed to raise')
-assert(combat_v2.runner.mode==mode_before and sends==0,'catalog refresh changed execution')
-print('PASS GUI defenses: pure open/refresh, native singleton/reload/raise, authoritative ACTIVE/MISSING/UNKNOWN vs wanted, master/drain warnings, validated per-row/global callbacks, stale-key rejection, fourteen-row bounds, unchanged executor/layout')
+entries[5].priority=nil
+manager.rows[2].toggle.click();assert(calls[#calls][1]=='keep' and calls[#calls][2]=='cloak on' and state.buffs.master)
+manager.rows[2].toggle.click();assert(calls[#calls][2]=='cloak off' and entries[2].active==true)
+manager.buttons.defup.click();assert(calls[#calls][1]=='start')
+manager.buttons.keep_on.click();assert(calls[#calls][1]=='keep' and calls[#calls][2]=='on')
+manager.buttons.keep_off.click();assert(calls[#calls][2]=='off' and entries[4].wanted and entries[2].active)
+manager.buttons.stop.click();assert(calls[#calls][1]=='stop')
+local dispatched=#calls
+for _,input in ipairs({'unknown on','cloak on;send','bad;send on','cloak ON','speed on'})do assert(rebuilt.defense_action('keep',input)==false)end
+assert(rebuilt.defense_action('native','cloak on')==false and rebuilt.defense_action('native','on')==false)
+assert(rebuilt.defense_action('reset','')==false and rebuilt.defense_action('audit','')==false)
+manager.buttons.next.click();assert(manager.page==2 and manager.rows[1].key=='def_15')
+manager.rows[1].toggle.click();assert(calls[#calls][2]=='def_15 on');dispatched=#calls
+for i=1,10 do manager.buttons.next.click()end
+assert(manager.page==4 and manager.rows[1].key=='def_43' and manager.rows[6].info.hidden and manager.rows[6].toggle.hidden)
+assert(manager.rows[6].toggle.click()==false and #calls==dispatched)
+manager.buttons.FIRSTAID.click();assert(manager.page==1 and manager.filter=='FIRSTAID' and manager.rows[1].key=='speed' and manager.rows[4].info.hidden)
+manager.buttons.ACTIVE.click();for _,row in ipairs(manager.rows)do if not row.info.hidden then contains(row.info,'ACTIVE')end end
+manager.buttons.MONK.click();for _,row in ipairs(manager.rows)do if not row.info.hidden then contains(row.info,'MONK')end end
+manager.buttons.ALL.click();manager.page=2
+assert(manager.rows[1].toggle.click()==false and #calls==dispatched,'stale page dispatched')
+rebuilt.refresh_defenses(state)
+local saved=entries;entries={saved[1]}
+assert(manager.rows[1].toggle.click()==false and #calls==dispatched,'stale row dispatched')
+rebuilt.refresh_defenses(state);assert(manager.page==1 and manager.rows[2].info.hidden and manager.rows[2].toggle.hidden)
+entries={};manager.buttons.ACTIVE.click();contains(manager.page_label,'Page 1 / 1 · 0 rows');assert(manager.rows[1].info.hidden)
+entries=saved;manager.buttons.ALL.click()
+local control=entries[1].control;entries[1].control='observed'
+assert(manager.rows[1].toggle.click()==false and #calls==dispatched,'changed control dispatched');entries[1].control=control
+for i=48,2000 do entries[#entries+1]={key='def_'..i,label='<extra>',active=true,owner='OBSERVED',control='observed'}end
+rebuilt.refresh_defenses(state);manager.buttons.next.click();assert(created==manager_count and #manager.rows==14,'catalog growth allocated widgets')
+for _,row in ipairs(manager.rows)do
+ assert(row.info.p.y>=194 and row.info.p.y+row.info.p.height<=manager.footer.p.y)
+ assert(row.info.p.x+row.info.p.width<row.toggle.p.x and row.toggle.p.x+row.toggle.p.width<=860)
+end
+assert(manager.footer.p.y+manager.footer.p.height<=manager.window.p.height)
+local reloaded=dofile(path..'gui.lua');combat_v2.gui=reloaded;reloaded.create();reloaded.show_defenses()
+assert(created==manager_count and combat_v2_ui.defenses==manager,'reload leaked manager')
+local callback=combat_v2_buffs;combat_v2_buffs=nil;assert(reloaded.defense_action('start')==false);combat_v2_buffs=callback
+local core=combat_v2.buffs;combat_v2.buffs=nil;assert(reloaded.refresh_defenses(state)==false and reloaded.show_defenses()==false);combat_v2.buffs=core
+assert(#calls==dispatched and initializations==0 and sends==0)
+assert(combat_v2.runner.mode==mode_before and combat_v2.runner.pending==pending and reloaded.root==root_before and combat_v2_ui.walk_popup==walker_before)
+local db=reloaded.buttons.defenses.p;local bb=reloaded.buttons.body_scan.p;local hb=reloaded.buttons.help.p
+assert(db.width==90 and db.x+db.width<bb.x and bb.x+bb.width<hb.x)
+-- Upgrade a previously open catalog-keyed manager without touching other UI.
+local legacy={rows={old={info=obj({name='legacy_info'}),toggle=obj({name='legacy_toggle'})}},buttons={old=obj({name='legacy_button'})},window=obj({name='legacy_window'}),header=obj({name='legacy_header'})}
+combat_v2_ui.defenses=legacy
+reloaded.refresh_defenses(state);assert(reloaded.show_defenses())
+assert(legacy.rows.old.info.deleted and legacy.rows.old.toggle.deleted and legacy.buttons.old.deleted and legacy.header.deleted and legacy.window.deleted,'legacy manager children leaked')
+assert(combat_v2_ui.walk_popup==walker_before and reloaded.root==root_before and #calls==dispatched,'migration touched other UI or dispatched')
+print('PASS GUI defenses: 14 reusable slots, 2000 rows, paging/filter/clamp, native/class dispatch, unknown-priority/stale-slot rejection, read-only rows, escaped/color states, no sends, unchanged executor/UI, legacy migration')
 
 print('PASS GUI: reusable root, escaping, flags, separate large affliction panels, counts, independent paging, cure page clamp, responsive bounds at three resolutions; widgets='..created)

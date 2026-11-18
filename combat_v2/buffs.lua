@@ -1,4 +1,5 @@
--- Monk preparations only. No IO, global sender, emergency abilities or ENEMY changes.
+-- Shared defence observations/native metadata; only Monk preparations may cast.
+-- No IO, global sender, generic consumption, emergency abilities or ENEMY changes.
 -- Intent is revocable; an already dispatched action is a physical barrier until
 -- confirmed AND followed by a real ready prompt. Only reset may waive that barrier.
 local M={}
@@ -25,9 +26,27 @@ for _,e in ipairs(M.catalog) do
  index[e.key]=e;aliases[norm(e.key)]=e.key;aliases[norm(e.label)]=e.key
  for _,id in ipairs(e.ids or {}) do aliases[norm(id)]=e.key end
 end
+-- Native FIRSTAID owns these IDs even when disabled. No commands in this catalog.
+M.native_catalog={}
+local native_order={'courage','density','fangbarrier','insomnia','levitation','rebounding','waterbreathing','instawake','arcane','harmony','speed','vigor'}
+local general_order={'blindness','deafness','insulation','temperance','venom_resistance','cloak','clarity','deathsight','divertmelee','dodgemelee','divine_speed','hypersight','irongrip','metawake','thirdeye','shielded','vigilance','skywatch','tremorsense','recognition','selfishness','alertness','telesense','bolstered','safeguard','flame','firefly','mindseye','starburst','boar','moon','moss','owl'}
+local metadata={}
+for _,k in ipairs(native_order) do
+ local e={key=k,label=k:sub(1,1):upper()..k:sub(2)}
+ M.native_catalog[k]=e;metadata[k]=e;aliases[norm(k)]=k
+end
+for _,k in ipairs(general_order) do
+ metadata[k]={key=k,label=k:gsub('_',' '):gsub('^%l',string.upper)};aliases[norm(k)]=k
+end
+aliases.blind='blindness';aliases.deaf='deafness'
 local function key(x)
  if type(x)=='table' then x=x.name or x.id or x.key end
  return aliases[norm(x)]
+end
+local function observed_key(x)
+ if type(x)=='table' then x=x.name or x.id or x.key end
+ if type(x)~='string' then return nil end
+ return key(x) or (x:match('^[%a][%w_ %-]*$') and x:lower():gsub('[ %-]+','_'))
 end
 local function yes(x) return x==true or tonumber(x)==1 end
 local function ready(s)
@@ -51,7 +70,52 @@ function M.state(s)
   s.buffs={master=false,sequence=false,wanted=wanted,have={},known={},known_ready=false,
    defs_known=false,cancel={},cooldown={},retry={},prompt=0,status='disarmed'}
  end
- return s.buffs
+ local b=s.buffs
+ b.observed=b.observed or {};b.native_priorities=b.native_priorities or {};b.native_last_active=b.native_last_active or {}
+ return b
+end
+function M.native_priority(s,k)
+ if not M.native_catalog[k] then return nil end
+ local b=M.state(s)
+ if b.native_pending and b.native_pending[k] then return nil end
+ return b.native_priorities[k]
+end
+-- Requested values are not proof. Fence any listing begun before this write.
+function M.native_request(s,k,pri)
+ if not M.native_catalog[k] or type(pri)~='number' or pri%1~=0 or pri<1 or pri>26 or M.native_priority(s,k)==nil then return false end
+ local b=M.state(s);b.native_version=(b.native_version or 0)+1
+ b.native_pending=b.native_pending or {};b.native_pending[k]=pri
+ return true
+end
+function M.native_enable_priority(s,k)
+ if not M.native_catalog[k] then return nil end
+ return M.state(s).native_last_active[k] or 8
+end
+function M.rows(s)
+ local b=M.state(s);local rows,seen,positive={},{},{}
+ for id,v in pairs((s.player or {}).defences or {}) do
+  local k=observed_key(id);if k and yes(v) then positive[k]=true end
+ end
+ local function add(k,e)
+  if seen[k] then return end;seen[k]=true
+  local active
+  if b.have[k] or b.observed[k] or positive[k] then active=true elseif b.defs_known then active=false end
+  local native=M.native_catalog[k];local class=index[k] and not native
+  local pri=M.native_priority(s,k);local wanted
+  if native then if pri then wanted=pri<26 end elseif class then wanted=b.wanted[k] end
+  rows[#rows+1]={key=k,label=e and e.label or k,active=active,wanted=wanted,
+   owner=native and 'FIRSTAID' or class and 'MONK' or 'OBSERVED',
+   control=native and 'native' or class and 'class' or 'observed',priority=pri,drain=e and e.drain==true or false}
+ end
+ for _,e in ipairs(M.catalog) do add(e.key,e) end
+ for _,k in ipairs(native_order) do add(k,metadata[k]) end
+ for _,k in ipairs(general_order) do add(k,metadata[k]) end
+ local extra={}
+ for k in pairs(positive) do extra[k]=true end
+ for k in pairs(b.observed) do extra[k]=true end
+ local sorted={};for k in pairs(extra) do sorted[#sorted+1]=k end;table.sort(sorted)
+ for _,k in ipairs(sorted) do add(k,metadata[k]) end
+ return rows
 end
 function M.stop(s,reason)
  local b=M.state(s);b.master=false;b.sequence=false;b.todo=nil;b.cancel={};b.query=nil
@@ -105,17 +169,18 @@ local function canonical_have(s,k)
  return false
 end
 local function observe(s,k,on)
- local b=M.state(s);b.have[k]=on or nil
+ local b=M.state(s)
+ if index[k] then b.have[k]=on or nil else b.observed[k]=on or false end
  local p=s.player or {};p.defences=p.defences or {};s.player=p
  -- Keep legacy identifiers consumed by mental.lua coherent, without replacing
  -- generic GMCP defences (which include many unrelated abilities).
  p.defences[k]=on or nil
  if not on then
-  for id in pairs(p.defences) do if key(id)==k then p.defences[id]=nil end end
+  for id in pairs(p.defences) do if observed_key(id)==k then p.defences[id]=nil end end
  end
  if k=='trance' then p.defences.kai_trance=on or nil end
  if k=='boosting' then p.defences.boosted_regen=on or nil end
- if not on and index[k].cooldown_loss then b.cooldown[k]=now()+index[k].cooldown_loss end
+ if not on and index[k] and index[k].cooldown_loss then b.cooldown[k]=now()+index[k].cooldown_loss end
  local pending=b.pending
  if pending and pending.key==k and pending.off==not on then pending.confirmed=true end
 end
@@ -133,9 +198,13 @@ end
 function M.sync(s,kind,payload)
  local b=M.state(s);kind=norm(kind):match('([^%.]+)$')
  if kind=='list' then
-  local have={};each_name(payload,function(v)local k=key(v);if k then have[k]=true end end);snapshot(s,have)
+  local have,general={},{}
+  each_name(payload,function(v)local k=observed_key(v);if k then if index[k] then have[k]=true else general[k]=true end end end)
+  for k in pairs(b.observed) do observe(s,k,general[k]==true) end
+  for k in pairs(general) do observe(s,k,true) end
+  snapshot(s,have)
  elseif kind=='add' or kind=='remove' then
-  each_name(payload,function(v)local k=key(v);if k then observe(s,k,kind=='add') end end)
+  each_name(payload,function(v)local k=observed_key(v);if k then observe(s,k,kind=='add') end end)
  end
  return b
 end
@@ -152,14 +221,111 @@ local confirmations={
  ['Your vision sharpens with light as you gain night sight.']='nightsight',
  ['You are brimming with courage.']='courage',
  ['You will call upon your fortitude in need.']='vitality',
- ['You are regenerating lost health through the power of Kaido.']='boosting',
+ ['You are regenerating lost health through the power of Kaido.']='regeneration',
  ['You are regenerating lost health through will.']='regeneration',
  ['You begin to concentrate on regeneration of your wounds.']='regeneration',
- ['Your regeneration is boosted.']='boosting'
+ ['Your regeneration is boosted.']='boosting',
+ ['You call upon your Kai power to boost your health regeneration.']='boosting'
 }
+local up={
+ instawake={'You are feeling extremely energetic.','An instant feeling of excitement and edginess overcomes you.'},
+ rebounding={'You are protected from hand-held weapons with an aura of rebounding.','You feel an aura of rebounding surround you.'},
+ levitation={'You walk on a small cushion of air.','You are already levitating.'},
+ density={'You are extremely heavy and difficult to move.'},
+ speed={'Your sense of time is heightened, and your reactions are speeded.','Your sense of time is already heightened.'},
+ waterbreathing={'You are surrounded by a pocket of air.','You are already surrounded by a pocket of air.'},
+ fangbarrier={'The paste solidifies into a thick, hardened shell.','You are protected from the fangs of serpents.'},
+ insomnia={'You have insomnia, and cannot easily go to sleep.'},
+ arcane={'You are tempered against elemental magic.','You are already tempered against elemental magic.'},
+ harmony={'Your thoughts are harmonized.'},vigor={'You have been invigorated with strength.'},
+ blindness={'You are blind.'},deafness={'You are deaf.','The world around fades to silence as you lose your hearing.'},
+ insulation={'You are insulated against the harsh cold.','You are coated in an insulating caloric salve.'},
+ temperance={'You are tempered against fire damage.'},venom_resistance={'Your resistance to damage by poison has been increased.'},
+ cloak={'You are surrounded by a cloak of protection.'},clarity={'Your mind is filled with clarity.'},
+ deathsight={'Your mind has been touched by the essence of the Underking.'},divertmelee={'You are diverting melee attacks.'},
+ dodgemelee={'You are dodging melee attacks.'},divine_speed={'You have been granted the speed of the Divine.'},
+ hypersight={'You are utilising hypersight.'},irongrip={'Your hands are gripping your wielded items tightly.'},
+ metawake={'You are concentrating on maintaining distance from the dreamworld.'},thirdeye={'You possess the sight of the third eye.'},
+ shielded={'You are surrounded by a nearly invisible magical shield.'},vigilance={'You are vigilant to attempts to hypnotise you.'},
+ skywatch={'You are aware of movement in the skies.'},tremorsense={'You are listening for underground movement.'},
+ recognition={'You are recognizing masking afflictions.'},selfishness={'You are feeling quite selfish.'},
+ alertness={'Your senses are attuned to nearby movement.'},telesense={'You are using your telesense.','You are attuned to local telepathic interference.'},
+ bolstered={'You have prepared yourself for incoming attacks.'},safeguard={'You have the safeguard of an Idreth.','You are surrounded by a safeguard charm.'},
+ flame={'Your flame tattoo is glowing faintly.'},firefly={'Your firefly tattoo glows softly.'},
+ mindseye={'Your senses are magically heightened.'},starburst={'You walk with the grace of the stars.'}
+}
+for k,lines in pairs(up) do for _,line in ipairs(lines) do confirmations[line]=k end end
+local losses={
+ ['You call a halt to the regenerative process.']='regeneration',
+ ['You feel yourself calm down as the stimulant wears off.']='instawake',
+ ['Your aura of weapons rebounding disappears.']='rebounding',
+ ['You gently lower yourself to the ground.']='levitation',
+ ['You cease your levitation as the pit attempts to pull you towards it.']='levitation',
+ ['You feel your density return to normal.']='density',
+ -- Legacy source typo retained; not claimed as a current verified server line.
+ ['Your speed defence defence erodes away.']='speed',
+ ['Your waterbreathing defence has been washed away.']='waterbreathing',
+ ['Your protective coating rots away under the noxious attack.']='fangbarrier',
+ ['You feel your defense against venoms weaken and fade.']='venom_resistance',
+ ['You cease to concentrate on hypersight.']='hypersight',
+ ['Your magical shield is sheared straight through.']='shielded',
+ ['You allow your muscles to relax once more as you cease to bolster them.']='bolstered'
+}
+local function priority_set(b,k,pri)
+ b.native_priorities[k]=pri
+ if b.native_pending then b.native_pending[k]=nil end
+ if pri<26 then b.native_last_active[k]=pri end
+end
+local function priority_text(b,line)
+ -- An own acknowledgement is independent of a listing and newer than its rows.
+ local name,n=line:match("^You have set the '(.-)' defence to the (%d+) priority%.$")
+ local pri=tonumber(n)
+ if name and M.native_catalog[name] and pri and pri>=1 and pri<=26 then
+  b.native_version=(b.native_version or 0)+1
+  -- A delayed ACK for another value cannot acknowledge the unresolved write.
+  -- Still fence older listing rows, but retain uncertainty and restoration memory.
+  if not b.native_pending or not b.native_pending[name] or b.native_pending[name]==pri then priority_set(b,name,pri) end
+  return true
+ end
+ if line=='Your defense priorities:' then
+  b.native_listing={values={},seen={},priorities={},valid=true,rows=0,version=b.native_version or 0};return true
+ end
+ local tx=b.native_listing
+ if tx then
+  if line=='Defs with priority 26 are ignored.' then
+   b.native_listing=nil
+   if tx.valid and tx.rows==25 and tx.version==(b.native_version or 0) then
+    for _,k in ipairs(native_order) do
+     local value=tx.values[k] or 26
+     -- A pre-write response delivered late must not confirm a conflicting value.
+     if not b.native_pending or not b.native_pending[k] or b.native_pending[k]==value then priority_set(b,k,value) end
+    end
+   end
+   return true
+  end
+  if line:match('^%s*$') then return true end
+  local n,names=line:match('^%s*(%d+):%s*(.-)%s*$');local pri=tonumber(n)
+  if not pri or pri<1 or pri>25 or tx.priorities[pri] or not names or names:match(',%s*$') then tx.valid=false;return false end
+  tx.priorities[pri]=true
+  tx.rows=tx.rows+1
+  if names==''then return true end -- Native readback includes empty 5: ... 25: rows.
+  for name in (names..','):gmatch('(.-),') do
+   name=name:match('^%s*(.-)%s*$')
+   if not name:match('^[%a][%a_ %-]*$') or tx.seen[name] then tx.valid=false end
+   tx.seen[name]=true
+   if M.native_catalog[name] then tx.values[name]=pri end
+  end
+  return true
+ end
+
+ local state=line:match('^Status:%s+(%u+)$');if state=='ON'or state=='OFF'then b.native_status=state=='ON';return true end
+ state=line:match('^Defences:%s+(%u+)$');if state=='ON'or state=='OFF'then b.native_defences=state=='ON';return true end
+ return false
+end
 function M.text(s,line)
  if type(line)~='string' then return end
  local b=M.state(s)
+ if priority_text(b,line) then return end
  if line=='You possess the following abilities in Kaido:' then b.ability_listing={};return end
  if b.ability_listing then
   if line:match('^Type AB KAIDO <ability>') then
@@ -172,14 +338,17 @@ function M.text(s,line)
  if line:match('^You are protected by %d+ defences%.$') and b.listing then
   -- Our text recognizer is partial. Unrecognized rows are not absent defenses.
   -- Only a full GMCP List may clear existing positives or establish known absence.
-  b.listing=nil;return -- Rows were observed immediately; never replay stale evidence.
+  b.listing=nil;return -- Each row was observed immediately; never replay stale evidence.
  end
  local k=confirmations[line]
  if k then if b.listing then b.listing[k]=true end;observe(s,k,true);return end
+ k=losses[line];if k then observe(s,k,false);return end
  local name=line:match('^You have gained the ([%a_ %-]+) defence%.$')
- if name then k=key(name);if k then observe(s,k,true);if b.listing then b.listing[k]=true end end;return end
- name=line:match('^You have lost the ([%a_ %-]+) defence%.$')
- if name then k=key(name);if k then observe(s,k,false) end;return end
+ if name then k=observed_key(name);if k then observe(s,k,true);if b.listing then b.listing[k]=true end end;return end
+ name=line:match('^You have lost the ([%a_ %-]+) defence%.$') or
+  line:match('^Your ([%a_ %-]+) defence has been stripped%.$') or
+  line:match('^Your ([%a_ %-]+) defence is degraded away%.$')
+ if name then k=observed_key(name);if k then observe(s,k,false) end;return end
  if b.pending and (line=='You must regain balance first.' or line=='You must regain equilibrium first.' or
   line=='You do not possess that ability.' or line=='You have not learned that ability.' or line=='You do not know that ability.' or
   line=='You know of no such ability.' or line=='You cannot perform that ability.' or line=='You have not yet learned that ability.') then
@@ -207,6 +376,7 @@ end
 function M.toggle(s,name,on)
  local b=M.state(s);local k=key(name);local e=k and index[k]
  if not e then return false,'Unknown defence' end
+ if M.native_catalog[k] then return false,'Native FIRSTAID owns this defence' end
  if type(on)~='boolean' then return false,'Expected boolean' end
  if on then
   local ok,why=M.master(s,true);if not ok then return false,why end
@@ -303,7 +473,7 @@ local function service(s,runner,sender,hold)
  if not chosen then
   for _,e in ipairs(M.catalog) do
    local selected=b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
-   if selected and b.wanted[e.key] then
+   if selected and b.wanted[e.key] and not M.native_catalog[e.key] then
     if b.todo then b.todo[e.key]=nil end -- one-shot skips once, never pins offense
     local ok=eligible(s,b,e)
     if not b.have[e.key] and not canonical_have(s,e.key) and b.known[e.key] and ok then chosen=e;break end
