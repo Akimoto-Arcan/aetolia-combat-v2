@@ -5,11 +5,31 @@ local output={};local realprint=print;print=function(...)output[#output+1]=table
 function getEpoch()return clock end
 function getMudletHomeDir()return root:gsub('/combat_v2/$','')end
 function getConnectionInfo()return 'fixture',0,true end
-function registerAnonymousEventHandler(name,fn)handlers[name]=fn;return name end
-function killAnonymousEventHandler(name)handlers[name]=nil end
+local event_listeners,event_serial,event_handler_table={},0,nil
+function registerAnonymousEventHandler(event,fn)
+ if event_handler_table~=handlers then event_listeners={};event_handler_table=handlers end
+ event_serial=event_serial+1;local id=event_serial;event_listeners[id]={event,fn}
+ handlers[event]=function(...)
+  local ids={};for k,v in pairs(event_listeners)do if v[1]==event then ids[#ids+1]=k end end;table.sort(ids)
+  for _,k in ipairs(ids)do local item=event_listeners[k];if item then item[2](...)end end
+ end
+ return id
+end
+function killAnonymousEventHandler(id)
+ local item=event_listeners[id];event_listeners[id]=nil
+ if item then local any=false;for _,v in pairs(event_listeners)do if v[1]==item[1]then any=true end end;if not any then handlers[item[1]]=nil end end
+end
 function tempRegexTrigger(_,fn)serial=serial+1;triggers[serial]=fn;return serial end
-function killTrigger()end
-function tempPromptTrigger(fn)prompt=fn;serial=serial+1;return serial end
+local prompt_callbacks={}
+function killTrigger(id)triggers[id]=nil;prompt_callbacks[id]=nil end
+function tempPromptTrigger(fn)
+ serial=serial+1;prompt_callbacks[serial]=fn
+ prompt=function(...)
+  local ids={};for id in pairs(prompt_callbacks)do ids[#ids+1]=id end;table.sort(ids)
+  for _,id in ipairs(ids)do local callback=prompt_callbacks[id];if callback then callback(...)end end
+ end
+ return serial
+end
 function tempAlias(pattern,fn)aliases[pattern]=fn;return pattern end
 function killAlias(pattern)aliases[pattern]=nil end
 function tempTimer(delay,fn)serial=serial+1;timers[serial]={at=clock+delay,fn=fn};return serial end

@@ -95,6 +95,14 @@ end
 local function buff_wake()
  if c.buffs.has_work(c.current) and not c.buff_timer then c.buff_timer=tempTimer(1,buff_timer)end
 end
+function combat_v2_supplies(action)
+ action=tostring(action or"status"):lower()
+ if not c.supplies then return false,"Supply monitor unavailable"end
+ if action=="check"or action=="audit"then
+  return c.supplies.audit(c,function(command)assert(command=="fluidcache","Read-only supply command rejected");return send(command)end)
+ elseif action~="status"then return false,"cv2 supplies status | check"end
+ local s=c.supplies.state(c);print("FLUIDCACHE",s.level,s.status,"health",s.stocks.health and s.stocks.health.count or"unknown","mana",s.stocks.mana and s.stocks.mana.count or"unknown");return true
+end
 function combat_v2_globe(action)
  action=tostring(action or"status"):lower()
  if not c.elementals then return false,"Globe recovery module unavailable"end
@@ -316,6 +324,7 @@ function combat_v2_set_mode(mode)
  if mode=="SHADOW"then c.buffs.stop(c.current,"SHADOW; upkeep disarmed")end
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
  if mode=="BASH" then
+  if c.supplies then combat_v2_supplies("check")end
   local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end
   c.current.hunting.verified_generation=nil
  end
@@ -516,6 +525,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  elseif cmd=="approve" then ok,why=combat_v2_approve()
  elseif cmd=="stop" or cmd=="off" then combat_v2_stop()
  elseif cmd=="enemy" then if rest=="reset" then ok,why=combat_v2_reset_enemy_afflictions() else ok,why=false,"cv2 enemy reset" end
+ elseif cmd=="supplies"then ok,why=combat_v2_supplies(rest~=""and rest or"status")
  elseif cmd=="globe"then ok,why=combat_v2_globe(rest~=""and rest or"status")
  elseif cmd=="defup"then ok,why=combat_v2_buffs("defup",rest)
  elseif cmd=="defkeep"then ok,why=combat_v2_buffs("keep",rest)
@@ -553,4 +563,6 @@ if getConnectionInfo then local _,_,connected=getConnectionInfo();if not connect
 if c.elementals then c.elementals.detach(c)end
 c.elementals=dofile(root.."elementals.lua");c.elementals.arm(c,false)
 c.gui.create();refresh()
+if c.supplies then c.supplies.detach(c)end
+c.supplies=dofile(root.."supplies.lua");c.supplies.attach(c)
 print("Combat V2 backend ready (OFF). t NAME; cv2 bash / pvp / assist; cv2 help; cv2 trace.")

@@ -14,8 +14,20 @@ function send(cmd)
   handlers['gmcp.Char.Items.List']()
  end
 end
-function registerAnonymousEventHandler(e,f)handlers[e]=f;return e end
-function killAnonymousEventHandler(e)handlers[e]=nil end
+local event_listeners,event_serial,event_handler_table={},0,nil
+function registerAnonymousEventHandler(event,fn)
+ if event_handler_table~=handlers then event_listeners={};event_handler_table=handlers end
+ event_serial=event_serial+1;local id=event_serial;event_listeners[id]={event,fn}
+ handlers[event]=function(...)
+  local ids={};for k,v in pairs(event_listeners)do if v[1]==event then ids[#ids+1]=k end end;table.sort(ids)
+  for _,k in ipairs(ids)do local item=event_listeners[k];if item then item[2](...)end end
+ end
+ return id
+end
+function killAnonymousEventHandler(id)
+ local item=event_listeners[id];event_listeners[id]=nil
+ if item then local any=false;for _,v in pairs(event_listeners)do if v[1]==item[1]then any=true end end;if not any then handlers[item[1]]=nil end end
+end
 function tempRegexTrigger(p,f)nextid=nextid+1;triggers[nextid]=f;return nextid end
 function killTrigger(id)triggers[id]=nil end
 function tempAlias(p,f)nextid=nextid+1;aliases[nextid]=f;return nextid end

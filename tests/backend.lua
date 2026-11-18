@@ -73,8 +73,20 @@ s,r=fresh();E.event(s,'Someone says, "You have died."');check(not s.player.dead,
 -- Real bootstrap callbacks with fake Mudlet surfaces and transports.
 combat_v2=nil;gmcp={};local handlers={};local aliases={};local timers={};local realdofile=dofile
 function getMudletHomeDir()return root:gsub('/combat_v2/$','')end
-function registerAnonymousEventHandler(event,fn) handlers[event]=fn;return event end
-function killAnonymousEventHandler(id) handlers[id]=nil end
+local event_listeners,event_serial,event_handler_table={},0,nil
+function registerAnonymousEventHandler(event,fn)
+ if event_handler_table~=handlers then event_listeners={};event_handler_table=handlers end
+ event_serial=event_serial+1;local id=event_serial;event_listeners[id]={event,fn}
+ handlers[event]=function(...)
+  local ids={};for k,v in pairs(event_listeners)do if v[1]==event then ids[#ids+1]=k end end;table.sort(ids)
+  for _,k in ipairs(ids)do local item=event_listeners[k];if item then item[2](...)end end
+ end
+ return id
+end
+function killAnonymousEventHandler(id)
+ local item=event_listeners[id];event_listeners[id]=nil
+ if item then local any=false;for _,v in pairs(event_listeners)do if v[1]==item[1]then any=true end end;if not any then handlers[item[1]]=nil end end
+end
 function tempAlias(pattern,fn) aliases[#aliases+1]=fn;return #aliases end
 function killAlias(id) aliases[id]=nil end
 function tempRegexTrigger(pattern,fn)return 99 end
