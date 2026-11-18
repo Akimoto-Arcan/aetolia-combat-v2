@@ -55,7 +55,7 @@ clock=clock+1;check(not R.tick(mr) and #sent==mounted_before+1,'mounted wait dup
 S.sync_gmcp(ms,{Char={Vitals={mounted='0'}}});R.update_balance(mr);check(not mr.waiting and not ms.player.mounted,'observed dismount did not release free-action wait')
 clock=clock+1;check(R.tick(mr) and sent[#sent]=='scs','dismount did not lead to standalone Scorpion preparation')
 local events=dofile(root..'events.lua');events.event(ms,'You sink back into the menacing stance of the Scorpion.');events.event(ms,'Your bodily control allows you to maintain your balance.');R.update_balance(mr)
-clock=clock+1;check(R.tick(mr) and sent[#sent]=='combo Fixture sdk spp spp','prepared BASH did not continue into attack')
+clock=clock+1;check(R.tick(mr) and sent[#sent]=='combo Fixture spk ucp ucp','prepared BASH did not continue into attack')
 check(not ms.dismount_stance,'temporary stance preparation leaked into future decisions')
 for _,value in ipairs({0,'0',false})do S.sync_gmcp(ms,{Char={Vitals={mounted=value}}});check(not ms.player.mounted,'unmounted encoding treated as mount')end
 S.sync_gmcp(ms,{Char={Vitals={mounted='471247'}}});events.event(ms,'With acrobatic grace, you quickly hop off of a stormwinged roc.');check(ms.player.mounted==false,'observed quickdismount text not ingested')

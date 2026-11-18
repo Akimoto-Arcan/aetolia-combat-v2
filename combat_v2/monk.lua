@@ -38,9 +38,9 @@ function M.choose(s)
  if s.mode=="BASH" then
   local stance=tostring(p.stance or ""):lower()
   if stance~="scorpion" and stance~="scs" then
-   return action("bash_scorpion","combo "..t.name.." scs spp spp","enter scorpion and spear twice; no PvP limb tracking")
+   local a=action("stance","scs","enter Scorpion before SPK/UCP/UCP bashing",nil,true);a.stance="scorpion";return a
   end
-  return action("bash_spear","combo "..t.name.." sdk spp spp","scorpion spear bashing; no PvP limb tracking")
+  return action("bash_strike","combo "..t.name.." spk ucp ucp","Spinkick and two Uppercuts; no PvP limb tracking")
  end
  local finish=t.prone and next(t.crippled)~=nil and not t.mangled.head
  local desired=finish and s.config.finish_stance or s.config.pvp_stance

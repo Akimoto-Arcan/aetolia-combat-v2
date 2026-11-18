@@ -29,7 +29,7 @@ s.player.stance='eagle';check(K.choose(s).name=='combo','Eagle did not permit pr
 s.target.prone=true;s.target.crippled.left_leg=true;a=K.choose(s);check(a.command=='cbs' and a.stance=='cobra','BBT setup did not select Cobra')
 s.player.stance='cobra';check(K.choose(s).command=='bbt Enemy','Cobra did not lead to BBT')
 s.target.prone=false;s.target.crippled={};s.config.pvp_stance='cobra';check(K.choose(s).command=='combo Enemy snk left snk left','Cobra emitted punches')
-s.mode='BASH';check(K.choose(s).command=='combo Enemy scs spp spp','PvP stance policy changed BASH')
+s.mode='BASH';check(K.choose(s).command=='scs','PvP stance policy changed BASH')
 s=fresh();s.config.pvp_stance='eagle';s.player.stance='scorpion';s.player.balance=true;s.player.left_arm_balance=true;s.player.right_arm_balance=true;R.bind_policy(function()return true end);local r=R.new(s,K);r.mode='FULL_AUTO';r.sender=send;check(R.tick(r) and r.waiting_stance=='eagle','stance executor did not record wait')
 s.player.stance='eagle';R.update_balance(r);check(not r.waiting,'intrinsically free Eagle stance waited for nonexistent balance loss')
 E.event(s,'Your bodily control allows you to maintain your balance.');R.update_balance(r);check(not r.waiting,'confirmed free stance did not release wait')
