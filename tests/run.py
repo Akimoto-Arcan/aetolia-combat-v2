@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix='cv2-test-') as tmp:
     assert (target / 'bootstrap.lua').read_bytes() == original
     for source in sorted(target.glob('*.lua')):
         subprocess.run(['luac', '-p', str(source)], check=True)
-    for script in ['engine.lua', 'backend.lua', 'combat_text.lua', 'ih.lua', 'policy.lua', 'gui.lua']:
+    for script in ['engine.lua', 'backend.lua', 'combat_text.lua', 'ih.lua', 'policy.lua', 'mental.lua', 'gui.lua']:
         subprocess.run(['lua', str(ROOT / 'tests' / script), target.as_posix() + '/'], check=True)
     tree = ET.parse(ROOT / 'loader.xml')
     assert tree.find('.//Script').get('isActive') == 'yes'

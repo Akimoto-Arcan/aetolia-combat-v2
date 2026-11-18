@@ -1,0 +1,48 @@
+local root=assert(arg[1]);local clock=100;function getEpoch()return clock end
+local S=dofile(root..'state.lua');local M=dofile(root..'mental.lua');local K=dofile(root..'monk.lua');local R=dofile(root..'runner.lua');local E=dofile(root..'events.lua');local T=dofile(root..'tracker.lua');E.bind(T)
+local count=0;local function check(v,msg)assert(v,msg);count=count+1 end
+local function fresh()
+ local s=S.new();S.set_target(s,'Enemy');s.connected=true;s.mode='FULL_AUTO';s.player.hp=100;s.player.mana=2000;s.player.equilibrium=true;s.policy={players_known=true,players={enemy=true}};M.state(s);clock=clock+1;return s
+end
+local sent={};local function send(v)sent[#sent+1]=v end
+local s=fresh();s.player.balance=false;M.tick(s,send);check(sent[#sent]=='mind lock Enemy','lock could not start while physically off balance')
+local n=#sent;M.tick(s,send);clock=clock+30;M.tick(s,send);check(#sent==n,'pending channel spammed lock')
+M.text(s,'You focus your mind, and begin to concentrate on forming a mind lock with Enemy.');check(s.mental.status=='acquiring','start not tracked')
+M.text(s,'You continue to delve deeper and deeper into the mind of Enemy.');check(s.mental.progress==clock,'progress missing')
+M.text(s,'Your telepathic efforts are successful, and the mind of Other is locked with your own.');check(s.mental.status~='locked','other target granted lock')
+M.text(s,'Your telepathic efforts are successful, and the mind of Enemy is locked with your own.');check(s.mental.status=='locked','confirmation missing')
+n=#sent;M.tick(s,send);check(#sent==n,'Blackout cast while physically off balance');s.player.balance=true;s.player.left_arm_balance=true;s.player.right_arm_balance=true
+check(M.tick(s,send) and sent[#sent]=='mind blackout','confirmed lock did not unlock Blackout')
+n=#sent;M.tick(s,send);check(#sent==n,'Blackout repeated before EQ loss/ack')
+s.player.equilibrium=false;M.tick(s,send);s.player.equilibrium=true;s.recoveries.equilibrium=1;clock=clock+4;M.tick(s,send);check(not s.mental.eq_pending and #sent==n,'EQ recovery or cooldown not respected')
+clock=clock+22;M.tick(s,send);check(#sent==n+1 and sent[#sent]=='mind blackout','Blackout cooldown did not expire')
+M.text(s,'You require a mindlock to perform that ability.');check(not s.mental.lock_target and not s.mental.eq_pending,'no-lock rejection retained permission')
+clock=clock+4;M.tick(s,send);check(sent[#sent]=='mind lock Enemy','lost lock not reacquired')
+M.text(s,'Your attempts to control the will of Enemy are hopelessly incompetent, and you are forcibly ejected from his mind.');check(s.mental.status=='idle','ejection not tracked')
+n=#sent;M.tick(s,send);check(#sent==n,'ejection retry ignored backoff')
+s=fresh();s.mode='OFF';M.tick(s,send);check(#sent==n,'OFF sent mental command');s.mode='BASH';M.tick(s,send);check(#sent==n,'BASH acquired PvP mindlock')
+s.mode='FULL_AUTO';s.policy.players={};M.tick(s,send);check(#sent==n,'absent player acquired lock')
+s=fresh();M.text(s,'You are already maintaining a mindlock.');M.tick(s,send);check(s.mental.status=='unknown' and #sent==n,'unknown existing lock was trusted')
+s=fresh();M.text(s,'Your telepathic efforts are successful, and the mind of Enemy is locked with your own.');S.set_target(s,'Other');clock=clock+1;M.tick(s,send);check(M.state(s).status~='locked','target change retained trusted lock')
+s=fresh();s.config.pvp_stance='eagle';s.config.finish_stance='cobra';s.player.stance='scorpion';local a=K.choose(s);check(a.command=='egs' and a.stance=='eagle','Scorpion not replaced for preparation')
+s.player.stance='eagle';check(K.choose(s).name=='combo','Eagle did not permit preparation')
+s.target.prone=true;s.target.crippled.left_leg=true;a=K.choose(s);check(a.command=='cbs' and a.stance=='cobra','BBT setup did not select Cobra')
+s.player.stance='cobra';check(K.choose(s).command=='bbt Enemy','Cobra did not lead to BBT')
+s.target.prone=false;s.target.crippled={};s.config.pvp_stance='cobra';check(K.choose(s).command=='combo Enemy snk left snk left','Cobra emitted punches')
+s.mode='BASH';check(K.choose(s).command=='combo Enemy scs spp spp','PvP stance policy changed BASH')
+s=fresh();s.config.pvp_stance='eagle';s.player.stance='scorpion';s.player.balance=true;s.player.left_arm_balance=true;s.player.right_arm_balance=true;R.bind_policy(function()return true end);local r=R.new(s,K);r.mode='FULL_AUTO';r.sender=send;check(R.tick(r) and r.waiting_stance=='eagle','stance executor did not record wait')
+s.player.stance='eagle';R.update_balance(r);check(not r.waiting,'intrinsically free Eagle stance waited for nonexistent balance loss')
+E.event(s,'Your bodily control allows you to maintain your balance.');R.update_balance(r);check(not r.waiting,'confirmed free stance did not release wait')
+
+s=fresh();s.player.balance=true;s.player.kai=50;s.player.defences.kai_trance=true;s.target.restoration={active=true,limb='left_leg',started=clock-.5};s.mental.status='acquiring';s.mental.target='Enemy';s.mental.started=clock
+check(M.tick(s,send) and sent[#sent]=='kai cripple Enemy','Kaido did not punish restoration while lock acquires')
+n=#sent;M.tick(s,send);check(#sent==n,'Kaido retried during EQ cast')
+s=fresh();s.player.kai=39;s.player.defences.kai_trance=true;s.target.restoration={active=true,started=clock-.5};M.tick(s,send);check(sent[#sent]~='kai cripple Enemy','unaffordable Kai Cripple sent')
+s=fresh();s.config.pvp_stance='manual';s.target.restoration={active=true,limb='left_leg',expected_end=clock+4};check(K.select_limb(s)=='right_leg','selector hit a restoring limb')
+clock=clock+5;check(K.select_limb(s)=='left_leg','expired restore observation permanently excluded limb')
+
+s=fresh();s.player.balance=true;s.player.left_arm_balance=true;s.player.right_arm_balance=true;M.text(s,'Your telepathic efforts are successful, and the mind of Enemy is locked with your own.');M.tick(s,send)
+check(s.mental.eq_pending,'Blackout fixture did not wait for actual EQ recovery')
+M.text(s,'You must regain balance first.');check(not s.mental.eq_pending and not s.mental.fault,'rejected cast left a phantom EQ wait')
+clock=clock+1;M.tick(s,send);check(s.mental.eq_pending,'rejected Blackout did not retry after readiness/backoff')
+print('PASS mental/stance '..count..' assertions: independent acquisition, confirmation, ejection, cooldown, EQ wait, safe modes and legal stance transitions')

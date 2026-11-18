@@ -16,7 +16,7 @@ function M.select_limb(s)
  local t=s.target
  local function pick(pool)
   local best,n=nil,math.huge
-  for _,k in ipairs(pool) do if not t.broken[k] and not t.mangled[k] and not parried(s,k) then local d=tonumber(t.limbs[k]) or 0;if d<n then best,n=k,d end end end
+  for _,k in ipairs(pool) do local restore=t.restoration;local restoring=restore and restore.active and restore.limb==k and (getEpoch and getEpoch() or os.clock())<(restore.expected_end or 0);if not restoring and not t.broken[k] and not t.mangled[k] and not parried(s,k) then local d=tonumber(t.limbs[k]) or 0;if d<n then best,n=k,d end end end
   return best
  end
  return pick(routes[s.config.route] or routes.legs) or pick(order)
@@ -33,6 +33,12 @@ function M.choose(s)
    return action("bash_scorpion","combo "..t.name.." scs spp spp","enter scorpion and spear twice; no PvP limb tracking")
   end
   return action("bash_spear","combo "..t.name.." sdk spp spp","scorpion spear bashing; no PvP limb tracking")
+ end
+ local finish=t.prone and next(t.crippled)~=nil and not t.mangled.head
+ local desired=finish and s.config.finish_stance or s.config.pvp_stance
+ local codes={eagle="egs",cobra="cbs",dragon="drs",tiger="tgs",wolf="wfs",scorpion="scs"}
+ if desired and codes[desired] and tostring(p.stance or ""):lower()~=desired then
+  local a=action("stance",codes[desired],finish and "Cobra for confirmed BBT window" or "PvP preparation stance: "..desired,nil,true);a.stance=desired;return a
  end
  if t.mangled.head and t.prone then return action("axe_execute","axk "..t.name,"prone target with observed mangled head",nil,true) end
  local crippled=next(t.crippled)~=nil

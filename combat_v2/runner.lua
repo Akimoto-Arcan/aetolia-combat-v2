@@ -60,6 +60,7 @@ function M.execute(r,a,approved)
  if r.mode=="ASSIST" and not approved then r.pending=a;return deny("approval required") end
  local sender=r.sender or send
  r.waiting=true;r.saw_unready=false;r.waiting_requires=a.requires;r.last_send=now();r.pending=nil;r.state.last_action=a;r.status="sent: "..a.command
+ r.waiting_stance=a.stance;r.stance_free_snapshot=s.stance_free_sequence or 0
  r.recovery_snapshot={};for key,n in pairs(s.recoveries or {}) do r.recovery_snapshot[key]=n end
  r.reject_snapshot=s.reject_sequence or 0;s.target.attacked_generation=s.target_generation;s.target.last_attack_at=now()
  local ok,err=pcall(sender,a.command)
@@ -77,6 +78,7 @@ function M.approve(r)
 end
 function M.update_balance(r)
  if r.waiting then
+  if r.waiting_stance and tostring(r.state.player.stance or ""):lower()==r.waiting_stance and (r.waiting_stance=="eagle" or (r.state.stance_free_sequence or 0)>(r.stance_free_snapshot or 0)) and M.ready(r,r.waiting_requires) then r.waiting=false;r.waiting_stance=nil;return end
   if (r.state.reject_sequence or 0)>(r.reject_snapshot or 0) then r.waiting=false;r.saw_unready=false;return end
   local recovered=true
   for key,needed in pairs(r.waiting_requires or {balance=true,left_arm_balance=true,right_arm_balance=true}) do

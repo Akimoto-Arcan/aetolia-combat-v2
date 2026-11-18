@@ -81,6 +81,11 @@ function M.help_text()
   "  cv2 queue clear       Clear the queue.",
   "",
   "<cyan>PVP & ROUTES<white>",
+  "  cv2 config pvp_stance eagle / dragon / cobra / manual",
+  "  cv2 config finish_stance cobra / manual",
+  "  cv2 config mindlock on / off",
+  "  cv2 config kaido on / off",
+  "  AUTO builds a mindlock alongside Tekura; Blackout needs confirmed lock.",
   "  cv2 pvp / auto       Select FULL_AUTO for the current player target.",
   "  cv2 route legs / arms / head / torso / balanced",
   "  PvP is a testing backend, not a fully validated unattended system.",
@@ -214,7 +219,8 @@ end
 function M.refresh(state,runner,cure)
  if not M.cards then M.create() end
  local ui=combat_v2_ui;local p,t=state.player,state.target
- M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; MONK / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>t &lt;target&gt; &nbsp; · &nbsp; cv2 bash / auto / assist / off</span>"))
+ local mental=state.mental;local mind=mental and (mental.fault or mental.status) or "idle"
+ M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; MONK / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>MIND: "..esc(mind).." &nbsp; · &nbsp; cv2 help</span>"))
  for _,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do M.buttons[m]:setStyleSheet("background-color:"..(m==runner.mode and "#386386" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:5px;") end
  local stance,stanced=M.stance(state);local stance_color=stanced==true and C.good or stanced==false and C.bad or C.warn
  M.cards.status:echo(html(heading("PLAYER STATUS").."<b style='font-size:16px;color:"..stance_color..";'>STANCE: "..esc(stance).."</b> &nbsp; Kai: "..esc(p.kai or "?").."<br>"..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>Balance %s &nbsp; Eq %s &nbsp; Arms %s / %s<br>Executor: %s",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana),ready(p.balance),ready(p.equilibrium),ready(p.left_arm_balance),ready(p.right_arm_balance),esc(runner.status or "idle"))))

@@ -45,6 +45,7 @@ function M.event(s,text)
  if type(text)~="string" then return s end
  text=text:gsub(string.char(27).."%[[%d;]*m",""):match("^%s*(.-)%s*$")
  s.last_event=text;local low=text:lower();local p=s.player
+ if text=="Your bodily control allows you to maintain your balance." then s.stance_free_sequence=(s.stance_free_sequence or 0)+1;return s end
  if text=="You sink back into the menacing stance of the Scorpion." then p.stance="scorpion";return s end
  if text=="Making a call to your own, you kip yourself up and sink back into the Scorpion stance." then p.stance="scorpion";p.prone=false;return s end
  local stance=text:match("^You are in the (%w+) stance%.$");if stance then p.stance=stance:lower();return s end

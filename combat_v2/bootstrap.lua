@@ -12,6 +12,7 @@ c.events=dofile(root.."events.lua");c.events.bind(c.tracker)
 c.runner_module=dofile(root.."runner.lua");c.curing=dofile(root.."curing.lua");c.gui=dofile(root.."gui.lua")
 c.policy=dofile(root.."policy.lua");c.policy.init(c.current,gmcp or {});c.runner_module.bind_policy(c.policy.attack_allowed)
 c.runner=c.runner_module.new(c.current,c.monk);c.cure=(c.cure and c.cure.status) and c.cure or c.curing.new()
+c.mental=dofile(root.."mental.lua");c.current.mental=nil;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
 c.mode="OFF";c.current.mode="OFF";c.current.hunting.active=false;c.current.stop_reason=nil
 local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
 local function cancel_ih()
@@ -71,7 +72,7 @@ function combat_v2_stop(reason)
 end
 local function watchdog()
  c.watch_timer=nil
- if c.mode=="BASH" then combat_v2_tick()
+ if c.mode=="BASH" or c.mode=="FULL_AUTO" then combat_v2_tick()
  elseif c.runner_module.watchdog(c.runner) then combat_v2_stop(c.runner.status);return end
  if c.mode~="OFF" and c.mode~="SHADOW" then c.watch_timer=tempTimer(1,watchdog) end
 end
@@ -118,6 +119,7 @@ function combat_v2_tick()
   if s.hunting.ih and s.hunting.ih.active then refresh();return false,"checking IH" end
   if not s.target.name or s.target.dead or s.hunting.verified_generation~=s.target_generation then combat_v2_start_ih("verify bashing target");return false,"checking IH" end
  end
+ if c.mental.tick(s,c.mental_sender or c.runner.sender or send) then c.runner_module.update_balance(c.runner);refresh();return false,"Telepathy equilibrium pending" end
  local ok,why=c.runner_module.tick(c.runner);c.mode=c.runner.mode;s.mode=c.mode
  if why=="cooldown" and not c.retry_timer then c.retry_timer=tempTimer(.35,function() c.retry_timer=nil;combat_v2_tick() end) end
  refresh();return ok,why
@@ -148,7 +150,7 @@ function combat_v2_approve() local ok,why=c.runner_module.approve(c.runner);refr
 function combat_v2_set_curing(on) local ok,why=c.curing.set(c.cure,c.current,on==true);refresh();return ok,why end
 function combat_v2_reset_wait()
  -- Deliberate manual recovery; never release wait from a timer alone.
- c.runner.fault=nil;c.runner.waiting=false;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
+ c.mental.reset(c.current);c.runner.fault=nil;c.runner.waiting=false;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
 end
 function combat_v2_propose() local a=c.runner_module.propose(c.runner);refresh();return a end
 function combat_v2_observe(e)
@@ -171,6 +173,9 @@ function combat_v2_set_route(route)
  c.current.config.route=route;c.runner.pending=nil;c.state.record(c.current,"route",route);refresh();return true
 end
 function combat_v2_config(key,value)
+ if key=="pvp_stance" or key=="finish_stance" then if not ({eagle=true,cobra=true,dragon=true,tiger=true,wolf=true,scorpion=true,manual=true})[value] then return false,"stance eagle|cobra|dragon|tiger|wolf|scorpion|manual" end;c.current.config[key]=value;c.runner.pending=nil;refresh();return true end
+ if key=="kaido" then if value~="on" and value~="off" then return false,"kaido on|off" end;c.mental.state(c.current).kaido=value=="on";return true end
+ if key=="mindlock" then if value~="on" and value~="off" then return false,"mindlock on|off" end;c.mental.state(c.current).enabled=value=="on";return true end
  if key=="training_reports" then
   if value=="off" then c.current.training=nil;return true end
   if value~="on" or not c.current.target.name then return false,"select a target; training_reports on|off" end
@@ -202,7 +207,7 @@ c.handlers={}
 local function handler(event,fn) c.handlers[#c.handlers+1]=registerAnonymousEventHandler(event,fn) end
 handler("gmcp.Char.Vitals",function() c.state.sync_gmcp(c.current,gmcp);combat_v2_tick() end)
 handler("sysDisconnectionEvent",function()
- c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
+ c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
  c.current.policy.players_known=false;c.current.policy.web.at=nil;cancel_ih()
  if c.mode=="BASH" then if c.runner.waiting then c.runner.fault="Disconnected during attack; cv2 reset after review" end;c.runner.status="BASH paused: disconnected";refresh()
  else combat_v2_stop("disconnected") end
@@ -263,6 +268,7 @@ handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
 end)
 c.line_trigger=tempRegexTrigger("^.*$",function()
  local text=line or matches[1]
+ c.mental.text(c.current,text)
  if c.policy.text(c.current,text) then combat_v2_tick();refresh();return end
  if c.bashing.ih_text(c.current,text) then combat_v2_ih_result();refresh();return end
  c.events.event(c.current,text);combat_v2_tick()

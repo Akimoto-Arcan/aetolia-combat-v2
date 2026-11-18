@@ -98,7 +98,7 @@ command('queue clear');check(#combat_v2.current.hunting.queue==0,'queue clear fa
 combat_v2_set_target('Enemy');command('track aff asthma on');check(combat_v2.current.target.afflictions.asthma,'manual aff alias failed')
 command('track aff asthma off');check(not combat_v2.current.target.afflictions.asthma,'manual aff remove failed')
 command('track limb ll 23');check(combat_v2.current.target.limbs.left_leg==23,'manual trauma alias failed')
-command('track crippled ll on');command('track prone on');check(combat_v2_propose().command=='bbt Enemy','manual state does not reach selector')
+combat_v2.current.config.finish_stance='manual';command('track crippled ll on');command('track prone on');check(combat_v2_propose().command=='bbt Enemy','manual state does not reach selector')
 gmcp={Char={Afflictions={List={{name='asthma'},'paralysis'}}}};emit('gmcp.Char.Afflictions.List');check(combat_v2.current.player.afflictions.asthma and combat_v2.current.player.afflictions.paralysis,'GMCP list broken')
 gmcp.Char.Afflictions.Remove={name='asthma'};emit('gmcp.Char.Afflictions.Remove');check(not combat_v2.current.player.afflictions.asthma,'GMCP named remove broken')
 gmcp.Char.Afflictions.Remove={'paralysis'};emit('gmcp.Char.Afflictions.Remove');check(not next(combat_v2.current.player.afflictions),'GMCP list remove broken')
