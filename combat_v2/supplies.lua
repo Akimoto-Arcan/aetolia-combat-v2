@@ -287,7 +287,7 @@ function M.render(c)
     local y=math.max(0,math.min(position and position.y or 10,math.max(0,h-height)))
     local label = ui.label
     if not ui.drag_bound and type(label.setClickCallback)=='function' and type(label.setMoveCallback)=='function' and type(label.setReleaseCallback)=='function' then
-      label:setClickCallback(function(event)M.drag(c,'press',event)end)
+      label:setClickCallback(function(event)if type(label.raise)=='function'then label:raise()end;M.drag(c,'press',event)end)
       label:setMoveCallback(function(event)M.drag(c,'move',event)end)
       label:setReleaseCallback(function(event)M.drag(c,'release',event)end)
       ui.drag_bound=true
