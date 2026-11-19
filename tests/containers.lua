@@ -24,7 +24,7 @@ local function fixture()
  return f
 end
 local function context()
- local t=100;local c={mode='OFF'}
+ local t=100;local c={mode='OFF',supplies_quiet=false}
  c.containers_clock=function()return t end;c.containers_connected=function()return true end
  c.advance=function(dt)t=t+dt end
  c.supplies={state=function()return {stocks={}} end}

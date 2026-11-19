@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix='cv2-test-') as tmp:
     assert sample.read_bytes() == original_art
     for source in sorted(target.glob('*.lua')):
         subprocess.run(['luac', '-p', str(source)], check=True)
-    for script in ['engine.lua', 'backend.lua', 'combat_text.lua', 'ih.lua', 'policy.lua', 'mental.lua', 'defense.lua', 'buffs.lua', 'buffs_integration.lua', 'defense_coverage.lua', 'curative_defenses.lua', 'elementals.lua', 'globe_mode.lua', 'supplies.lua', 'supplies_ic.lua', 'supplies_refill.lua', 'supplies_drag.lua', 'containers.lua', 'containers_integration.lua', 'gui.lua']:
+    for script in ['engine.lua', 'backend.lua', 'combat_text.lua', 'ih.lua', 'policy.lua', 'mental.lua', 'defense.lua', 'buffs.lua', 'buffs_integration.lua', 'defense_coverage.lua', 'curative_defenses.lua', 'elementals.lua', 'globe_mode.lua', 'supplies.lua', 'supplies_ic.lua', 'supplies_refill.lua', 'supplies_drag.lua', 'containers.lua', 'containers_usage.lua', 'supplies_quiet.lua', 'containers_integration.lua', 'gui.lua']:
         subprocess.run(['lua', str(ROOT / 'tests' / script), target.as_posix() + '/'], check=True)
     tree = ET.parse(ROOT / 'loader.xml')
     assert tree.find('.//Script').get('isActive') == 'yes'

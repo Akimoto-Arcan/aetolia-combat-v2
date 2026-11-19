@@ -5,7 +5,7 @@ function registerAnonymousEventHandler(e,f)ids=ids+1;events[ids]={e,f};return id
 function killAnonymousEventHandler(id)events[id]=nil end
 function tempTimer(delay,f)ids=ids+1;timers[ids]={delay=delay,fn=f};return ids end
 function killTimer(id)timers[id]=nil end
-local c={current={mode='SHADOW'},supplies_clock=function()return t end,supplies_connected=function()return true end}
+local c={supplies_quiet=false,current={mode='SHADOW'},supplies_clock=function()return t end,supplies_connected=function()return true end}
 c.supplies_sender=function(command)commands[#commands+1]=command end
 S.attach(c)
 check(S.rift(c,{name='anabiotic',amount='503'}),'valid absolute event rejected')
@@ -21,7 +21,7 @@ t=106;local tick=c.supplies_owner.timer;local callback=timers[tick].fn;timers[ti
 check(#commands==2 and commands[1]=='fluidcache'and commands[2]=='ic','SHADOW receipt refresh failed')
 check(not S.state(c).stocks.infusion,'purchase delta falsely assigned total')
 check(c.current.mode=='SHADOW','mode changed');S.detach(c);check(next(events)==nil,'event owner leaked')
-local native={current={mode='SHADOW'},supplies_clock=function()return t end,supplies_connected=function()return true end}
+local native={supplies_quiet=false,current={mode='SHADOW'},supplies_clock=function()return t end,supplies_connected=function()return true end}
 commands={};native.supplies_sender=function(command)commands[#commands+1]=command end
 S.attach(native);S.stock(native,'purgative',0,'verified-empty')
 S.text(native,'You pay 300 gold sovereigns to add 300 sips of a purgative concoction to your fluidcache.')

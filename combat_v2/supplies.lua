@@ -89,7 +89,7 @@ function M.bind_containers(c,transport)
     return transport(command)
   end
 end
-function M.audit_containers(c)
+function M.audit_containers(c,kind)
   local d=data(c)
   if not c.containers or type(c.containers.audit)~='function' or
     type(c.containers_query_sender)~='function' or not connected(c) then return false end
@@ -97,7 +97,7 @@ function M.audit_containers(c)
   if s.pending then return false end
   d.containers_last_attempt=now(c)
   d.containers_refresh_due=nil
-  return c.containers.audit(c,c.containers_query_sender)
+  return c.containers.audit(c,c.containers_query_sender,kind)
 end
 -- Known own pipe-fill acknowledgement is a refresh hint, never a count delta.
 -- Other own consumption templates await exact native fixtures; periodic polling
@@ -120,7 +120,7 @@ local function expire(c)
       (s.pending and now(c)-(s.sent_at or 0)>=10) then
       s.frame=nil; s.pending=false; s.stale=true; s.status='response timeout'
     end
-    if not connected(c) or (s.last_complete and now(c)-s.last_complete>90) then s.stale=true end
+    if not connected(c) or (c.supplies_quiet==false and s.last_complete and now(c)-s.last_complete>90) then s.stale=true end
     if name==baseSource[name] then d.stale=d.stale or s.stale end
     d.pending=d.pending or s.pending==true
     if name==baseSource[name] then status[#status+1]=name..': '..s.status end
@@ -154,13 +154,13 @@ function M.state(c)
   expire(c)
   local d=data(c)
   local s={stocks={},empty={},low={},unknown={},sources={},stale=d.stale,
-    status=d.status,pending=d.pending==true,requested=d.requested}
+    status=d.status,pending=d.pending==true,requested=d.requested,tracked=c.supplies_quiet~=false}
   for name,v in pairs(d.sources) do
     s.sources[name]={stale=v.stale,pending=v.pending==true,complete=v.complete==true,
       status=v.status,last_complete=v.last_complete}
   end
   for k,v in pairs(d.stocks) do
-    s.stocks[k]={count=v.count,source=v.source,at=v.at}
+    s.stocks[k]={count=v.count,source=v.source,at=v.at,last_verified=v.at,tracked=c.supplies_quiet~=false}
     if allowed[k] then
       if v.count==0 then s.empty[#s.empty+1]=k
       elseif v.count<(c.supplies_low or 200) then s.low[#s.low+1]=k end
@@ -488,7 +488,8 @@ function M.prompt(c)
   requestMissing(c)
   M.render(c)
 end
-function M.audit(c,sender,cache_only)
+function M.audit(c,sender,cache_only,source)
+  if source~=nil and source~='fluidcache' and source~='ic' then return false,'unsupported source' end
   expire(c)
   local d=data(c)
   if connected(c) and type(sender or c.supplies_sender)=='function' then
@@ -506,7 +507,7 @@ function M.audit(c,sender,cache_only)
   d.auditing=true;d.missing_wanted={}
   local success=true
   -- At most one full read and one conditional missing read per source/audit.
-  for _,name in ipairs({'fluidcache','ic'}) do
+  for _,name in ipairs(source and {source} or {'fluidcache','ic'}) do
     local s=d.sources[name]
     s.coverage={};s.refills={};s.full_done=nil
     if not dispatch(c,name) then success=false end
@@ -521,13 +522,26 @@ function M.detach(c)
   local o=c.supplies_owner
   if o and o.cleanup then o.cleanup() end
 end
-function M.attach(c)
-  M.detach(c) -- invokes old module closure on dofile/reload, not only new locals
+function M.attach(c,preserve)
   local d=data(c)
-  if c.containers and c.containers.invalidate then c.containers.invalidate(c) end
-  d.containers_refresh_due=nil;d.containers_last_attempt=nil
-  d.frame=nil; d.pending=false; d.requested=false; d.stale=true;d.refresh_after_purchase=nil
-  for _,s in pairs(d.sources) do s.frame=nil; s.pending=false; s.deferred=nil; s.stale=true; s.complete=false; s.coverage={}; s.refills={}; s.full_done=nil; s.status='not audited' end
+  if preserve then
+    assert(not d.pending and not d.dispatching and not d.auditing,'supply query in progress')
+    for _,s in pairs(d.sources)do assert(not s.pending and not s.frame,'supply frame in progress')end
+    local old=c.supplies_owner
+    if old then
+      old.alive=false
+      for _,id in ipairs(old.handlers or {})do if killAnonymousEventHandler then killAnonymousEventHandler(id)end end
+      for _,id in ipairs(old.triggers or {})do if killTrigger then killTrigger(id)end end
+      if old.timer and killTimer then killTimer(old.timer)end
+    end
+    if c.supplies_ui then c.supplies_ui.drag_bound=false end
+  else
+    M.detach(c) -- invoke the old module's cleanup for an actual lifecycle reset
+    if c.containers and c.containers.invalidate then c.containers.invalidate(c) end
+    d.containers_refresh_due=nil;d.containers_last_attempt=nil
+    d.frame=nil;d.pending=false;d.requested=false;d.stale=true;d.refresh_after_purchase=nil
+    for _,s in pairs(d.sources)do s.frame=nil;s.pending=false;s.deferred=nil;s.stale=true;s.complete=false;s.coverage={};s.refills={};s.full_done=nil;s.status='not audited'end
+  end
   local owner={handlers={},triggers={},alive=true}
   c.supplies_owner=owner
   owner.cleanup=function()
@@ -570,15 +584,21 @@ function M.attach(c)
     owner.timer=nil
     expire(c)
     if d.refresh_after_purchase and now(c)>=d.refresh_after_purchase and connected(c) and not d.pending and not d.frame and type(c.supplies_sender)=='function' then
-      d.refresh_after_purchase=nil;M.audit(c)
-    elseif d.requested and connected(c) and periodic_enabled(c) and not d.pending and not d.frame and
+      d.refresh_after_purchase=nil;M.audit(c,nil,c.supplies_quiet~=false,c.supplies_quiet~=false and 'fluidcache' or nil)
+    elseif c.supplies_quiet==false and d.requested and connected(c) and periodic_enabled(c) and not d.pending and not d.frame and
       now(c)-(d.last_attempt or 0)>=60 then M.audit(c,nil,true) end
     if d.requested and connected(c) and c.containers then
       if (d.containers_refresh_due and now(c)>=d.containers_refresh_due) or
-        now(c)-(d.containers_last_attempt or 0)>=60 then M.audit_containers(c) end
-      if c.containers.service and c.containers_refill_enabled==true and
-        type(c.containers_action_sender)=='function' then
+        (c.supplies_quiet==false and now(c)-(d.containers_last_attempt or 0)>=60) then
+        M.audit_containers(c,c.supplies_quiet~=false and 'pipe' or nil)
+      end
+      if c.containers.service and type(c.containers_action_sender)=='function' then
         c.containers.service(c,c.containers_action_sender)
+      end
+      local cd=c.containers_data
+      if cd and (cd.stock_needed=='ic' or cd.stock_needed=='fluidcache') and not d.pending and not d.frame then
+        local source=cd.stock_needed;cd.stock_needed=nil
+        M.audit(c,nil,true,source)
       end
     end
     M.render(c)

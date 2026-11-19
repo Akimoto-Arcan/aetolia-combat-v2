@@ -15,7 +15,7 @@ function Geyser.Label:new()
  return x
 end
 local function ctx()
- return {supplies_clock=function()return clock end,supplies_connected=function()return online end}
+ return {supplies_quiet=false,supplies_clock=function()return clock end,supplies_connected=function()return online end}
 end
 local pills={'acuity','amaurosis','anabiotic','antipsychotic','coagulation','decongestant','depressant','eucrasia','euphoriant','kawhepill','opiate','ototoxin','panacea','paste','pluck','somnium','steroid','stimulant','thanatonin','waterbreathing'}
 local herbs={'reishi','willow','yarrow'}

@@ -44,7 +44,7 @@ function label:delete()end
 Geyser={Label={new=function()return label end}}
 gmcp={Char={Vitals={hp=100,maxhp=100,mp=100,maxmp=100,balance=1,equilibrium=1,left_arm=1,right_arm=1},Status={class='Monk'}},Room={Info={num=1,area='Fixture'},Players={}}}
 realdofile(root..'bootstrap.lua')
-local c=combat_v2;local S=c.supplies
+local c=combat_v2;c.supplies_quiet=false;local S=c.supplies
 c.supplies_clock=function()return t end
 check(c.containers==backend and c.containers_required,'bootstrap backend missing')
 check(c.mode=='OFF' and #sends==0 and calls.audit==0,'startup sent or armed')
@@ -80,7 +80,7 @@ check(calls.action_sender==c.containers_action_sender,'service action capability
 -- Unknown own usage messages only forward: never fabricate counts or issue queries.
 for i=1,40 do S.text(c,'You take a drink of an unverified fluid.')end
 t=110;tick();check(calls.audit==2,'unknown consumption guessed')
-c.containers_refill_enabled=false;local services=calls.service;t=115;tick();check(calls.service==services,'service ignored permission');c.containers_refill_enabled=true
+c.containers_refill_enabled=false;local services=calls.service;t=115;tick();check(calls.service==services+1,'disabled refill also disabled passive monitoring');c.containers_refill_enabled=true
 -- No responses: cache timeouts expire, periodic monitoring still runs in OFF.
 t=160;tick();check(#sends==10,'unexpected early periodic queries')
 t=165;tick();check(calls.audit==3 and #sends==13,'OFF monitoring not refreshed at 60 seconds')

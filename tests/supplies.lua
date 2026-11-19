@@ -42,7 +42,7 @@ local function advance(to)
 end
 local function sender(cmd) sends[#sends+1]=cmd; eq(cmd=='fluidcache' or cmd=='ic' or cmd=='fc missing' or cmd=='ic missing',true,'allowlisted command'); return true end
 local function context()
-  return {supplies_clock=function() return clock end,
+  return {supplies_quiet=false,supplies_clock=function() return clock end,
     supplies_connected=function() return online end, supplies_is_bash=function() return active end,
     supplies_sender=sender, runner={waiting=true},state={mode='BASH',balance=false}}
 end
@@ -171,7 +171,7 @@ S.detach(c); eq(count(handlers),0); eq(count(triggers),0); eq(count(timers),0)
 eq(c.supplies_ui,nil); eq(c.runner,runner); eq(c.state,state)
 -- Real bootstrap shape: c.state is a module, c.current owns mode; TCP is third return.
 function getConnectionInfo() return 'fake.invalid',23,online end
-local c2={current={mode='BASH'},mode='OFF',state={},supplies_clock=function() return clock end}
+local c2={supplies_quiet=false,current={mode='BASH'},mode='OFF',state={},supplies_clock=function() return clock end}
 S.attach(c2); local start=#sends; local t=clock
 eq(S.audit(c2,sender),true); advance(t+65); eq(#sends,start+4,'native current.mode gate')
 c2.current.mode='OFF'; advance(t+130); eq(#sends,start+4,'current OFF beats alias mode')
