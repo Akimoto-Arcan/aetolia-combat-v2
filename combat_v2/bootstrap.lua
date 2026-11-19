@@ -469,6 +469,7 @@ function combat_v2_tick()
  end
  local defense=c.defense.service(s,c.defense_sender or send)
  c.runner_module.update_balance(c.runner)
+ c.buff_sensory_refresh() -- recovery may have just released the prior attack wait
  local flurry_hold=c.mode=="BASH"and c.monk.flurry_active and c.monk.flurry_active(s)
  local buffs=c.buffs.service(s,c.runner,buff_dispatch,defense.hold or flurry_hold);c.buff_status=buffs.status
  if buffs.busy then c.runner.status="DEFUP: "..tostring(buffs.status);refresh();return false,c.runner.status end

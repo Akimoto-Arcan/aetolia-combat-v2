@@ -498,6 +498,13 @@ check(c.supplies_data.stocks['ic:amaurosis'].at==baseline and c.supplies_data.st
 for i=1,3 do clock=clock+4;herb_vitals();c.buff_snapshot();check(M.availability(s,'blindness') and c.supplies_data.stocks['ic:amaurosis'].at==baseline and #sent==before,'tracked stock expired or was synthetically refreshed')end
 gmcp.IRE={Rift={Change={name='ototoxin',amount=7}}};handlers['gmcp.IRE.Rift.Change']();c.buff_snapshot()
 check(s.buffs.sensory_context.stock_evidence.ototoxin.source=='gmcp.IRE.Rift.Change' and s.buffs.sensory_context.stocks.ototoxin==7 and c.supplies_data.stocks['ic:amaurosis'].at==baseline and #sent==before,'native absolute update lost tracking or refreshed unrelated stock')
+-- Live ordering: the previous attack wait may be released only inside tick.
+local rr=c.runner;local saved_req,saved_snap,saved_last=rr.waiting_requires,rr.recovery_snapshot,rr.last_send
+rr.waiting=true;rr.waiting_requires={balance=true,left_arm_balance=true,right_arm_balance=true};rr.recovery_snapshot={};s.recoveries=s.recoveries or{}
+for _,channel in ipairs({'balance','left_arm_balance','right_arm_balance'})do rr.recovery_snapshot[channel]=s.recoveries[channel]or 0;s.recoveries[channel]=(s.recoveries[channel]or 0)+1 end
+rr.last_send=clock;c.buff_snapshot();check(not s.buffs.sensory_context,'in-flight attack unexpectedly granted sensory execution proof')
+combat_v2_tick();check(not rr.waiting and M.availability(s,'blindness'),'real recovery released runner but stale pre-release sensory context starved upkeep')
+rr.waiting_requires=saved_req;rr.recovery_snapshot=saved_snap;rr.last_send=saved_last
 only('blindness');check(combat_v2_buffs('keep','blindness on'),'tracked goal opt-in failed')
 before=#sent;check(combat_v2_buffs('start') and #sent==before+2 and sent[before+1]=='outc amaurosis' and sent[before+2]=='eat amaurosis','hours-old authoritative baseline failed actual EAT')
 local pending=s.buffs.pending
