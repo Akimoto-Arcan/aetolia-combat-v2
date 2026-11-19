@@ -340,4 +340,13 @@ test('partial scope holds complete query and BUY until full location, leases sti
  f.v.room=12668;f.v.area=88;f.t.room_changed(12668,88,false);f.t.tick();eq(f.d.pending.kind,'buy');assert(f.d.purchase)
  local g=fixture();g.to_directory();local query=g.d.pending;g.v.room=nil;g.v.area=nil;g.t.room_changed(nil,nil,false);g.time=61;g.t.tick();assert(g.d.fault:find('timeout:',1,true));eq(g.d.pending,query);assert(g.d.query_quarantine)
 end)
+test('native fixed-width directory padding for both supplies',function()
+ local function padded(f,k,room,desc,price)
+  eq(f.d.pending.kind,'directory');eq(f.d.kind,k)
+  f.lines({'VNum   Owner           Description                                     Price','---------------------------------------------------------------------------','[Spinesreach]',string.format('%s  Fixture         %-48s %2dgp',room,desc,price),'---------------------------------------------------------------------------','You can locate the listed shops by doing PATH FIND <vnum>.'});f.t.prompt()
+  eq(f.d.fault,nil,'padded native-style row must parse');eq(f.d.destination,room)
+ end
+ local h=fixture(150,960);h.to_directory();padded(h,'health','73002','a refill of an elixir of health',25)
+ local a=fixture(150,960);a.complete_health();a.arrive();padded(a,'anabiotic','73003','an anabiotic pill',4)
+end)
 print('restock: '..tests..' tests, '..assertions..' assertions passed (offline fake IO only)')

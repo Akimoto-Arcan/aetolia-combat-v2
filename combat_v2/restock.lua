@@ -38,6 +38,7 @@ local function unit(k,s) return k=='health' or trim(s):lower():match('^an anabio
 local function dirrow(k,line)
  local id,body,price=line:match('^%s*(%d+)%s+(.+)%s+(%d+)gp%s*$')
  if not id or not integer(id) or tonumber(id)<1 or not integer(price) or tonumber(price)<1 then return end
+ body=trim(body) -- Native fixed-width descriptions are padded before the price.
  for _,desc in ipairs(k=='health' and {'a refill of an elixir of health'} or {'an anabiotic pill','anabiotic pill','anabiotic'}) do
   local owner=body:sub(1,#body-#desc)
   if body:sub(-#desc):lower()==desc and owner:match('%S') and owner:match('%s$') then
