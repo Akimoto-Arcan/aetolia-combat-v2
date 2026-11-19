@@ -318,7 +318,7 @@ function combat_v2_set_mode(mode)
  if mode=="SHADOW"then c.buffs.stop(c.current,"SHADOW; upkeep disarmed")end
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
  if mode=="BASH" then
-  if c.supplies then combat_v2_supplies("check")end
+  if c.supplies and (c.supplies_quiet==false or not c.supplies_data or not c.supplies_data.requested) then combat_v2_supplies("check")end
   local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end
   c.current.hunting.verified_generation=nil
  end

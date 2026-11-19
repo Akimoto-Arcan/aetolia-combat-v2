@@ -108,4 +108,11 @@ c.containers_data={pending={phase='unknown committed'}};local barrier=c.containe
 S.detach(c);S.attach(c)
 check(c.containers_data.pending==barrier and calls.invalidate>=2,'detach/reload discarded root barrier')
 check(c.runner==runner and c.current.target==target and c.elemental_recovery==globe and c.mode=='OFF','integration changed combat identity')
+-- Re-entering BASH is not fresh monitoring intent in quiet mode.
+c.supplies_quiet=true;snapshot.pending=false;snapshot.stale=false
+local function list_count()
+ local n=0;for _,cmd in ipairs(sends)do if cmd=='fluidcache'or cmd=='ic'or cmd=='viallist'or cmd=='pipelist'or cmd=='bandagelist'then n=n+1 end end;return n
+end
+local before=list_count();combat_v2_set_mode('BASH');check(list_count()==before+5,'first BASH lost initial baseline')
+local after=list_count();combat_v2_set_mode('BASH');check(list_count()==after,'repeated BASH spammed full supply audit')
 print('PASS container integration '..n..' assertions: stub contract, actual bootstrap, narrow senders, lifecycle, OFF polling, debounce, compact escaped UI; no live transport')
