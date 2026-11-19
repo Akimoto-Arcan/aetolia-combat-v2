@@ -30,6 +30,7 @@ function M.text(s,text)
  end
 end
 function M.tick(s,sender,paused_health)
+ paused_health=paused_health or s.walker and (s.walker.pending or s.walker.dispatching or s.walker.physical_dispatch or s.walker.arrival_hold)
  if s.buffs and s.buffs.pending then return false end
  local m=M.state(s);local p=s.player;local t=now()
  if s.training_battle_ended then return false end

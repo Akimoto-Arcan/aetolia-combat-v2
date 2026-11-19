@@ -156,6 +156,52 @@ transport, reload, stale reports, capacity debit and readiness interlocks.
 Run it explicitly until the integration runner includes it:
 `lua tests/tattoo_defenses.lua "$PWD/combat_v2/"`.
 
+## Book (strictly BASH-only) and Avoidance Bolstering
+
+Both new selections default wanted OFF; startup/reload MASTER stays OFF. No live
+selection, skill spending, class switch or deployment is included. Select Book
+intent only after fresh session/class-scoped TATTOOS and DEF evidence. Already
+ACTIVE Book needs no TOUCH. Local wanted OFF and ACTIVE tracking remain available
+in every mode; OFF never sends an invented cancellation for this persistent effect.
+
+- Book's canonical client key is `book`, with native `book_tattoo` alias. Existing
+  status-only aliases migrate without granting charges. `TOUCH BOOK` is allowed
+  only when `s.mode == 'BASH'`, even for direct API calls or saved wanted intent.
+  A Book-only selection outside BASH cannot initiate discovery either. FULL_AUTO,
+  ASSIST, SHADOW and OFF are not BASH. Already-issued TOUCH settlement still runs
+  after a mode change, with the same own ACK and subsequent ready-prompt barrier.
+- Captured AB describes increased experience for 24 hours, reduced by five
+  minutes per death. Native DEF says it persists through logout, class change and
+  death. No local timer estimates expiry. Native status template is
+  `Your mind is racing from the effects of the Book tattoo for another %TIME%.`;
+  exact fade is `Your racing mind slows.`. Dynamic duration substitutions in
+  offline fixtures test the template, not an observed live activation reply.
+- Fresh positive Uses-left evidence authorizes capacity, never AB Known, required
+  inking materials, saved preferences or an old report on disk. Existing debit,
+  versioned-report, external-activation, pending-transport and readiness fences
+  apply. Newer Remove/fade defeats older unfinished ACTIVE reports. Book is not
+  death protection and does not inherit Starburst's competing-protection policy.
+- Bolstering belongs to **Avoidance**, not Hunting. Captured AB verifies `BOLSTER`,
+  greatly increased diversion chance and mitigation for a limited time, a
+  **600-second activation cooldown**, and incompatibility with Nimbleness.
+  Current learned Avoidance List/rank proof is still required; sourced AB help
+  does not manufacture that proof. A precise empty List overrides rank inference.
+- Bolstered activation requires a complete current defense List and no positive
+  Nimbleness in owned, observed or canonical maps. Unknown absence fails closed;
+  no competing defense is cancelled automatically. Unknown prior cooldown waits
+  a conservative 600 seconds from the first complete fresh snapshot. The clock
+  is committed before transport and anchored to the matching known own ACK;
+  generic balance/ability rejections cannot refund it or erase the barrier.
+  Native own status is `You have prepared yourself for incoming attacks.`; fade
+  is `You allow your muscles to relax once more as you cease to bolster them.`.
+  No resource cost or special balance protocol absent from AB is asserted; all
+  existing conservative full-readiness/reserve and controller gates remain.
+
+`tests/book_bolstering.lua` is an offline fake-sender suite; run explicitly until
+the parent-owned runner manifest includes it. Existing login-auto tattoo inactive
+format gaps remain unchanged. Archivist activation remains deferred/tracking-only;
+native FIRSTAID still exclusively owns the verified twelve generic defenses.
+
 ## Safety and ownership
 
 This code-only audit maps every deduplicated Fallout source key. It contains no
@@ -187,9 +233,9 @@ is not a learned ability. A source key is not itself permission to send.
 - Correcting the native catalog invalidates old confirmation. A fresh complete
   unique 25-row transaction plus footer is required. Pending uncertainty,
   conflicting-ACK fencing and last-active restoration memory are retained.
-- The client catalog has 55 entries: the prior 33 preparation/passive entries
+- The client catalog has 57 entries: the prior 33 preparation/passive entries
   (with Voice Recognition renamed), eight additional tattoo producers below,
-  and fourteen read-only Archivist entries.
+  fourteen read-only Archivist entries, plus Book and Bolstered.
   Courage remains native-owned; class tracking is not an activation permission.
   There is one skill owner for deathsight/thirdeye, not duplicate curative pills.
 - Knowledge is scoped to the current class: Kaido/Telepathy for Monk,

@@ -51,6 +51,8 @@ local additions={
  {key='eagleeye',group='vision',command='eagleeye on',off='eagleeye off',drain=true},
  {key='dodgemelee',label='Dodging (all)',group='avoidance',ability='dodging',command='dodge all',ids={'dodge'}},
  {key='divertmelee',label='Diversion (all)',group='avoidance',ability='diversion',command='divert all',ids={'diverting','diversion'}},
+ {key='bolstered',label='Bolstering',group='avoidance',ability='bolstering',command='bolster',cooldown_activation=600},
+ {key='book',label='Book (BASH only)',group='tattoos',tattoo=true,bash_only=true,command='touch book',ids={'book_tattoo'}},
  {key='voice_recognition',label='Voice Recognition (passive)',ability='recognition',group='vision',passive=true},
  -- Current AB: these five autoactivate on login, but fresh ink needs TOUCH.
  -- A reported ACTIVE tattoo is never an activation budget. Only an explicit
@@ -193,6 +195,15 @@ function M.state(s)
  end
  b.observed=b.observed or {};b.native_priorities=b.native_priorities or {};b.native_last_active=b.native_last_active or {}
  b.groups=b.groups or {};b.tattoos=b.tattoos or {};b.vitals_flags=b.vitals_flags or {};b.flag_sources=b.flag_sources or {}
+ -- Canonicalize old status-only aliases in place; never mint ink or capability.
+ if b.have.book_tattoo~=nil then
+  if b.have.book==nil then b.have.book=b.have.book_tattoo end
+  b.have.book_tattoo=nil
+ end
+ if b.observed.book_tattoo~=nil then
+  if b.observed.book==nil then b.observed.book=b.observed.book_tattoo end
+  b.observed.book_tattoo=nil
+ end
  for _,e in ipairs(M.catalog) do if b.wanted[e.key]==nil then b.wanted[e.key]=e.default end end
  -- Corrected native ownership needs a new complete readback, never old ACKs.
  if b.native_schema~='verified12' then
@@ -328,7 +339,7 @@ function M.invalidate(s)
  local b=M.state(s);b.known={};b.groups={};b.tattoos={};b.tattoos_ready=false;b.tattoo_listing=nil;b.vitals_flags={};b.flag_sources={};b.known_ready=false
  b.sensory_context=nil;b.herb=nil;b.sensory_optin={};b.sensory_epoch=(b.sensory_epoch or 0)+1
  b.starburst_optin=nil;b.starburst_clock_known=nil
- b.observed={};b.have={};b.defs_known=false;b.ability_listing=nil;b.immunity_clock_known=false
+ b.observed={};b.have={};b.defs_known=false;b.ability_listing=nil;b.immunity_clock_known=false;b.bolstered_clock_known=false
  b.native_priorities={};b.native_full_required=true;b.native_listing=nil;b.native_version=(b.native_version or 0)+1
  if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false
   if b.pending.curative then b.pending.herb_lost=false;b.pending.herb_recovered=false end
@@ -402,8 +413,20 @@ function M.availability(s,k)
  if e and e.curative then return M.sensory_ready(s,k) end
  if e and e.tracking_only then return false,e.reason end
  if e and e.passive then return false,b.known[k] and 'PASSIVE' or 'NOT LEARNED' end
+ if e and e.bash_only and s.mode~='BASH' then return false,'BASH ONLY: activation and discovery disabled in this mode' end
+ if k=='bolstered' then
+  if not b.defs_known then return false,'UNKNOWN: complete defence List required to exclude Nimbleness' end
+  for _,map in ipairs({b.have,b.observed,(s.player or {}).defences or {}}) do
+   for id,on in pairs(map) do if norm(id)=='nimbleness' and yes(on) then return false,'CONFLICT: Nimbleness active; no automatic cancellation' end end
+  end
+ end
  if e and e.tattoo then
   local t=b.tattoos[k]
+  if k=='book' then
+   for _,map in ipairs({b.have,b.observed,(s.player or {}).defences or {}}) do
+    for id,on in pairs(map) do if key(id)=='book' and yes(on) then return false,'ACTIVE: Book already activated' end end
+   end
+  end
   if t and t.active and not e.login_auto then return false,'ACTIVE: tattoo already activated' end
   if e.login_auto then
    if t and t.active then return false,'PASSIVE' end
@@ -452,6 +475,7 @@ local function observe(s,k,on)
   -- A snapshot crossing any tattoo event cannot prove current ink/status.
   b.tattoo_version=(b.tattoo_version or 0)+1
   if tattoo then
+   if k=='book' then tattoo.active=on end
    if not on then
     tattoo.active=false
     -- A missing/faded autoactivated tattoo is not freshly inked ownership.
@@ -476,10 +500,10 @@ local function observe(s,k,on)
  if k=='trance' then p.defences.kai_trance=on or nil end
  if k=='boosting' then p.defences.boosted_regen=on or nil end
  if k=='blindness' or k=='deafness' then b.vitals_flags[k]=nil;b.flag_sources[k]=nil end
- if on and k=='immunity' and not was_on then
-  b.immunity_clock_known=true
+ if on and (k=='immunity' or k=='bolstered') and not was_on then
+  b[k..'_clock_known']=true
   local at=b.pending and b.pending.key==k and b.pending.at or now()
-  b.cooldown[k]=math.max(b.cooldown[k] or 0,at+120)
+  b.cooldown[k]=math.max(b.cooldown[k] or 0,at+index[k].cooldown_activation)
  end
  if not on and index[k] and index[k].cooldown_loss then b.cooldown[k]=now()+index[k].cooldown_loss end
  local pending=b.pending
@@ -496,6 +520,9 @@ local function snapshot(s,have)
  end
  if not b.immunity_clock_known then
   b.cooldown.immunity=math.max(b.cooldown.immunity or 0,now()+120);b.immunity_clock_known=true
+ end
+ if not b.bolstered_clock_known then
+  b.cooldown.bolstered=math.max(b.cooldown.bolstered or 0,now()+600);b.bolstered_clock_known=true
  end
  for _,e in ipairs(M.catalog) do
   -- Missing vitality in a first snapshot is NOT evidence it was triggered.
@@ -665,6 +692,7 @@ losses['You feel your density return to normal.']='density'
 losses['Your mind focuses back on the tasks at hand.']='daydream'
 losses['The harmony you felt settles out into stillness.']='harmony'
 losses['The bubble of air around you dissipates as water floods in.']='waterbreathing'
+losses['Your racing mind slows.']='book'
 local function priority_set(b,k,pri)
  b.native_priorities[k]=pri
  if b.native_pending then b.native_pending[k]=nil end
@@ -754,7 +782,8 @@ function M.text(s,line)
   -- Only a full GMCP List may clear existing positives or establish known absence.
   b.listing=nil;return -- Each row was observed immediately; never replay stale evidence.
  end
- local k=confirmations[line]
+ -- Native DEF template has a variable duration; never match speech or blank time.
+ local k=confirmations[line] or (line:match('^Your mind is racing from the effects of the Book tattoo for another %S.-%.$') and 'book')
  if k then if b.listing then b.listing[k]=true end;observe(s,k,true);return end
  k=losses[line];if k then observe(s,k,false);return end
  local name=line:match('^You have gained the ([%a_ %-]+) defence%.$')
@@ -768,11 +797,11 @@ function M.text(s,line)
   b.pending.key=='flame' and line=='You have no flame.' or
   line=='You do not possess that ability.' or line=='You have not learned that ability.' or line=='You do not know that ability.' or
   line=='You know of no such ability.' or line=='You cannot perform that ability.' or line=='You have not yet learned that ability.') then
-  if b.pending.key=='immunity' then
+  if b.pending.key=='immunity' or b.pending.key=='bolstered' then
    -- These replies contain no action identity. Another controller may have
    -- triggered them, before OR after our own UP. Retain the committed barrier
    -- and activation clock; only ACK + fresh ready prompt (or reset) settles it.
-   b.status='Unattributed rejection; Immunity confirmation/recovery still required'
+   b.status='Unattributed rejection; '..b.pending.key..' confirmation/recovery still required'
   else
    b.pending.rejected=true;b.retry[b.pending.key]=now()+5;fault(b,'Buff rejected: '..line..' Review/reset required')
   end
@@ -844,7 +873,10 @@ function M.toggle(s,name,on)
  if not in_class(b,e) or e.tracking_only then return false,select(2,M.availability(s,k)) end
  if e.passive then return false,'Passive ability; no command' end
  if type(on)~='boolean' then return false,'Expected boolean' end
- if on and not M.availability(s,k) then return false,select(2,M.availability(s,k)) end
+ -- Selecting future BASH upkeep for an already ACTIVE Book spends nothing.
+ local active_book=k=='book' and s.mode=='BASH' and
+  (b.have.book or b.observed.book or canonical_have(s,'book') or b.tattoos.book and b.tattoos.book.active)
+ if on and not active_book and not M.availability(s,k) then return false,select(2,M.availability(s,k)) end
  if on then
   local ok,why=M.master(s,true);if not ok then return false,why end
   if k=='starburst' then b.starburst_optin=true end
@@ -888,6 +920,7 @@ local function percent(v,max)
  return 100*v/max
 end
 local function eligible(s,b,e)
+ if e.bash_only and s.mode~='BASH' then return false,'BASH only' end
  -- Public catalog tables are metadata, not authority to reintroduce a producer.
  if sensory[e.key] and index[e.key]~=e then return false,'Retired self-affliction producer' end
  if e.curative and not (b.sensory_optin and b.sensory_optin[e.key]) then return false,'Explicit sensory opt-in required' end
@@ -945,6 +978,15 @@ local function service(s,runner,sender,hold,policy)
  if policy then return {busy=false,status='convenience action unresolved'} end
  if b.fault then return {busy=false,status=b.fault} end
  if not b.master and not b.sequence and not next(b.cancel) then return {busy=false,status=b.status} end
+ -- Mode constrains new discovery, never settlement of an issued TOUCH above.
+ local permitted,mode_blocked=false,false
+ for _,e in ipairs(M.catalog) do
+  local selected=b.cancel[e.key] or b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
+  if selected then
+   if not e.bash_only or s.mode=='BASH' then permitted=true else mode_blocked=true end
+  end
+ end
+ if mode_blocked and not permitted then return {busy=false,status='No selected defence permitted in this mode'} end
  local can_cancel=false
  for _,e in ipairs(M.catalog) do
   if b.cancel[e.key] and e.off and M.availability(s,e.key) then can_cancel=true;break end
@@ -954,7 +996,7 @@ local function service(s,runner,sender,hold,policy)
  local sensory_only,sensory_available,sensory_selected=true,false,false
  for _,e in ipairs(M.catalog) do
   local selected=b.cancel[e.key] or b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
-  if selected and not M.native_catalog[e.key] and in_class(b,e) and not e.passive and not e.tracking_only then
+  if selected and (not e.bash_only or s.mode=='BASH') and not M.native_catalog[e.key] and in_class(b,e) and not e.passive and not e.tracking_only then
    if not e.curative then sensory_only=false
    else sensory_selected=true;if b.sensory_optin and b.sensory_optin[e.key] and M.sensory_ready(s,e.key) then sensory_available=true end end
   end
@@ -970,7 +1012,7 @@ local function service(s,runner,sender,hold,policy)
  -- A completed Kaido List never stands in for Vision/Survival/etc.
  for _,e in ipairs(M.catalog) do
   local selected=b.cancel[e.key] or b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
-  if selected and in_class(b,e) and not e.curative and not e.tattoo and not e.passive and not e.tracking_only and not M.native_catalog[e.key] then
+  if selected and (not e.bash_only or s.mode=='BASH') and in_class(b,e) and not e.curative and not e.tattoo and not e.passive and not e.tracking_only and not M.native_catalog[e.key] then
    local group=allowed_group(b.class,e.group) and e.group or e.also_group
    local complete=b.groups[group] or e.also_group and allowed_group(b.class,e.also_group) and b.groups[e.also_group]
    if not complete then

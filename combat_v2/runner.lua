@@ -39,6 +39,7 @@ end
 function M.execute(r,a,approved)
  local s,p=r.state,r.state.player
  local function deny(msg) r.status=msg;return false,msg end
+ if s.walker and (s.walker.pending or s.walker.dispatching or s.walker.physical_dispatch or s.walker.arrival_hold) then return deny("WALK location/evidence unresolved") end
  if r.mode=="OFF" or r.mode=="SHADOW" then return deny(r.mode) end
  if s.buffs and s.buffs.pending then return deny("BUFF action unresolved; await confirmation/recovery or reviewed reset") end
  if s.training_battle_ended then return deny("training battle ended; explicit mode re-arm required") end
@@ -73,7 +74,11 @@ function M.execute(r,a,approved)
  r.waiting_stance=a.stance;r.stance_free_snapshot=s.stance_free_sequence or 0
  r.recovery_snapshot={};for key,n in pairs(s.recoveries or {}) do r.recovery_snapshot[key]=n end
  r.reject_snapshot=s.reject_sequence or 0;if a.name~="dismount" then s.target.attacked_generation=s.target_generation;s.target.last_attack_at=now() end
+ -- A synchronous combat sender may deliver recovery before it returns.
+ -- That is not permission for a nested walker hop or another attack.
+ local physical=s.walker and {};if physical then s.walker.physical_dispatch=physical end
  local ok,err=pcall(sender,a.command)
+ if physical and s.walker.physical_dispatch==physical then s.walker.physical_dispatch=nil end
  if not ok then if r.mode=="BASH" then r.fault="sender error: "..tostring(err);r.status=r.fault else M.stop(r,"sender error: "..tostring(err)) end;return false,r.status end
  if a.name=="sweep" then s.target.sweep_attempted=true end
  if s.stats then s.stats.sent=s.stats.sent+1 end

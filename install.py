@@ -8,7 +8,7 @@ import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parent
-MODULES = {'bootstrap.lua', 'state.lua', 'monk.lua', 'events.lua', 'runner.lua', 'curing.lua', 'gui.lua', 'tracker.lua', 'bashing.lua', 'policy.lua', 'mobs.lua', 'mental.lua', 'defense.lua', 'buffs.lua', 'elementals.lua', 'supplies.lua', 'containers.lua', 'ledger.lua', 'travel.lua', 'tattoo.lua', 'travel_boot.lua', 'lunch.lua', 'lunch_boot.lua'}
+MODULES = {'restock.lua', 'restock_boot.lua', 'walker.lua', 'walker_boot.lua', 'bootstrap.lua', 'state.lua', 'monk.lua', 'events.lua', 'runner.lua', 'curing.lua', 'gui.lua', 'tracker.lua', 'bashing.lua', 'policy.lua', 'mobs.lua', 'mental.lua', 'defense.lua', 'buffs.lua', 'elementals.lua', 'supplies.lua', 'containers.lua', 'ledger.lua', 'travel.lua', 'tattoo.lua', 'travel_boot.lua', 'lunch.lua', 'lunch_boot.lua'}
 
 BODY_ASSETS = {'crt_grid.png'} | {
     f'{part}_{color}.png'

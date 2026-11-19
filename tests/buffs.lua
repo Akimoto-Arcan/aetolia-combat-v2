@@ -42,7 +42,7 @@ end
 test('catalog safe defaults, no emergency or arbitrary commands',function()
  local s,sent,tick=fixture();local n=0
  for i,e in ipairs(B.catalog) do eq(e.default,i<=8 or e.key=='immunity' or e.key=='mindseye',e.key);if e.default then n=n+1 end end
- eq(n,10);eq(#B.catalog,55);eq(B.state(s).master,false);eq(B.state(s).sequence,false)
+ eq(n,10);eq(#B.catalog,57);eq(B.state(s).master,false);eq(B.state(s).sequence,false)
  eq(tick().busy,false);eq(#sent,0)
  eq(B.toggle(s,'regeneration on;kill',true),false);eq(B.toggle(s,'numbness',true),false)
  eq(B.toggle(s,'vitality','on'),false);eq(#sent,0)
@@ -403,12 +403,12 @@ test('rows ordered deduplicated tri-state metadata and actual extras',function()
   if i<=#B.catalog then eq(e.key,B.catalog[i].key) end
  end
  for _ in pairs(B.native_catalog) do count=count+1 end
- eq(count,12);eq(#rows,82);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
+ eq(count,12);eq(#rows,83);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
  eq(row(s,'courage').wanted,nil);eq(row(s,'weathering').owner,'MONK');eq(row(s,'regeneration').drain,true)
  eq(absent(s,'blindness'),nil);eq(absent(s,'deafness'),nil)
  s.player.defences['blind']=true;s.player.defences.deaf=true;s.player.defences.new_power=true
  eq(absent(s,'blindness'),nil);eq(absent(s,'deafness'),nil);eq(row(s,'new_power').owner,'UNAVAILABLE')
- eq(#B.rows(s),83);eq(#sent,0);eq(B.state(s).master,false)
+ eq(#B.rows(s),84);eq(#sent,0);eq(B.state(s).master,false)
  B.sync(s,'List',{'regeneration','insomnia','unlisted_power'})
  -- Simulate bootstrap replacing canonical state after our sync.
  s.player.defences={}

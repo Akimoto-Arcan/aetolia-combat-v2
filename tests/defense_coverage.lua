@@ -17,7 +17,7 @@ local function ink(s)
  B.text(s,'You have the following tattoos:')
  B.text(s,'Left arm:    Cloak        Uses left: 2')
  B.text(s,'Right leg:   Mindseye     Uses left: 2')
- for _,name in ipairs({'Firefly','Flame','Starburst'})do B.text(s,'Torso: '..name..' Uses left: 2')end
+ for _,name in ipairs({'Firefly','Flame','Starburst','Book'})do B.text(s,'Torso: '..name..' Uses left: 2')end
  for _,name in ipairs({'Boar','Moon','Moss','Owl','Mountain'})do B.text(s,'Head:        '..name..'         Active')end
  B.on_prompt(s)
 end
@@ -33,6 +33,8 @@ for _,e in ipairs(B.catalog)do
  if e.command and not e.login_auto and not e.curative and not B.native_catalog[e.key] then
   if e.depends then B.sync(s,'Add',e.depends)end
   if e.key=='immunity' then clock=clock+121 end -- unknown prior cooldown fence
+  if e.key=='bolstered' then clock=clock+601 end
+  if e.key=='book' then s.mode='BASH' end
   if e.key=='starburst' then clock=clock+121;check(B.toggle(s,'starburst',true))end
   check(B.start(s));tick();check(sent[1]==e.command,'wrong owner/command '..e.key)
   tick();check(#sent==1,'duplicate '..e.key)

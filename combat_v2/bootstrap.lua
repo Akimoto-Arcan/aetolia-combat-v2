@@ -14,6 +14,8 @@ c.events=dofile(root.."events.lua");c.events.bind(c.tracker)
 c.runner_module=dofile(root.."runner.lua");c.curing=dofile(root.."curing.lua");c.gui=dofile(root.."gui.lua")
 c.policy=dofile(root.."policy.lua");c.policy.init(c.current,gmcp or {});c.runner_module.bind_policy(c.policy.attack_allowed)
 c.runner=c.runner_module.new(c.current,c.monk);c.cure=(c.cure and c.cure.status) and c.cure or c.curing.new()
+c.walker=dofile(root.."walker.lua");c.walker.stop(c.current,"reload; walking disabled");c.walker.state(c.current).ask_on_bash=false
+if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt()end
 c.defense=dofile(root.."defense.lua");c.runner_module.bind_defense(c.defense.hold)
 if c.defense.attach then c.defense.attach(c)end
 c.mental=dofile(root.."mental.lua");c.mental.bind_defense(c.defense);c.current.mental=nil;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
@@ -193,7 +195,7 @@ local function buff_snapshot(source)
  local g=gmcp or {};local v=g.Char and g.Char.Vitals or {};local status=g.Char and g.Char.Status or {}
  local name=tostring(status.class or "")
  if name~=c.buff_class_seen then
-  if c.buff_class_seen~=nil then buff_invalidate()end
+  if c.buff_class_seen~=nil then buff_invalidate();if c.walker_boot then c.walker_boot.revoke(c,"class scope changed")end end
   c.buff_class_seen=name;c.buffs.set_class(c.current,name);c.current.player.class=name
  end
  for key,field in pairs({wp="willpower",maxwp="maxwillpower"})do if tonumber(v[key])then c.current.player[field]=tonumber(v[key])end end
@@ -375,17 +377,20 @@ end
 function combat_v2_ih_result()
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active or not scan.pending or not scan.responded then return false end
+ if c.walker_boot then c.walker_boot.inspected(c,scan)end
  local ok,why=c.bashing.ih_select(s)
  if ok then
   cancel_ih();s.hunting.verified_generation=s.target_generation
   c.runner.status="IH confirmed target "..tostring(s.target.name);c.state.record(s,"ih_found",s.target.name)
   return combat_v2_tick()
  end
+ if c.walker_boot and c.walker_boot.clear(c,scan)then enter_room_watch();return combat_v2_tick()end
  if scan.attempts>=3 then scan.last_failure=why;return enter_room_watch() end
  scan.last_failure=why;c.state.record(s,"ih_miss",scan.attempts.."/3: "..why)
  c.runner.status="BASH armed: no matching target; IH check "..scan.attempts..", retry in 2s";refresh();return false
 end
 function combat_v2_request_ih()
+ if c.walker_boot and c.walker_boot.held(c)then return false,"movement unresolved"end
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active then return false end
  if not s.connected or (tonumber(s.player.hp) or 0)<=0 or s.player.dead then cancel_ih();c.runner.status="BASH paused: disconnected / dead";refresh();return false end
@@ -409,6 +414,7 @@ function combat_v2_request_ih()
  refresh();return true
 end
 function combat_v2_start_ih(reason,force)
+ if c.walker_boot and c.walker_boot.held(c)then return false,"movement unresolved"end
  if c.mode~="BASH" then return false end
  if force then c.current.hunting.watch=nil end
  if c.current.hunting.watch then return false,"watching GMCP room updates" end
@@ -624,6 +630,7 @@ for _,kind in ipairs({"Groups","List"})do
  handler(event,function()buff_snapshot(event);combat_v2_tick()end)
 end
 handler("sysDisconnectionEvent",function()
+ if c.walker_boot then c.walker_boot.revoke(c,"disconnected; walking disabled")end
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"disconnect")end
  c.buffs.stop(c.current,"disconnect; upkeep disarmed");buff_invalidate();local b=c.buffs.state(c.current);b.defs_known=false;b.defs_at=nil
  c.current.defense=nil;c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
@@ -666,7 +673,7 @@ local function collection(kind)
 end
 collection("Afflictions");collection("Defences")
 handler("gmcp.Char.Items.List",function()
- local changed=c.bashing.items(c.current,gmcp.Char.Items.List);combat_v2_ih_result()
+ local changed=c.bashing.items(c.current,gmcp.Char.Items.List);if c.walker_boot then c.walker_boot.items(c,gmcp.Char.Items.List)end;combat_v2_ih_result()
  local s=c.current;local scan=s.hunting.ih
  if changed and c.mode=="BASH" and not (scan and scan.active) and s.hunting.verified_generation==s.target_generation and s.target.name and not s.room.items[tostring(s.target.name)] then
   s.stop_reason="target left room; confirmation required";combat_v2_tick()
@@ -680,6 +687,7 @@ end
 handler("gmcp.Char.Items.Remove",function() c.bashing.item_removed(c.current,gmcp.Char.Items.Remove);combat_v2_tick() end)
 handler("gmcp.Room.Info",function()
  local s=c.current;local info=gmcp.Room.Info or {};local changed=c.policy.room(s,info)
+ if c.walker_boot then c.walker_boot.room(c,info,changed)end
  if changed and c.monk.cancel_flurry then c.monk.cancel_flurry(s,"room changed")end
  if changed then
   s.hunting.watch=nil;s.training=nil;s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
@@ -727,9 +735,11 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  if cmd=="target" then ok,why=combat_v2_set_target(rest)
  elseif cmd=="approve" then ok,why=combat_v2_approve()
  elseif cmd=="stop" or cmd=="off" then combat_v2_stop()
+ elseif cmd=="walk"then ok,why=combat_v2_walk(rest)
  elseif cmd=="enemy" then if rest=="reset" then ok,why=combat_v2_reset_enemy_afflictions() else ok,why=false,"cv2 enemy reset" end
  elseif cmd=="supplies"then ok,why=combat_v2_supplies(rest~=""and rest or"status")
  elseif cmd=="globe"then ok,why=combat_v2_globe(rest~=""and rest or"status")
+ elseif cmd=="restock"then if combat_v2_restock then ok,why=combat_v2_restock(rest~=""and rest or"status")else ok,why=false,"RESTOCK module unavailable"end
  elseif cmd=="defup"then ok,why=combat_v2_buffs("defup",rest)
  elseif cmd=="defkeep"then ok,why=combat_v2_buffs("keep",rest)
  elseif cmd=="defs"or cmd=="defences"then ok,why=combat_v2_buffs("show",rest)
@@ -750,7 +760,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
   local sub,name=rest:match("^(%S+)%s*(.*)$");sub=sub or "list"
   if sub=="add" then ok,why=c.bashing.add(c.current,name)
   elseif sub=="clear" then c.current.hunting.queue={};print("Queue cleared")
-  elseif sub=="next" then if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual queue next")end; ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() elseif c.mode=="BASH" then c.current.hunting.active=true;c.current.stop_reason=nil;combat_v2_start_ih("queue empty") else combat_v2_stop(why) end
+  elseif sub=="next" then if c.walker_boot then c.walker_boot.revoke(c,"manual queue next")end;if c.walker_boot and c.walker_boot.held(c)then print("WALK location unresolved");return end;if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual queue next")end; ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() elseif c.mode=="BASH" then c.current.hunting.active=true;c.current.stop_reason=nil;combat_v2_start_ih("queue empty") else combat_v2_stop(why) end
   elseif sub=="list" then print("Queued: "..table.concat(c.current.hunting.queue,", "))
   else ok,why=false,"cv2 queue add NAME | list | next | clear" end
  elseif cmd=="help" then if c.gui.show_help then c.gui.show_help() else print("Help GUI unavailable; see docs/backend.md") end
@@ -774,4 +784,13 @@ c.supplies=dofile(root.."supplies.lua")
 c.supplies.bind_containers(c,function(command)return send(command)end)
 c.supplies.attach(c)
 local convenience_file=io.open(root.."convenience-settings.json","r");if convenience_file then convenience_file:close();local ok,why=convenience.attach(c);if not ok then print("Convenience: "..tostring(why))end end
+c.walker_boot=dofile(root.."walker_boot.lua");c.walker_boot.attach(c)
+-- Optional during composed development; shipped modules are manifest-required.
+local function optional_module(name)
+ local f=io.open(root..name..".lua","r");if f then f:close();return dofile(root..name..".lua")end
+end
+c.restock_module=optional_module("restock")
+c.restock_boot=optional_module("restock_boot")
+if c.restock_module and c.restock_boot then c.restock_boot.attach(c)end
+local xp_cutoff=c.xp_globe_cutoff;if xp_cutoff and xp_cutoff.module and xp_cutoff.module.bind then xp_cutoff.module.bind(c)end
 print("Combat V2 backend ready (OFF). t NAME; cv2 bash / pvp / assist; cv2 help; cv2 trace.")

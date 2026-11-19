@@ -353,6 +353,15 @@ function M.help_text()
   "  Guards, corpses and loyal/protected NPCs are excluded.",
   "  Unlisted areas ask permission; unverified players pause attacks.",
   "  cv2 ih                Recheck current-room targets (BASH only).",
+  "  BASH offers optional one-pass area walking; No stays stationary.",
+  "  cv2 walk on / off     Request fresh Yes/No consent / stop walking.",
+  "  cv2 walk status       Show area-walker progress or hold.",
+  "  Walking requires GLOBE OFF; unknown IH never clears a room.",
+  "  cv2 restock on|off|status  Independent opt-in BASH restocking (startup OFF).",
+  "  RESTOCK waits for a safe clear room; it never interrupts current NPC attacks.",
+  "  A trusted trip suspends WALK at the exact room and route position.",
+  "  Resume needs the exact return room/area, fresh IH, no other players and recovery.",
+  "  STOP, manual mode/target/queue, disconnect or fresh consent cancel automatic resume.",
   "  cv2 areas             Refresh the game's hunting-area list.",
   "  cv2 area yes / no     Answer the current area's approval prompt.",
   "  cv2 web               Refresh the current WEB MEMBERS roster.",
@@ -423,6 +432,33 @@ function M.help_text()
   "<white>Close with the window's X. Opening/closing help never changes modes.",
  },"\n").."<reset>\n"
 end
+function M.hide_walk_prompt()
+ local ui=combat_v2_ui;if ui and ui.walk_popup then ui.walk_popup.root:hide() end
+end
+function M.show_walk_prompt(area,count,token)
+ if not combat_v2_ui then M.create() end
+ local ui=combat_v2_ui;local w,h=getMainWindowSize()
+ if not ui.walk_popup then
+  local p={};ui.walk_popup=p
+  p.root=Geyser.Container:new({name="cv2_walk_prompt",x=0,y=80,width=340,height=150})
+  p.label=Geyser.Label:new({name="cv2_walk_prompt_text",x=0,y=0,width=340,height=150},p.root)
+  p.label:setStyleSheet("background-color:#192735;color:#d7e5f2;border:2px solid #507590;padding:10px;qproperty-alignment:'AlignTop | AlignLeft';")
+  p.yes=Geyser.Label:new({name="cv2_walk_yes",x=12,y=110,width=152,height=28},p.root)
+  p.no=Geyser.Label:new({name="cv2_walk_no",x=176,y=110,width=152,height=28},p.root)
+  for _,b in ipairs({p.yes,p.no})do b:setStyleSheet("background-color:#233c51;color:#d7e5f2;border:1px solid #507590;padding:4px;")end
+ end
+ local p=ui.walk_popup;local width=math.max(1,math.min(340,w));local height=math.max(1,math.min(150,h));local half=math.max(1,(width-36)/2)
+ p.root:resize(width,height);p.label:resize(width,height)
+ p.yes:move(12,math.max(0,height-40));p.no:move(24+half,math.max(0,height-40));p.yes:resize(half,28);p.no:resize(half,28)
+ p.root:move(math.max(0,(w-width)/2),math.max(0,math.min(100,h-height)))
+ p.label:echo(html("<b style='font-size:17px;color:"..C.accent..";'>Auto bash this area?</b><br>"..esc(area).." · "..esc(count).."<br>One pass; fight first, IH, then walk.<br>Stays inside this mapped area."))
+ p.yes:echo(html("<center>YES — WALK</center>"));p.no:echo(html("<center>NO — STAY HERE</center>"))
+ p.yes:setClickCallback(function()local ok,why=combat_v2_walk_answer(token,true);if not ok and why then print(why)end end)
+ p.no:setClickCallback(function()combat_v2_walk_answer(token,false)end)
+ p.root:show();if type(p.root.raise)=="function"then p.root:raise()end
+ return true
+end
+
 function M.show_help()
  if not openUserWindow then print("Combat V2 help: see docs/backend.md");return false end
  local ui=combat_v2_ui;local name="Combat V2 Help"
@@ -466,8 +502,8 @@ function M.layout()
  end
  local resetW=math.min(80,aw-100);place(ui.buttons.enemy_afflictions_reset,10+aw+10+(aw-resetW)/2,affY+affH-33,resetW,25)
  y=affY+affH+8;card("cure",52)
- local tw=(cw-24)/4
- for i,k in ipairs({"approve","curing","globe","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
+ local tw=(cw-32)/5
+ for i,k in ipairs({"approve","curing","globe","restock","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
  y=y+38;place(ui.cards.events,10,y,cw,rh-y)
  if ui.cards.help then ui.cards.help:hide() end
 end
@@ -500,7 +536,8 @@ function M.create()
   if not ui.buttons[mode] then button(ui,mode,mode=="FULL_AUTO" and "AUTO" or mode,function() combat_v2_set_mode(mode);combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end
  end
  local callbacks={approve=function()combat_v2_approve()end,curing=function()combat_v2_set_curing(not combat_v2.cure.enabled)end,stop=function()combat_v2_stop()end,globe=function()local b=combat_v2.elemental_recovery;local on=b and b.armed and combat_v2.mode=="BASH";if combat_v2_globe then local ok,why=combat_v2_globe(on and "off"or"on");if not ok and why then print(why)end end end}
- for _,k in ipairs({"approve","curing","globe","stop"}) do if not ui.buttons[k] then button(ui,k,k:upper(),function() callbacks[k]();combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end end
+ callbacks.restock=function()if combat_v2_restock then local d=combat_v2.restock_data or {};local ok,why=combat_v2_restock(d.enabled and "off"or"on");if not ok and why then print(why)end end end
+ for _,k in ipairs({"approve","curing","globe","restock","stop"}) do if not ui.buttons[k] then button(ui,k,k:upper(),function() callbacks[k]();combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end end
  for _,k in ipairs({"player_afflictions","enemy_afflictions"}) do
   for _,direction in ipairs({"prev","next"}) do
    local key=k.."_"..direction
@@ -538,6 +575,10 @@ function M.refresh(state,runner,cure)
  local ui=combat_v2_ui;local p,t=state.player,state.target
  local globe=combat_v2 and combat_v2.elemental_recovery;local globe_on=runner.mode=="BASH"and globe and globe.armed and not globe.fault
  M.buttons.globe:echo(html("<center>GLOBE "..(globe_on and"ON"or"OFF").."</center>"))
+ local rs=combat_v2 and combat_v2.restock_data or {};local rsm=combat_v2 and combat_v2.restock_module
+ local rsbusy=rsm and rsm.busy and rsm.busy(combat_v2)
+ M.buttons.restock:echo(html("<center>RESTOCK "..(rs.enabled and "ON"or"OFF")..(rsbusy and " *"or"").."</center>"))
+ M.buttons.restock:setStyleSheet("background-color:"..(rs.enabled and "#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:1px;font-size:9px;")
  M.buttons.globe:setStyleSheet("background-color:"..(globe_on and"#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:3px;font-size:10px;")
  local mental=state.mental;local mind=mental and (mental.fault or mental.status) or "idle"
  M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; MONK / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>MIND: "..esc(mind).." &nbsp; · &nbsp; cv2 help</span>"))
