@@ -13,6 +13,44 @@ local function connected(s)
  if getConnectionInfo then local _,_,tcp=getConnectionInfo();return tcp==true end
  return true
 end
+-- Diagnostic-only reports. Counts are received messages, not inferred cures.
+local function failure(s,channel,aff,text)
+ local d=M.state(s);local t=now()
+ d.failed_cures=d.failed_cures or {};d.failure_counts=d.failure_counts or {}
+ d.failure_total=(d.failure_total or 0)+1
+ local k=channel..':'..(aff or 'unknown')
+ if not d.failure_counts[k]then
+  local n=0;for _ in pairs(d.failure_counts)do n=n+1 end
+  if n>=99 then k='other' end -- reserve one aggregate slot; at most 100 keys
+ end
+ d.failure_counts[k]=(d.failure_counts[k] or 0)+1
+ local event={time=t,channel=channel,attempted_aff=aff,text=text,report=d.failure_total}
+ table.insert(d.failed_cures,1,event);while #d.failed_cures>100 do table.remove(d.failed_cures)end
+ d.last_failure=event
+end
+function M.failure_report(s)
+ local d=M.state(s);local lines={'FIRSTAID failed-cure reports: '..(d.failure_total or 0)..' (latest 10; cause not inferred)'}
+ for i=1,math.min(10,#(d.failed_cures or {}))do
+  local e=d.failed_cures[i]
+  lines[#lines+1]=os.date('%H:%M:%S',math.floor(e.time))..' '..e.channel..': '..(e.attempted_aff or 'unspecified')..' | '..e.text
+ end
+ if not d.failed_cures or #d.failed_cures==0 then lines[#lines+1]='No matching failures observed since tracking began/was cleared.' end
+ return table.concat(lines,'\n')
+end
+function M.clear_failures(s)
+ local d=M.state(s);d.failed_cures={};d.failure_counts={};d.failure_total=0;d.last_failure=nil
+ -- Do not change afflictions, blocked-channel evidence, priorities or fault locks.
+end
+function M.attach(c)
+ if type(tempAlias)~='function'then return false end
+ if c.firstaid_error_alias then killAlias(c.firstaid_error_alias);c.firstaid_error_alias=nil end
+ local id=tempAlias('^faerrors(?: +(clear))?$',function()
+  if matches and matches[2]=='clear'then M.clear_failures(c.current) end
+  print(M.failure_report(c.current))
+ end)
+ if type(id)~='number'or id<=0 or id>=math.huge or id~=math.floor(id)then return false end
+ c.firstaid_error_alias=id;return true
+end
 function M.text(s,text)
  if type(text)~='string' then return end
  local d=M.state(s);local a=s.player.afflictions
@@ -27,8 +65,13 @@ function M.text(s,text)
  local old,new=text:match('^Your ([%a_ ]+) has transformed into ([%a_ ]+)%.$')
  if old then a[M.key(old)]=nil;a[M.key(new)]=true end
  local channel,aff=text:match('^%[FirstAid%]: unable to (%a+): ([%a_ ]+)$')
- if channel then d.blocked[channel]={time=now(),aff=M.key(aff)} end
- if text=='[FirstAid]: tree locked' then d.blocked.tree={time=now(),aff='locked'} end
+ if channel then
+  aff=aff:match('^%s*(.-)%s*$')
+  if #aff>0 and #aff<=80 and #text<=256 then
+   local k=M.key(aff);d.blocked[channel]={time=now(),aff=k};failure(s,channel,k,text)
+  end
+ end
+ if text=='[FirstAid]: tree locked' then d.blocked.tree={time=now(),aff='locked'};failure(s,'tree',nil,text) end
  -- A rejected cure attempt identifies a blocked channel, NOT its cause or a cure.
 end
 function M.plan(s)

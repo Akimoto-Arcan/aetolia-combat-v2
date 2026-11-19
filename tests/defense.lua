@@ -103,4 +103,32 @@ R.bind_policy(nil)
 -- PvP keeps both survival gates. The new rule is BASH-only.
 s=fresh();s.player.hp=25;local pr=R.new(s,K);pr.mode='FULL_AUTO';pr.sender=send;n=#sent
 check(D.hold(s) and not R.execute(pr,{command='bbt Fixture'}) and #sent==n,'BASH health policy leaked into PvP')
+-- Failed-cure reporting stays diagnostic-only: an attempted affliction is not a cause.
+s=fresh();local affs=s.player.afflictions;local before_sent=#sent
+D.text(s,'[FirstAid]: unable to eat: paralysis');D.text(s,'[FirstAid]: unable to smoke: slickness');D.text(s,'[FirstAid]: tree locked')
+local fd=D.state(s);check(fd.failure_total==3 and #fd.failed_cures==3,'failure reports not counted')
+check(fd.failure_counts['eat:paralysis']==1 and fd.failure_counts['tree:unknown']==1,'failure grouping wrong')
+check(fd.failed_cures[2].channel=='smoke' and fd.failed_cures[2].attempted_aff=='slickness','attempted cure identity lost')
+check(fd.failed_cures[1].attempted_aff==nil,'tree locked invented an affliction')
+check(s.player.afflictions==affs and not next(affs),'failure changed raw afflictions')
+D.service(s,send);check(#sent==before_sent,'failure alone caused automatic elevation')
+for _,line in ipairs({'Someone says, "[FirstAid]: unable to eat: asthma"','[FirstAid]: eat opiate','[FirstAid]: unable to eat:   ','[FirstAid]: unable to eat: '..string.rep('a',81)})do D.text(s,line)end
+check(fd.failure_total==3,'speech/input/malformed report counted as failure')
+for i=1,110 do clock=clock+1;D.text(s,'[FirstAid]: unable to eat: paralysis')end
+check(#fd.failed_cures==100 and fd.failure_total==113,'failure ring unbounded or total lost')
+check(fd.failed_cures[1].time==clock and fd.failure_counts['eat:paralysis']==111,'timestamps/counts wrong')
+local report=D.failure_report(s);check(report:find('cause not inferred',1,true)and report:find('\n',1,true),'report missing safe labels/newlines')
+D.text(s,'You have cured paralysis.');check(fd.failure_total==113,'actual cure erased history')
+fd.fault='existing unresolved transport';fd.requested.asthma=true;local blocked=fd.blocked
+D.clear_failures(s);check(fd.failure_total==0 and #fd.failed_cures==0 and not fd.last_failure,'clear failed')
+check(fd.fault=='existing unresolved transport'and fd.requested.asthma and fd.blocked==blocked,'diagnostic clear erased protective state')
+local bounded=fresh();for i=1,150 do D.text(bounded,'[FirstAid]: unable to '..string.rep('x',i)..': paralysis')end;local bd=D.state(bounded);local groups=0;for _ in pairs(bd.failure_counts)do groups=groups+1 end;check(groups==100 and bd.failure_counts.other==51 and #bd.failed_cures==100 and bd.failure_total==150,'distinct diagnostic counters unbounded')
+local old_alias,old_kill,old_print,old_matches=tempAlias,killAlias,print,matches;local callback,killed,output
+function tempAlias(pattern,fn)check(pattern=='^faerrors(?: +(clear))?$','native alias regex changed');callback=fn;return 123 end
+function killAlias(id)killed=id end
+function print(text)output=text end
+local c={current=s,firstaid_error_alias=122};check(D.attach(c)and c.firstaid_error_alias==123 and killed==122,'read-only report alias not attached')
+matches={};callback();check(output:find('No matching failures',1,true),'empty report not honest')
+D.text(s,'[FirstAid]: unable to apply: slickness');matches={[2]='clear'};callback();check(fd.failure_total==0 and fd.fault=='existing unresolved transport','clear alias changed protection')
+tempAlias,killAlias,print,matches=old_alias,old_kill,old_print,old_matches
 print('PASS defense '..count..' assertions: own-state ingestion, early blocker elevations, cure-lock hold, hysteresis, mode/TCP gates, mana/Kai reserves, setup readback and loss replay')
