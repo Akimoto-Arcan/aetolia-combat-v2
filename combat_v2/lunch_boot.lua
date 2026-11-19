@@ -46,6 +46,18 @@ function M.bind(c)
   end
   c.lunch_mode_guard_installed=true
  end
+ if type(api.combat_v2_globe)=='function'and api.combat_v2_globe~=c.lunch_globe_guard then
+  local previous=api.combat_v2_globe
+  local wrapped=function(action,...)
+   local value=tostring(action or 'status'):lower()
+   -- Only explicit public OFF revokes permission. The owned shopping trip
+   -- disarms spawns internally and must not revoke its own return grant.
+   if value=='off'then c.lunch_module.user_stop(c)end
+   if value=='on'and M.busy(c)then return false,'Restock transaction unresolved; cannot independently rearm GLOBE'end
+   return previous(action,...)
+  end
+  c.lunch_globe_guard=wrapped;api.combat_v2_globe=wrapped
+ end
  local con=c.convenience
  if con and type(con.hold)=='function'and c.lunch_guarded_convenience~=con then
   local previous=con.hold

@@ -23,4 +23,12 @@ c.lunch_duty.phase='initial_wait';check(not M.hold(c));c.lunch_duty.fault='unkno
 c.travel=travel();c.convenience={hold=function()return false end};check(M.bind(c));check(not c.travel.request('pt','18'));check(c.convenience.hold(c));check(c.lunch_api.combat_v2_set_mode==guard)
 c.lunch_duty={active=false,busy=false,phase='idle'};check(not M.hold(c));check(not M.busy(c));check(c.travel.request('rh'));check(c.lunch_api.combat_v2_set_mode('BASH'))
 c.lunch_duty.pending={kind='buy'};check(M.busy(c));check(M.hold(c));check(not c.travel.request('qd'));check(not c.lunch_api.combat_v2_set_mode('BASH'));check(c.lunch_duty.pending.kind=='buy')
+-- Explicit GLOBE OFF revokes even when the owned trip already disarmed it.
+local globe_calls=0;c.lunch_api.combat_v2_globe=function()globe_calls=globe_calls+1;return true end
+check(M.bind(c));local globe_guard=c.lunch_api.combat_v2_globe;check(M.bind(c));check(c.lunch_api.combat_v2_globe==globe_guard)
+c.lunch_duty={active=true,busy=true,phase='route',pending={kind='route'}};local pending=c.lunch_duty.pending;local before=stops
+check(c.lunch_api.combat_v2_globe('status'));check(stops==before)
+check(c.lunch_api.combat_v2_globe('OFF'));check(stops==before+1 and not c.lunch_duty.active and c.lunch_duty.pending==pending and c.lunch_duty.busy)
+check(not c.lunch_api.combat_v2_globe('on'));check(globe_calls==2)
+c.lunch_duty={active=true,busy=true,phase='resume',dispatching=true};check(c.lunch_api.combat_v2_globe('on'));check(stops==before+1)
 print('lunch boot: '..n..' assertions passed; no native calls')

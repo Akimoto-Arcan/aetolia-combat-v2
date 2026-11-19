@@ -265,4 +265,5 @@ test('native adapter holds all unresolved travel owners',function()
   local c,a=runtime();c.travel_owner={[k]=true};local v=M.adapter(c,a).view();eq(v.ready,false,k);assert(v.blocked,k..' barrier missing')
  end
 end)
+test('GLOBE OFF before low trigger never starts shopping',function()local f=fixture();assert(f.t.start());f.v.globe_armed=false;f.t.tick();eq(f.d.active,false);eq(f.d.busy,false);eq(#f.routes,0);eq(f.pauses,0)end)
 print('lunch: '..tests..' tests, '..assertions..' assertions passed (offline fake IO only)')
