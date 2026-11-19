@@ -388,4 +388,205 @@ for _,order in ipairs({'GroupsFirst','ListFirst'})do
  check(s.buffs.known.weathering and not s.buffs.known.regeneration,'fresh return-to-Monk List failed or broadened ownership')
  check(#sent==start and c.mode=='OFF' and c.runner.mode=='OFF' and not s.buffs.master,'class discovery sent casts or enabled execution')
 end
-print=realprint;print('PASS buffs integration '..n..' assertions: aliases, snapshots, prompt/EQ, opt-in/cancel, preferences, modes, class/session ownership and fresh skill events')
+-- Sensory integration uses the real backend and bootstrap event callbacks.
+combat_v2_stop();M.reset(s);gmcp.Char.Status.class='Monk';handlers['gmcp.Char.Status']()
+c.supplies_clock=function()return clock end
+local function herb_vitals()
+ gmcp.Char.Vitals.herb='1';gmcp.Char.Vitals.blind='0';gmcp.Char.Vitals.deaf='0';handlers['gmcp.Char.Vitals']()
+end
+local function resources()
+ herb_vitals()
+ -- Feed the REAL native complete baseline parser, not an aggregate estimate.
+ c.supplies.text(c,'Glancing into the cache, you see:')
+ c.supplies.text(c,'-------------------------------- Pills ---------------------------------')
+ for _,pill in ipairs({'acuity','amaurosis','anabiotic','antipsychotic','coagulation','decongestant','depressant','eucrasia','euphoriant','kawhepill','opiate','ototoxin','panacea','paste','pluck','somnium','steroid','stimulant','thanatonin','waterbreathing'})do c.supplies.text(c,' [ 10] '..pill)end
+ c.supplies.text(c,'------------------------------ Herbalism -------------------------------')
+ for _,herb in ipairs({'reishi','willow','yarrow'})do c.supplies.text(c,' [ 10] '..herb)end
+ c.supplies.text(c,'-------------------------- Inks & Commodities --------------------------')
+ c.supplies.prompt(c)
+end
+local function afflist(values)
+ gmcp.Char.Afflictions={List=values or {}};handlers['gmcp.Char.Afflictions.List']()
+end
+local function sensory_frame(blind,deaf,variant)
+ text('Your affliction curing priorities:')
+ for i=1,26 do
+  local body=''
+  if i==blind then body='poultice: [blindness]'end
+  if i==deaf then body=body..' pill: [deafness]'end
+  if i==20 then body=body..' special: [feeble_arms, deepwound, lightwound, manablight,'end
+  if i==24 then body=body..' poultice: [pre_restore_torso, pre-restore left arm (20%), pre-restore head (20%), pre-restore right leg (20%)]'end
+  if variant=='duplicate'and i==22 then body='pill: [blindness]'end
+  if variant=='unclosed'and i==23 then body='pill: [broken'end
+  if not(variant=='missing'and i==24)then text(i..') '..body)end
+  if i==16 then text('    pill: [rot_benign, rot_spirit]')end
+  if i==20 then text('               brittle_skin]')end
+ end
+ text('Affs with priority 26 are ignored.')
+end
+resources();before=#sent
+check(not M.availability(s,'blindness'),'no policy proof granted sensory goal')
+check(not combat_v2_buffs('keep','blindness on'),'unknown policy accepted selection')
+local requested=#sent;check(sent[before+1]=='firstaid priority list'and requested==before+1,'bounded policy audit sent unexpected commands: '..tostring(before)..'/'..tostring(requested)..' '..table.concat(sent,'|',before+1))
+for i=1,8 do tick();combat_v2_buffs('keep','blindness on')end
+check(#sent==requested,'missing evidence retried stock/policy queries')
+-- A fresh operator request may solicit one IC, never a periodic stream.
+check(combat_v2_buffs('sensory','stock') and sent[#sent]=='ic','explicit stock audit unavailable')
+resources();sensory_frame(16,20);prompt()
+check(c.buff_sensory_source.policy.priorities.blindness==16 and c.buff_sensory_source.policy.priorities.deafness==20,'real wrapped 26-row native layout parsed incorrectly')
+check(not M.availability(s,'blindness'),'native P16 granted intentional self-affliction')
+check(c.buff_sensory_audit(false),'read-only policy request failed');sensory_frame(26,26);prompt()
+check(not M.availability(s,'blindness'),'absence of initial Afflictions.List granted curing_clear')
+afflist();resources();c.buff_snapshot()
+local available,reason=M.availability(s,'blindness');check(available and M.availability(s,'deafness'),'fresh real policy/resource proof failed: '..tostring(reason)..' context='..tostring(s.buffs.sensory_context)..' herb='..tostring(s.buffs.herb)..' epoch='..tostring(s.buffs.sensory_epoch)..' cut='..tostring(c.buff_sensory_source.consumed_at)..' vit='..tostring(c.buff_sensory_source.vitals_at)..' policy='..tostring(c.buff_sensory_source.policy)..' globe='..tostring(c.elemental_recovery and c.elemental_recovery.phase)..' mental='..tostring(s.mental and s.mental.fault)..' fault='..tostring(c.runner.fault)..' hold='..tostring(c.defense.hold(s)))
+check(not s.buffs.master,'sensory audit armed master')
+local saved_mode=c.mode;local saved_runner=c.runner;s.buffs.have.mindseye=true;s.player.defences.mindseye=true
+only('blindness');s.buffs.master=true;c.mode='BASH';s.mode='BASH';c.runner.mode='BASH';before=#sent
+local selected,blocked_reason=combat_v2_buffs('keep','blindness on')
+check(not selected and blocked_reason:find('Mindseye',1,true)and not s.buffs.pending and #sent==before,'Mindseye protection permitted pill/query or hid blocked reason')
+local held=M.service(s,c.runner,function()error('Mindseye must not eat')end,false)
+check(not held.busy and s.buffs.master and c.runner==saved_runner and c.mode=='BASH','Mindseye blocked goal paused BASH or changed master/runner')
+s.buffs.have.mindseye=nil;s.player.defences.mindseye=nil;s.buffs.master=false;c.mode=saved_mode;s.mode=saved_mode;c.runner.mode=saved_mode;c.buff_snapshot()
+local at=s.buffs.sensory_context.observed_at;clock=clock+6;text('unrelated own line');prompt();c.buff_snapshot()
+check(not M.availability(s,'blindness') and (not s.buffs.sensory_context or s.buffs.sensory_context.observed_at==at),'cached prompt/text refreshed resource timestamp')
+resources();c.buff_snapshot();check(M.availability(s,'blindness'),'fresh resources did not restore persistent policy proof')
+local function blocked(set,clear,why)
+ set();c.buff_snapshot();check(not M.availability(s,'blindness'),why);clear();c.buff_snapshot();check(M.availability(s,'blindness'),'barrier release did not restore resource proof')
+end
+blocked(function()c.runner.waiting=true end,function()c.runner.waiting=false end,'physical wait ignored')
+blocked(function()s.mental={eq_pending={}}end,function()s.mental=nil end,'mental wait ignored')
+blocked(function()s.walker={pending={}}end,function()s.walker=nil end,'walker commit ignored')
+blocked(function()c.elemental_recovery={phase='unknown'}end,function()c.elemental_recovery={phase='idle'}end,'unknown GLOBE phase ignored')
+blocked(function()c.containers_data.barrier={at=clock,id='fixture',kind='vials',phase='dispatching'}end,function()c.containers_data.barrier=nil end,'container refill ignored')
+c.containers_data.quarantine='response timeout';c.buff_snapshot();check(M.availability(s,'blindness') and c.containers_data.quarantine=='response timeout','read-only quarantine confused with refill or cleared')
+afflist({'anorexia'});check(not M.availability(s,'blindness'),'native curing did not win anorexia');afflist()
+-- Preferences cannot grant opt-in; the public explicit selector is mandatory.
+only('blindness');s.buffs.sensory_optin={};before=#sent
+check(combat_v2_buffs('start') and #sent==before,'saved wanted granted curative execution')
+combat_v2_buffs('stop');local select=M.select_sensory;local selections=0
+M.select_sensory=function(...)selections=selections+1;return select(...)end
+check(combat_v2_buffs('keep','blindness on') and selections==1 and not s.buffs.master and s.buffs.sensory_optin.blindness,'public keep failed explicit opt-in or changed master');M.select_sensory=select
+before=#sent;local epoch=s.buffs.sensory_epoch
+check(combat_v2_buffs('start') and sent[before+1]=='outc amaurosis'and sent[before+2]=='eat amaurosis'and #sent==before+2,'exact curative prepare/eat dispatch failed')
+check(s.buffs.pending and s.buffs.pending.curative and s.buffs.sensory_epoch==epoch+1,'curative pending/epoch commit missing')
+c.buff_snapshot();check(not M.availability(s,'deafness'),'old stock proof crossed new EAT epoch')
+M.reset(s);combat_v2_buffs('stop');clock=clock+1;resources();afflist();c.buff_snapshot()
+check(M.availability(s,'blindness'),'new epoch fresh resources unavailable')
+local original_at=c.supplies_data.stocks["ic:amaurosis"].at;c.supplies_data.stocks["ic:amaurosis"].at=clock+1;c.buff_snapshot()
+check(not M.availability(s,'blindness'),'future stock timestamp accepted');c.supplies_data.stocks["ic:amaurosis"].at=original_at;c.buff_snapshot()
+check(combat_v2_buffs('keep','blindness on'),'reentrant fixture selection failed');before=#sent
+c.buff_sender=function(command)
+ send(command)
+ if command=='outc amaurosis'then c.containers_data.barrier={at=clock,id='fixture',kind='vials',phase='dispatching'};combat_v2_tick()end
+end
+combat_v2_buffs('start');c.buff_sender=nil
+check(#sent==before+1 and sent[#sent]=='outc amaurosis'and s.buffs.pending and s.buffs.fault,'OUTC reentrant resource barrier permitted EAT or duplicate')
+M.reset(s);c.containers_data.barrier=nil;combat_v2_buffs('stop');c.buff_snapshot()
+-- Continuously tracked IC survives hours of silence, but never renews herb.
+clock=clock+1;resources();c.buff_snapshot()
+local baseline=c.supplies_data.stocks['ic:amaurosis'].at
+local baseline_other=c.supplies_data.stocks['ic:ototoxin'].at
+clock=clock+7200;before=#sent;c.buff_snapshot()
+check(not M.availability(s,'blindness'),'old herb received a permanent tracked lease')
+-- A partial Vitals event is not a genuine herb observation.
+local saved_vitals=gmcp.Char.Vitals;gmcp.Char.Vitals={hp=100};handlers['gmcp.Char.Vitals']();gmcp.Char.Vitals=saved_vitals
+check(not M.availability(s,'blindness'),'partial Vitals renewed herb evidence')
+herb_vitals();c.buff_snapshot()
+local proof=s.buffs.sensory_context
+check(proof and proof.stock_evidence.amaurosis.mode=='tracked_ic_v1' and proof.stock_evidence.amaurosis.observed_at==baseline and proof.observed_at==clock,'tracked historical stock/fresh herb separation missing')
+check(c.supplies_data.stocks['ic:amaurosis'].at==baseline and c.supplies_data.stocks['ic:ototoxin'].at==baseline_other and #sent==before,'stock timestamp rewritten or quiet IC polled')
+for i=1,3 do clock=clock+4;herb_vitals();c.buff_snapshot();check(M.availability(s,'blindness') and c.supplies_data.stocks['ic:amaurosis'].at==baseline and #sent==before,'tracked stock expired or was synthetically refreshed')end
+gmcp.IRE={Rift={Change={name='ototoxin',amount=7}}};handlers['gmcp.IRE.Rift.Change']();c.buff_snapshot()
+check(s.buffs.sensory_context.stock_evidence.ototoxin.source=='gmcp.IRE.Rift.Change' and s.buffs.sensory_context.stocks.ototoxin==7 and c.supplies_data.stocks['ic:amaurosis'].at==baseline and #sent==before,'native absolute update lost tracking or refreshed unrelated stock')
+only('blindness');check(combat_v2_buffs('keep','blindness on'),'tracked goal opt-in failed')
+before=#sent;check(combat_v2_buffs('start') and #sent==before+2 and sent[before+1]=='outc amaurosis' and sent[before+2]=='eat amaurosis','hours-old authoritative baseline failed actual EAT')
+local pending=s.buffs.pending
+prompt();check(s.buffs.pending==pending,'tracked pending settled without own effect/herb loss')
+gmcp.Char.Vitals.blind='1';gmcp.Char.Vitals.herb='0';handlers['gmcp.Char.Vitals']();prompt()
+check(s.buffs.pending==pending,'tracked pending settled before herb recovery')
+gmcp.Char.Vitals.herb='1';handlers['gmcp.Char.Vitals']();check(s.buffs.pending==pending,'tracked pending settled without new ready prompt')
+prompt();check(not s.buffs.pending and #sent==before+2,'tracked settlement failed or duplicated EAT')
+-- Every invalidation is tested both before OUTC and synchronously after it.
+local cases={
+ {'zero',function()c.supplies.rift(c,{name='amaurosis',amount=0})end},
+ {'native withdrawal zero',function()c.supplies.text(c,'You remove 1 amaurosis, bringing the total in the cache to 0.')end},
+ {'raw inferred',function()c.supplies_data.stocks['ic:amaurosis'].inferred=true end},
+ {'unknown source',function()local r=c.supplies_data.stocks['ic:amaurosis'];r.source='aggregate estimate';c.supply_ledger_data.cache['ic:amaurosis'].source=r.source end},
+ {'source pending',function()c.supplies_data.sources.ic.pending=true;c.supplies_data.sources.ic.sent_at=clock end},
+ {'owner dead',function()c.supplies_owner.alive=false end},
+ {'disconnect',function()s.connected=false;c.ledger.invalidate(c)end},
+ {'confidence',function()c.supply_ledger_data.cache['ic:amaurosis'].confidence='disconnected'end},
+ {'estimated',function()c.supply_ledger_data.cache['ic:amaurosis'].estimated=true end},
+ {'inferred',function()c.supply_ledger_data.cache['ic:amaurosis'].inferred=true end},
+ {'count mismatch',function()c.supplies_data.stocks['ic:amaurosis'].count=20 end},
+ {'version mismatch',function()local r=c.supplies_data.stocks['ic:amaurosis'];r.version=r.version+1 end},
+ {'ledger version mismatch',function()c.supply_ledger_data.cache['ic:amaurosis'].version=-1 end},
+ {'source incomplete',function()c.supplies_data.sources.ic.complete=false end},
+ {'source stale',function()c.supplies_data.sources.ic.stale=true end},
+ {'owner changed',function()c.supplies_owner={alive=true}end},
+ {'health',function()s.player.hp=1 end},
+ {'mana',function()s.player.mana=1 end},
+ {'cached Rift replay',function()c.supplies.rift(c,{name='amaurosis',amount=0});gmcp.IRE={Rift={Change={name='amaurosis',amount=10}}}end}
+}
+local real_owner=c.supplies_owner
+local function tracked_fixture()
+ M.reset(s);combat_v2_buffs('stop');s.connected=true
+ c.supplies_owner=real_owner;real_owner.alive=true
+ -- Detect changed ownership before supplying a genuine NEW native baseline.
+ c.buff_sensory_refresh();clock=clock+1;resources();afflist();c.buff_snapshot()
+ if not c.buff_sensory_source.policy then c.buff_sensory_audit(false);sensory_frame(26,26);prompt()end
+ c.buff_snapshot();check(M.availability(s,'blindness'),'tracked adversarial fixture unavailable')
+ only('blindness');check(M.select_sensory(s,'blindness',true),'tracked adversarial opt-in failed')
+end
+-- Real NativeRift events carry absolute zero; fresh snapshots must preserve it.
+for _,case in ipairs({{'amaurosis','deafness','ototoxin'},{'ototoxin','blindness','amaurosis'},{'withdrawal','deafness','ototoxin'}})do
+ tracked_fixture();M.reset(s);combat_v2_buffs('stop');before=#sent
+ local empty=case[1]=='withdrawal'and 'amaurosis'or case[1]
+ gmcp.IRE={Rift={Change={name=empty,amount=case[1]=='withdrawal'and 1 or 0}}};handlers['gmcp.IRE.Rift.Change']()
+ if case[1]=='withdrawal'then c.supplies.text(c,'You remove 1 amaurosis, bringing the total in the cache to 0.')end
+ clock=clock+1;herb_vitals();c.buff_snapshot()
+ local proof=s.buffs.sensory_context;local depleted=empty=='amaurosis'and 'blindness'or 'deafness'
+ check(proof and proof.stocks[empty]==0 and proof.stock_evidence[empty].count==0 and proof.stocks[case[3]]==10,'absolute asymmetric stock proof lost')
+ check(proof.stock_evidence[empty].source==(case[1]=='withdrawal'and 'native IC withdrawal'or 'gmcp.IRE.Rift.Change'),'zero source lost')
+ check(not M.availability(s,depleted) and not M.select_sensory(s,depleted,true),'depleted goal authorized')
+ local funded,funded_reason=M.availability(s,case[2]);check(funded,'zero other pill starved funded goal '..case[1]..': '..tostring(funded_reason))
+ only(case[2]);local opted,opt_reason=combat_v2_buffs('keep',case[2]..' on');check(opted,'funded opt-in failed: '..tostring(opt_reason))
+ check(combat_v2_buffs('start') and #sent==before+2 and sent[before+1]=='outc '..case[3] and sent[before+2]=='eat '..case[3],'asymmetric stock failed exact pair')
+ c.buff_snapshot();combat_v2_tick();check(#sent==before+2,'asymmetric stock duplicate dispatch')
+ clock=clock+1;herb_vitals();c.buff_snapshot()
+ check(c.supplies_data.stocks['ic:'..empty].count==0 and not M.availability(s,depleted),'zero fact did not remain sticky')
+end
+-- Unknown/missing other-pill evidence is not an authoritative zero.
+for _,layer in ipairs({'raw','ledger'})do
+ tracked_fixture();M.reset(s);combat_v2_buffs('stop');before=#sent
+ if layer=='raw'then c.supplies_data.stocks['ic:ototoxin']=nil else c.supply_ledger_data.cache['ic:ototoxin']=nil end
+ clock=clock+1;herb_vitals();c.buff_snapshot()
+ check(not s.buffs.sensory_context and not M.availability(s,'blindness') and not M.select_sensory(s,'blindness',true),'missing other pill invented zero')
+ s.buffs.wanted.blindness=true;s.buffs.sensory_optin.blindness=true;combat_v2_buffs('start')
+ check(#sent==before,'missing other pill dispatched')
+end
+for _,after in ipairs({false,true})do for _,case in ipairs(cases)do
+ tracked_fixture();before=#sent
+ if after then
+  c.buff_sender=function(command)send(command);if command=='outc amaurosis'then case[2]()end end
+ else case[2]();c.buff_snapshot()end
+ combat_v2_buffs('start');c.buff_sender=nil
+ check(#sent==before+(after and 1 or 0),'revoked '..case[1]..' permitted '..(after and 'EAT' or 'OUTC'))
+ if after then
+  check(s.buffs.pending and s.buffs.fault,'post-OUTC revocation erased committed barrier')
+  clock=clock+100;c.buff_snapshot();M.service(s,c.runner,function(command)send(command)end,false)
+  check(#sent==before+1 and s.buffs.pending,'revoked post-OUTC timed out into retry')
+ end
+end end
+tracked_fixture();M.reset(s);combat_v2_buffs('stop')
+-- Malformed, duplicated, truncated and unsolicited listings cannot authorize.
+for _,variant in ipairs({'duplicate','unclosed','missing'})do
+ c.buff_sensory_audit(false);sensory_frame(26,26,variant);prompt();check(not c.buff_sensory_source.policy and not M.availability(s,'blindness'),'invalid native frame accepted '..variant)
+end
+sensory_frame(26,26);prompt();check(not c.buff_sensory_source.policy,'unsolicited native frame granted proof')
+c.buff_sensory_audit(false);sensory_frame(26,26);check(not c.buff_sensory_source.policy,'footer granted policy before real prompt');prompt();check(c.buff_sensory_source.policy,'prompt did not commit validated frame')
+text('Your cureset has changed.');check(not c.buff_sensory_source.policy and not s.buffs.sensory_context,'cureset change retained proof')
+c.buff_sensory_audit(false);sensory_frame(26,26);prompt();gmcp.Char.Status.class='Archivist';handlers['gmcp.Char.Status']()
+check(not c.buff_sensory_source.policy and not M.availability(s,'blindness'),'class change retained policy')
+for i=before+3,#sent do check(not sent[i]:match('^firstaid priority [a-z_]+ %d'),'sensory integration wrote affliction priorities')end
+print=realprint;print('PASS buffs integration '..n..' assertions: native 26-row sensory proof, bounded requests, honest freshness/epochs, interlocks, explicit opt-in, exact consumable pair, plus prior contracts')

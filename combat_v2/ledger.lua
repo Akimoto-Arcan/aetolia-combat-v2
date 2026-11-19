@@ -58,7 +58,7 @@ end
 local function use(line)
  local label=line:match('^You take a drink of (.-) from a plain wooden vial%.$') or line:match('^You take a drink of (.-) from an academy vial%.$')
  if label and names.vial[label] then return 'vial',names.vial[label],true end
- label=line:match('^You swallow an? ([a-z]+) pill%.$')
+ label=line:match('^You swallow an? ([a-z]+) pill%.$') or line:match('^You swallow a pill of ([a-z]+)%.$')
  if label and pills[label] then return 'pill',label,true end
  label=line:match('^You smoke (.-)%.$') or line:match('^You take a long drag from (.-)%.$')
  if label and names.pipe[label] then return 'pipe',names.pipe[label],false end

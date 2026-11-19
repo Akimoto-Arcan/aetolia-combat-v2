@@ -160,4 +160,8 @@ local z=context()
 for _,kind in ipairs({'vial','pipe','bandage'}) do frame(z,kind,nil,true,false) end
 check(not M.state(z).complete and M.state(z).pending,'multi-kind stages all before prompt')
 M.prompt(z);check(M.state(z).complete,'single native prompt commits each valid kind')
+local actual=context();M.cache(actual,'ic:amaurosis',843,'native IC',100);M.cache(actual,'ic:ototoxin',844,'native IC',100)
+native(actual,'You swallow a pill of amaurosis.');native(actual,'You swallow a pill of ototoxin.')
+check(M.state(actual).carried.pill.amaurosis.used==1 and M.state(actual).carried.pill.ototoxin.used==1,'actual sensory pill-of receipts must count use')
+check(M.state(actual).cache['ic:amaurosis'].count==843 and M.state(actual).cache['ic:ototoxin'].count==844,'sensory pill use must not debit IC again')
 print('ledger: '..checks..' checks passed (offline Lua; zero commands)')

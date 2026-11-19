@@ -293,8 +293,38 @@ repeat
  local page=archive_manager.page;reloaded.defense_page(1)
  if archive_manager.page==page then break end
 until false
-assert(archives==14 and seen_rows.daydream and seen_rows.cloak and seen_rows.nightsight and seen_rows.clarity and not seen_rows.weathering and not seen_rows.speed,'actual CLIENT projection lost Archivist/shared/tattoo/manual or included foreign/native')
+assert(archives==14 and seen_rows.daydream and seen_rows.blindness and seen_rows.deafness and seen_rows.cloak and seen_rows.nightsight and seen_rows.clarity and not seen_rows.weathering and not seen_rows.speed,'actual CLIENT projection lost Archivist/shared/sensory/tattoo/manual or included foreign/native')
+-- CURATIVE rows are class-neutral, but a fresh-proof lease is checked again
+-- on click, not merely at paint time. No sends/configuration from GUI.
+local sensory_clock=500;function getEpoch()return sensory_clock end
+local ap=archive_state.player;ap.balance=true;ap.equilibrium=true;ap.left_arm_balance=true;ap.right_arm_balance=true
+actual.vitals(archive_state,{herb='1',blind='0',deaf='0'})
+assert(actual.set_sensory_context(archive_state,{class='archivist',epoch=archive_state.buffs.sensory_epoch or 0,observed_at=500,herb='1',priorities={blindness=26,deafness=26},stocks={amaurosis=10,ototoxin=10},eating_allowed=true,curing_clear=true,barriers_clear=true}))
+reloaded.defense_page(0,'CLIENT')
+local sensory_click
+repeat
+ for _,row in ipairs(archive_manager.rows)do if row.key=='blindness'then assert(not row.toggle.hidden,'fresh shared sensory row not actionable');sensory_click=row.toggle.click end end
+ if sensory_click then break end
+ local page=archive_manager.page;reloaded.defense_page(1);assert(page~=archive_manager.page,'sensory goal missing from CLIENT')
+until false
+sensory_clock=506;local call_count=#calls
+assert(not sensory_click() and #calls==call_count,'stale sensory proof click dispatched')
+reloaded.refresh_defenses(archive_state)
+for _,row in ipairs(archive_manager.rows)do if row.key=='blindness'then assert(row.toggle.hidden,'expired sensory row exposed fake ON')end end
 assert(not reloaded.defense_action('keep','daydream on') and #calls==dispatched and sends==0,'actual manual row dispatched')
+-- Lost activation proof must never trap wanted ON; OFF only revokes local intent.
+archive_state.buffs.wanted.blindness=true;archive_state.buffs.sensory_optin={blindness=true}
+reloaded.refresh_defenses(archive_state)
+local off_visible=false
+for _,row in ipairs(archive_manager.rows)do if row.key=='blindness'then off_visible=not row.toggle.hidden end end
+assert(off_visible,'expired selected sensory goal hid WANTED OFF')
+assert(reloaded.defense_action('keep','blindness off'),'expired sensory evidence prevented local intent revocation')
+assert(not reloaded.defense_action('keep','blindness on'),'expired sensory evidence authorized ON')
+archive_state.buffs.wanted.mindseye=true;archive_state.buffs.tattoos.mindseye=nil
+assert(reloaded.defense_action('keep','mindseye off'),'missing ink prevented deselection')
+archive_state.buffs.wanted.toughness=true
+local foreign_calls=#calls
+assert(not reloaded.defense_action('keep','toughness off')and #calls==foreign_calls,'foreign Monk OFF escaped class fence')
 combat_v2.current=state;combat_v2.buffs=saved_core
 print('PASS GUI defenses: 14 reusable slots, 2000 rows, paging/filter/clamp, native/class dispatch, unknown-priority/stale-slot rejection, read-only rows, escaped/color states, no sends, unchanged executor/UI, legacy migration')
 

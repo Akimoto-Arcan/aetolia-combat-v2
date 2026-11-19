@@ -29,7 +29,7 @@ for _,e in ipairs(B.catalog)do
  check(not s.buffs.master and not s.buffs.sequence,'startup armed '..e.key)
  check(tick().busy==false and #sent==0,'startup sent '..e.key)
  if e.drain then check(e.default==false,'drain armed by default '..e.key)end
- if e.command and not B.native_catalog[e.key] then
+ if e.command and not e.curative and not B.native_catalog[e.key] then
   if e.depends then B.sync(s,'Add',e.depends)end
   if e.key=='immunity' then clock=clock+121 end -- unknown prior cooldown fence
   check(B.start(s));tick();check(sent[1]==e.command,'wrong owner/command '..e.key)
@@ -49,7 +49,7 @@ for _,e in ipairs(B.catalog)do
 end
 -- Every unavailable executable capability is skipped even if a saved wanted flag is true.
 for _,e in ipairs(B.catalog)do
- if e.command and not B.native_catalog[e.key] then
+ if e.command and not e.curative and not B.native_catalog[e.key] then
   local s=fresh();for k in pairs(s.buffs.wanted)do s.buffs.wanted[k]=k==e.key end
   if e.tattoo then B.text(s,'You have the following tattoos:');B.on_prompt(s)
   else B.set_group_known(s,e.group,{});if e.also_group then B.set_group_known(s,e.also_group,{})end end

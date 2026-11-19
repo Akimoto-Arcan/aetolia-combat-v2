@@ -1,5 +1,5 @@
 -- Class-scoped Monk/shared preparations and read-only Archivist defence tracking.
--- No IO, global sender, generic consumption, emergency abilities or ENEMY changes.
+-- No IO/global sender, generic cures, emergency abilities or ENEMY changes.
 -- Intent is revocable; an already dispatched action is a physical barrier until
 -- confirmed AND followed by a real ready prompt. Only reset may waive that barrier.
 local M={}
@@ -87,6 +87,11 @@ for _,e in ipairs(M.archivist_catalog) do
  e.reason=e.reason or 'Missing verified Archivist energy/number state; tracking only'
  M.catalog[#M.catalog+1]=e
 end
+-- Explicit user-selected intentional affliction goals, not official DEF IDs.
+local sensory={blindness='amaurosis',deafness='ototoxin'}
+for _,k in ipairs({'blindness','deafness'}) do
+ M.catalog[#M.catalog+1]={key=k,label=k=='blindness' and 'Blindness (intentional)' or 'Deafness (intentional)',class='shared',group='curatives',curative=true,self_afflicted=true,default=false,command='eat '..sensory[k],prepare='outc '..sensory[k]}
+end
 local passive_tattoos={boar=true,moon=true,moss=true,owl=true,mountain=true}
 local function now() return getEpoch and getEpoch() or os.clock() end
 local function norm(x) return tostring(x or ''):lower():gsub('[%s_%-]','') end
@@ -109,7 +114,7 @@ for _,k in ipairs(general_order) do
 end
 for _,k in ipairs({'blindness','deafness'}) do
  metadata[k].self_afflicted=true
- metadata[k].reason='NEEDS CURRENT MECHANIC PROOF: legacy self-afflicted PvP tactic; not unattended BASH upkeep. Mindseye blocks one blind/deaf attack, not blind vision.'
+ metadata[k].reason='Explicit opt-in requires fresh cure-ignore, herb and stock proof; Mindseye is not blind vision'
 end
 metadata.mountain={key='mountain',label='Mountain'}
 general_order[#general_order+1]='mountain'
@@ -134,8 +139,9 @@ local curatives={
  {'levitation','Apothecary','levitation','elixir'}, {'speed','Apothecary','speed','elixir'}, {'vigor','Apothecary','vigor','elixir'}
 }
 for _,c in ipairs(curatives) do
- M.curative_catalog[#M.curative_catalog+1]={key=c[1],source=c[2],producer=c[3],delivery=c[4],class='shared',owner=M.native_catalog[c[1]] and 'FIRSTAID' or c[1]=='daydream' and 'CURATIVE MANUAL' or 'SKILL'}
+ M.curative_catalog[#M.curative_catalog+1]={key=c[1],kind='official_defence',source=c[2],producer=c[3],delivery=c[4],class='shared',owner=M.native_catalog[c[1]] and 'FIRSTAID' or c[1]=='daydream' and 'CURATIVE MANUAL' or 'SKILL'}
 end
+for _,k in ipairs({'blindness','deafness'}) do M.curative_catalog[#M.curative_catalog+1]={key=k,kind='intentional_affliction',source='Herbalism',producer=sensory[k],delivery='consumed',class='shared',owner='CURATIVE'} end
 aliases.blind='blindness';aliases.deaf='deafness'
 local function key(x)
  if type(x)=='table' then x=x.name or x.id or x.key end
@@ -217,7 +223,7 @@ function M.rows(s)
   local pri=M.native_priority(s,k);local wanted
   if native then if pri then wanted=pri<26 end elseif class then wanted=b.wanted[k] end
   rows[#rows+1]={key=k,label=e and e.label or k,active=active,wanted=wanted,
-   owner=e and e.self_afflicted and 'SELF-AFFLICTED' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or e and e.owner or class and (e.class=='archivist' and 'ARCHIVIST' or e.class=='monk' and 'MONK' or 'SKILL') or tattoo and 'TATTOO' or 'UNAVAILABLE',
+   owner=e and e.curative and 'CURATIVE' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or e and e.owner or class and (e.class=='archivist' and 'ARCHIVIST' or e.class=='monk' and 'MONK' or 'SKILL') or tattoo and 'TATTOO' or 'UNAVAILABLE',
    control=native and 'native' or class and not e.passive and not e.tracking_only and 'class' or 'observed',priority=pri,drain=e and e.drain==true or false,
    available=available,availability=reason,group=e and e.group,passive=e and e.passive or tattoo and tattoo.active,
    required=k=='mindseye',class=e and e.class or 'shared',relevant=not class or in_class(b,e),tracking_only=e and e.tracking_only or k=='daydream',
@@ -307,14 +313,76 @@ function M.set_groups(s,groups)
 end
 function M.invalidate(s)
  local b=M.state(s);b.known={};b.groups={};b.tattoos={};b.tattoos_ready=false;b.tattoo_listing=nil;b.vitals_flags={};b.flag_sources={};b.known_ready=false
+ b.sensory_context=nil;b.herb=nil;b.sensory_optin={};b.sensory_epoch=(b.sensory_epoch or 0)+1
  b.observed={};b.have={};b.defs_known=false;b.ability_listing=nil;b.immunity_clock_known=false
  b.native_priorities={};b.native_full_required=true;b.native_listing=nil;b.native_version=(b.native_version or 0)+1
- if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false end
+ if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false
+  if b.pending.curative then b.pending.herb_lost=false;b.pending.herb_recovered=false end
+ end
+end
+-- Caller owns evidence acquisition, not this module. The five-second action
+-- context is herb/vitals freshness, NOT a renewed observation of old stock.
+-- Optional tracked_ic_v1 metadata is scalar-copied and strictly validated;
+-- integration must revalidate the live owner/source/fact before OUTC and EAT.
+function M.set_sensory_context(s,c)
+ local b=M.state(s);b.sensory_context=nil
+ if type(c)~='table' or not M.supported_class(b.class) or c.class~=b.class or c.epoch~=(b.sensory_epoch or 0) then return false end
+ local t=now()
+ if type(c.observed_at)~='number' or c.observed_at~=c.observed_at or c.observed_at>t or t-c.observed_at>5 then return false end
+ if type(c.priorities)~='table' or type(c.stocks)~='table' then return false end
+ if c.eating_allowed~=true or c.curing_clear~=true or c.barriers_clear~=true then return false end
+ if not (c.herb==true or c.herb==1 or c.herb=='1') or b.herb~=true then return false end
+ local copy={class=b.class,epoch=c.epoch,observed_at=c.observed_at,priorities={},stocks={}}
+ if c.stock_evidence~=nil then
+  if type(c.stock_evidence)~='table' then return false end
+  copy.stock_evidence={}
+ end
+ for k,pill in pairs(sensory) do
+  local pri,n=c.priorities[k],c.stocks[pill]
+  if pri~=nil and (type(pri)~='number' or pri%1~=0 or pri<1 or pri>26) then return false end
+  if n~=nil and (type(n)~='number' or n~=n or n==math.huge or n<0 or n%1~=0) then return false end
+  if copy.stock_evidence then
+   local e=c.stock_evidence[pill]
+   if type(e)~='table' or e.mode~='tracked_ic_v1' or e.tracked~=true or e.count~=n or not n or n<0 then return false end
+   if type(e.observed_at)~='number' or e.observed_at~=e.observed_at or e.observed_at>t or e.observed_at==-math.huge then return false end
+   if type(e.version)~='number' or e.version<1 or e.version%1~=0 or e.version==math.huge then return false end
+   if type(e.session)~='number' or e.session<1 or e.session%1~=0 or e.session==math.huge or type(e.owner_id)~='string' or e.owner_id=='' then return false end
+   if e.source~='ic' and e.source~='gmcp.IRE.Rift.Change' and e.source~='native IC withdrawal' and e.source~='native IC deposit' then return false end
+   copy.stock_evidence[pill]={mode=e.mode,tracked=true,count=n,source=e.source,observed_at=e.observed_at,version=e.version,owner_id=e.owner_id,session=e.session}
+  end
+  copy.priorities[k]=pri;copy.stocks[pill]=n
+ end
+ if copy.stock_evidence then
+  local a,o=copy.stock_evidence.amaurosis,copy.stock_evidence.ototoxin
+  if a.owner_id~=o.owner_id or a.session~=o.session then return false end
+ end
+ b.sensory_context=copy;return true
+end
+function M.sensory_ready(s,k)
+ local b=M.state(s);local c=b.sensory_context
+ if not sensory[k] or not c or c.class~=b.class or c.epoch~=(b.sensory_epoch or 0) or now()<c.observed_at or now()-c.observed_at>5 then return false,'UNKNOWN: fresh sensory policy/resource proof required' end
+ if c.priorities[k]~=26 then return false,'UNKNOWN/ACTIVE: native affliction cure must be ignored at priority 26' end
+ if b.vitals_flags[k]==nil and not b.have[k] then return false,'UNKNOWN: current sensory flag required' end
+ if (c.stocks[sensory[k]] or 0)<1 or b.herb~=true then return false,'Herb balance or cache stock unavailable' end
+ -- Leave all actual cures to FIRSTAID; even an unrelated confirmed affliction
+ -- takes precedence over optional intentional self-affliction.
+ for aff,v in pairs((s.player or {}).afflictions or {}) do if yes(v) and not sensory[key(aff)] then return false,'Native curing takes precedence' end end
+ if not ready(s) or s.training_battle_ended or (s.walker and s.walker.pending) or (s.mental and (s.mental.eq_pending or s.mental.fault)) then return false,'Unresolved action/readiness barrier' end
+ return true,'AVAILABLE: intentional affliction; native cure ignored'
+end
+function M.select_sensory(s,k,on)
+ local b=M.state(s)
+ if not sensory[k] or type(on)~='boolean' then return false,'Expected sensory goal and boolean' end
+ if on and (not in_class(b,index[k]) or not M.sensory_ready(s,k)) then return false,'Fresh sensory cure-ignore/resource proof required' end
+ b.sensory_optin=b.sensory_optin or {};b.sensory_optin[k]=on;b.wanted[k]=on
+ if not on and b.todo then b.todo[k]=nil end
+ return true,on and 'Sensory goal selected; master unchanged' or 'Sensory upkeep off; no cure or policy write'
 end
 function M.availability(s,k)
  local b=M.state(s);local e=index[k]
  if M.native_catalog[k] then return true,'NATIVE' end
  if e and not in_class(b,e) then return false,'CLASS-SPECIFIC: '..tostring(e.class)..' only' end
+ if e and e.curative then return M.sensory_ready(s,k) end
  if e and e.tracking_only then return false,e.reason end
  if e and e.passive then return false,b.known[k] and 'PASSIVE' or 'NOT LEARNED' end
  if e and e.tattoo then
@@ -376,7 +444,11 @@ local function observe(s,k,on)
  end
  if not on and index[k] and index[k].cooldown_loss then b.cooldown[k]=now()+index[k].cooldown_loss end
  local pending=b.pending
- if pending and pending.key==k and pending.off==not on then pending.confirmed=true end
+ if pending and pending.curative and pending.key==k and not on then pending.confirmed=false;pending.prompt_ready=false end
+ if pending and pending.key==k and pending.off==not on and (not pending.curative or pending.eat_started) then
+  pending.confirmed=true;pending.confirmed_prompt=b.prompt
+  if pending.curative then pending.prompt=nil;pending.prompt_ready=false end
+ end
 end
 local function snapshot(s,have)
  local b=M.state(s)
@@ -385,11 +457,12 @@ local function snapshot(s,have)
  end
  for _,e in ipairs(M.catalog) do
   -- Missing vitality in a first snapshot is NOT evidence it was triggered.
-  if have[e.key] or b.have[e.key] or canonical_have(s,e.key) then observe(s,e.key,have[e.key]==true) end
+  if e.curative then have[e.key]=b.have[e.key] or nil
+  elseif have[e.key] or b.have[e.key] or canonical_have(s,e.key) then observe(s,e.key,have[e.key]==true) end
  end
  b.have=have;b.defs_known=true;b.defs_at=now()
  local p=b.pending
- if p then p.confirmed=(have[p.key]==true)~=p.off end
+ if p and not p.curative then p.confirmed=(have[p.key]==true)~=p.off end
  if b.query and b.query.kind=='defs' then b.query=nil end
 end
 function M.sync(s,kind,payload)
@@ -656,9 +729,23 @@ end
 -- Called only from a genuine fresh Vitals event, never a cached tick.
 function M.vitals(s,v)
  local b=M.state(s)
+ if v.herb~=nil then
+  local h=v.herb
+  if h==true or h==1 or h=='1' then b.herb=true
+  elseif h==false or h==0 or h=='0' then b.herb=false else b.herb=nil end
+  local p=b.pending
+  if p and p.curative and p.eat_started then
+   if b.herb~=true then p.herb_recovered=nil;p.prompt_ready=false;p.prompt=nil end
+   if b.herb==false then p.herb_lost=true end
+   if b.herb==true and p.herb_lost then p.herb_recovered=true end
+  end
+ end
  for field,k in pairs({blind='blindness',deaf='deafness'}) do
   if v[field]~=nil then
-   local on=yes(v[field]);observe(s,k,on);b.vitals_flags[k]=on;b.flag_sources[k]='vitals'
+   local x=v[field]
+   if x==true or x==false or x==1 or x==0 or x=='1' or x=='0' then
+    local on=yes(x);observe(s,k,on);b.vitals_flags[k]=on;b.flag_sources[k]='vitals'
+   else b.sensory_context=nil;b.vitals_flags[k]=nil;b.flag_sources[k]=nil end
   end
  end
 end
@@ -699,6 +786,7 @@ function M.master(s,on)
 end
 function M.toggle(s,name,on)
  local b=M.state(s);local k=key(name);local e=k and index[k]
+ if e and e.curative then return M.select_sensory(s,k,on) end
  if not e then return false,k and metadata[k] and metadata[k].reason or 'Unknown defence' end
  if M.native_catalog[k] then return false,'Native FIRSTAID owns this defence' end
  if not in_class(b,e) or e.tracking_only then return false,select(2,M.availability(s,k)) end
@@ -727,13 +815,17 @@ function M.on_prompt(s)
    local t=b.tattoos[e.key];b.known[e.key]=t and (t.charges or 0)>0 or nil
   end end
  end
- if b.pending then b.pending.prompt=b.prompt;b.pending.prompt_ready=ready(s) end
+ if b.pending then
+  local p=b.pending;p.prompt=b.prompt
+  p.prompt_ready=ready(s) and (not p.curative or p.confirmed and p.herb_recovered and b.herb==true and b.prompt>(p.confirmed_prompt or b.prompt))
+ end
 end
 local function percent(v,max)
  v,max=tonumber(v),tonumber(max);if not v or not max or max<=0 then return nil end
  return 100*v/max
 end
 local function eligible(s,b,e)
+ if e.curative and not (b.sensory_optin and b.sensory_optin[e.key]) then return false,'Explicit sensory opt-in required' end
  local p=s.player;local hp=percent(p.hp,p.maxhp);local mp=percent(p.mana,p.maxmana)
  if not hp or not mp or hp<65 or mp<50 then return false,'resources' end
  if e.requires_full and (hp<100 or mp<100) then return false,'full HP and mana required' end
@@ -767,7 +859,7 @@ local function service(s,runner,sender,hold)
  -- Recovery is processed even while intent is disarmed or survival holds.
  local p=b.pending
  if p then
-  if not p.send_failed and not p.rejected and p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and p.prompt_ready and ready(s) then
+  if not p.send_failed and not p.rejected and p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and p.prompt_ready and ready(s) and (not p.curative or p.herb_recovered and b.herb==true) then
    b.pending=nil
    if b.fault==p.timeout_fault then b.fault=nil end
    b.retry[p.key]=t+2;b.status='confirmed: '..p.key
@@ -777,7 +869,7 @@ local function service(s,runner,sender,hold)
    p.timeout_fault='Buff acknowledgement timed out; review/reset required';fault(b,p.timeout_fault)
   end
   -- One reconciliation only, after a real prompt, never activation retry.
-  if not b.fault and not p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and not p.queried then
+  if not p.curative and not b.fault and not p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and not p.queried then
    p.queried=true
    if not send_checked(b,sender,'defences') then p.send_failed=true end
   end
@@ -791,6 +883,16 @@ local function service(s,runner,sender,hold)
  end
  if (hold and not can_cancel) or (s.walker and s.walker.pending) or (runner and (runner.waiting or runner.fault)) or
   (s.mental and (s.mental.eq_pending or s.mental.fault)) or not ready(s) then return {busy=false,status='waiting for safe readiness'} end
+ local sensory_only,sensory_available,sensory_selected=true,false,false
+ for _,e in ipairs(M.catalog) do
+  local selected=b.cancel[e.key] or b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
+  if selected and not M.native_catalog[e.key] and in_class(b,e) and not e.passive and not e.tracking_only then
+   if not e.curative then sensory_only=false
+   else sensory_selected=true;if b.sensory_optin and b.sensory_optin[e.key] and M.sensory_ready(s,e.key) then sensory_available=true end end
+  end
+ end
+ sensory_only=sensory_only and sensory_selected
+ if sensory_only and not sensory_available then return {busy=false,status='Sensory goals awaiting explicit opt-in and fresh evidence'} end
  -- Unknown authoritative snapshots are solicited once, with a bounded wait.
  if b.query then
   if t-b.query.at>=12 then fault(b,'Buff '..b.query.kind..' snapshot timed out; review/reset required') end
@@ -800,7 +902,7 @@ local function service(s,runner,sender,hold)
  -- A completed Kaido List never stands in for Vision/Survival/etc.
  for _,e in ipairs(M.catalog) do
   local selected=b.cancel[e.key] or b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
-  if selected and in_class(b,e) and not e.tattoo and not e.passive and not e.tracking_only and not M.native_catalog[e.key] then
+  if selected and in_class(b,e) and not e.curative and not e.tattoo and not e.passive and not e.tracking_only and not M.native_catalog[e.key] then
    local group=allowed_group(b.class,e.group) and e.group or e.also_group
    local complete=b.groups[group] or e.also_group and allowed_group(b.class,e.also_group) and b.groups[e.also_group]
    if not complete then
@@ -809,7 +911,7 @@ local function service(s,runner,sender,hold)
    end
   end
  end
- if not b.defs_known then
+ if not b.defs_known and not sensory_only then
   b.query={kind='defs',at=t};send_checked(b,sender,'defences')
   return {busy=false,status=b.fault or 'requested defence snapshot'}
  end
@@ -827,7 +929,7 @@ local function service(s,runner,sender,hold)
    if selected and b.wanted[e.key] and not M.native_catalog[e.key] then
     if b.todo then b.todo[e.key]=nil end -- one-shot skips once, never pins offense
     local ok=eligible(s,b,e)
-    if not b.have[e.key] and not canonical_have(s,e.key) and b.known[e.key] and ok then chosen=e;break end
+    if not b.have[e.key] and not canonical_have(s,e.key) and (e.curative or b.known[e.key]) and ok then chosen=e;break end
    end
   end
  end
@@ -836,16 +938,30 @@ local function service(s,runner,sender,hold)
   return {busy=false,status=b.status}
  end
  if off then b.cancel[chosen.key]=nil end
+ local command=off and chosen.off or chosen.command
  p={key=chosen.key,off=off==true,at=t,dispatched_prompt=b.prompt,confirmed=false,previous_cooldown=b.cooldown[chosen.key]}
  b.pending=p -- Before calling the sender: synchronous fake callbacks cannot double-send.
+ if chosen.curative then
+  p.curative=true
+  -- Static pair only; never a separator, cache alias, or caller-supplied command.
+  local pill=sensory[chosen.key]
+  if chosen.prepare~='outc '..pill or command~='eat '..pill then p.send_failed=true;fault(b,'Invalid curative recipe');return {busy=true,status=b.fault} end
+  if not send_checked(b,sender,chosen.prepare) then p.send_failed=true;return {busy=true,status=b.fault} end
+  -- Reentrant ingestion may revoke intent, resource or session proof.
+  if b.pending~=p or b.have[chosen.key] or canonical_have(s,chosen.key) or not connected(s) or not b.sensory_optin or not b.sensory_optin[chosen.key] or not b.wanted[chosen.key] or not (b.master or b.sequence) or not eligible(s,b,chosen) or hold or runner and (runner.waiting or runner.fault) then
+   p.send_failed=true;fault(b,'Curative interrupted after withdrawal; review/reset required');return {busy=true,status=b.fault}
+  end
+  b.sensory_context=nil;b.sensory_epoch=(b.sensory_epoch or 0)+1
+  p.eat_started=true
+ end
  if not off and chosen.tattoo then
   local tattoo=b.tattoos[chosen.key];tattoo.charges=tattoo.charges-1
   p.tattoo_debited=true;b.tattoo_version=(b.tattoo_version or 0)+1
  end
  if not off and chosen.cooldown_activation then b.cooldown[chosen.key]=t+chosen.cooldown_activation end
- local ok=send_checked(b,sender,off and chosen.off or chosen.command)
+ local ok=send_checked(b,sender,command)
  if not ok then p.send_failed=true end
- b.status=b.fault or 'sent: '..(off and chosen.off or chosen.command)
+ b.status=b.fault or 'sent: '..command
  return {busy=true,status=b.status}
 end
 function M.service(s,runner,sender,hold)

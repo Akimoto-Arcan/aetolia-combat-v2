@@ -16,10 +16,12 @@ Public integration contract:
   `available` and `availability`. Foreign rows remain visible for audit, but
   cannot execute ON or OFF even with a poisoned cached known map. Class owners
   are MONK/ARCHIVIST, shared skills SKILL, ink TATTOO, native FIRSTAID;
-  Daydream is CURATIVE MANUAL. Unavailable is not permission to send.
+  Daydream is CURATIVE MANUAL; intentional blind/deaf goals are CURATIVE.
+  Unavailable is not permission to send.
 - `archivist_catalog` has fourteen canonical class DEF IDs below.
-  `curative_catalog` is an array of fifteen `{key,source,producer,delivery,
-  class,owner}` metadata records, with **no command or consumption executor**.
+  `curative_catalog` has seventeen `{key,kind,source,producer,delivery,
+  class,owner}` records: fifteen `official_defence` IDs and two separately
+  labelled `intentional_affliction` goals, not seventeen official DEF IDs.
 
 Class changes revoke learned skills, ink and native proof, disarm intent and
 invalidate old confirmation/prompt evidence, but preserve a committed resource
@@ -103,7 +105,8 @@ Current `antivenin` is a separate trackable DEF with no supplied producer;
 `temperance` and `venom_resistance` are invalid current DEF IDs retained only
 as unavailable legacy audit rows. Current Insulation producers are Illumination
 Warmth and Tectonics Insulation, not permission to guess a frost sip. Blind/deaf
-are not beneficial curative-loop entries. Current Mindseye AB one-time protection
+are intentional self-affliction goals, not official beneficial DEF IDs.
+Current Mindseye AB one-time protection
 takes precedence over the generic DEF description's stale blind-vision wording.
 
 ## Safety and ownership
@@ -118,17 +121,18 @@ is not a learned ability. A source key is not itself permission to send.
   fangbarrier, insomnia, levitation, rebounding, waterbreathing, instawake, arcane,
   harmony, speed and vigor. Actual server requests for blindness, deafness,
   insulation, temperance and venom_resistance all returned
-  `You may not set such a defence.` They have no native configuration control.
-- Current game mechanics override the old Fallout mandatory-self-affliction
-  assumption. Blindness/deafness are read-only **SELF-AFFLICTED** legacy PvP
-  tactics, with `NEEDS CURRENT MECHANIC PROOF` availability reasons. Neither is
-  wanted by default or auto-maintained. No client EAT/OUTC/cache loop, cure-policy
-  write, baseline seed API or restoration transaction ships. Their native cure
-  priorities remain the operator's concern and are never changed here.
+  `You may not set such a defence.` They have no native DEFENCE configuration control.
+- The user explicitly wants blindness and deafness maintained. These shared
+  CURATIVE intentional-affliction goals are now executable only after explicit
+  opt-in, current native **affliction** ignore priority 26 and fresh resource
+  proof. Neither defaults ON or inherits permission from existing MASTER intent.
+  No native cure-policy write or restoration transaction ships; the parent owns
+  the separately reviewed native-policy transaction.
 - Current Tattoos MINDSEYE is **one-time protection against a blind/deaf attack**,
   NOT vision while blind. A protected amaurosis attempt consumed Mindseye without
   establishing blindness. Current Telepathy Clairvoyance is minor mental offense,
-  not a verified vision prerequisite. No automatic self-affliction is approved.
+  not a verified vision prerequisite. This implementation makes no blind-vision
+  claim and does not turn Mindseye or MASTER on.
 - Mindseye is the required usable protection: wanted by default, but TOUCH remains
   gated on fresh charged TATTOOS evidence, actual own UP and post-ACK ready prompt.
   Its current own activation/EQ recovery was verified by the parent. Startup and
@@ -138,8 +142,9 @@ is not a learned ability. A source key is not itself permission to send.
 - Correcting the native catalog invalidates old confirmation. A fresh complete
   unique 25-row transaction plus footer is required. Pending uncertainty,
   conflicting-ACK fencing and last-active restoration memory are retained.
-- The client catalog has 47 entries: the prior 33 preparation/passive entries
-  (with Voice Recognition renamed) plus fourteen read-only Archivist entries.
+- The client catalog has 49 entries: the prior 33 preparation/passive entries
+  (with Voice Recognition renamed), fourteen read-only Archivist entries and
+  two explicit intentional-affliction goals.
   Courage remains native-owned; class tracking is not an activation permission.
   There is one skill owner for deathsight/thirdeye, not duplicate curative pills.
 - Knowledge is scoped to the current class: Kaido/Telepathy for Monk,
@@ -204,7 +209,9 @@ not become persistent defense loops.
 Before activation, keep MASTER OFF until review and fresh capability/native/ink
 readback. Mindseye is one-time protection, not a blind-vision prerequisite; do not
 self-blind/deaf as a BASH experiment. Class skill and tattoo controls retain their
-learned/ink and physical recovery gates. No new curative consumption executor is enabled or shipped; the fifteen-row coverage catalog is read-only metadata.
+learned/ink and physical recovery gates. The new sensory consumption executor is
+shipped disarmed and requires the explicit evidence/opt-in contract below; the
+seventeen-row coverage catalog itself remains metadata, not manufacturing proof.
 `python3 tests/run.py` already includes `tests/curative_defenses.lua` in its test
 manifest. It may also be run directly with
 `lua tests/curative_defenses.lua "$PWD/combat_v2/"` for current-mechanic safety and
@@ -217,12 +224,89 @@ unrecognized rejection follows the existing retained uncertainty barrier. No liv
 action, deployment, Git operation, priority change or hunting upgrade is part of
 this release. Newly added optional drains are not automatically armed.
 
+## Sensory backend contract (offline implementation, no native writes)
+
+Fallout's actual `curatives` script maps blindness to `outc amaurosis` /
+`eat amaurosis`, and deafness independently to `outc ototoxin` /
+`eat ototoxin`; both consume herb balance and had `redef=true`. Its Defup
+checks herb readiness plus the current blind/deaf flags. Current Herbalism AB
+confirms those consumption effects. `Known: No` is manufacturing ownership,
+not consumption ownership. The old sixteen-entry curatives table includes three
+obsolete entries (insulation, temperance, venom_resistance); it is not the current
+fifteen official DEF-ID set, nor the new seventeen-row coverage catalog.
+Daydream remains manual. All fifteen Archivist dispositions remain unchanged.
+
+Pure API (never sends, configures, discovers skills or arms MASTER):
+
+```lua
+B.set_sensory_context(s, {
+  class = B.state(s).class,             -- exact current normalized class
+  epoch = B.state(s).sensory_epoch or 0,
+  observed_at = getEpoch(),            -- oldest evidence timestamp, not tick time
+  herb = '1',
+  priorities = {blindness=26, deafness=26}, -- native AFFLICTION cures, not DEFs
+  stocks = {amaurosis=N, ototoxin=N},   -- current authoritative OUTC cache stock
+  eating_allowed=true, curing_clear=true, barriers_clear=true,
+})
+B.select_sensory(s, 'blindness', true)   -- default OFF, master unchanged
+B.select_sensory(s, 'deafness', true)    -- independently validated
+-- B.toggle delegates these two names to select_sensory.
+-- Only the separately authorized B.master/B.start path may execute selected work.
+```
+
+Setter clears previous proof even on invalid input; nested data are copied.
+Unknown priority/stock can be nil, but cannot activate that goal. Priority must
+be numeric 26, quantity a positive integer, herb exactly true/1/'1' matching a
+fresh `B.vitals` herb event. Proof expires after five seconds; future/NaN times,
+foreign class/epoch, malformed counts and nonboolean safety assurances fail
+closed. **Do not renew from cached values**: `observed_at` must be the oldest
+policy, stock, eating, cure-lock and barrier evidence being asserted. Missing
+or contradictory proof calls `set_sensory_context(s,nil)`. Class/session
+`invalidate` clears proof and opt-in without discarding a committed barrier.
+Saved wanted flags and injected learned/manufacturing caches cannot opt in.
+
+Parent integration required before any deployment/arming:
+- Acquire exact fresh native affliction priority readback for each goal, after
+  any separately approved ignore-policy transaction. Never put these priorities
+  in `native_catalog`, and never send `FIRSTAID DEFENCE blindness/deafness`.
+- Feed fresh Char.Vitals through `B.vitals`, including herb and blind/deaf
+  encodings; preserve current `affliction_flags`, own-text and real prompt hooks.
+  A missing current sensory flag blocks consuming that goal. Full DEF absence
+  cannot erase independent positive sensory evidence.
+- Obtain authoritative cache counts for the exact pill IDs, confirm eating is
+  usable, no curing lock/survival hold or unresolved physical/mental/walker/
+  resource commitment, then feed the context above. Any confirmed nonsensory
+  affliction yields to native curing. Pass the actual root hold and runner into
+  the existing `service` call; do not fabricate `barriers_clear=true`.
+- Extend the parent's narrow `buff_dispatch` allowlist for exactly
+  `outc amaurosis` and `outc ototoxin` as well as the two EAT commands. Both
+  operations must pass that adapter's ownership/validation gates. No separators,
+  alias expansion, new global sender or `ab curatives` discovery is used here.
+- Every committed EAT clears context and increments `sensory_epoch`. A following
+  pill needs new authoritative stock/policy evidence tagged with the new epoch;
+  a report started before consumption is not fresh stock. Do not rearm on reload.
+
+Execution commits `B.pending` before OUTC and rechecks intent/evidence/barriers
+between the two narrow sends. Failed/throwing OUTC skips EAT; unknown transport
+at either step retains the barrier through OFF, timeout and session/class change.
+Neither timeout nor a timer retries consumption. Reentrant callbacks cannot
+send another pair. Status is inferred only from own flags/recognized own events,
+never from transport. Settlement requires own sensory confirmation after EAT,
+actual subsequent herb loss/recovery, then a genuine later physically-ready
+server prompt. A cached herb=1 or an earlier prompt cannot settle. Unknown
+transport requires reviewed reset. OFF only stops upkeep: no curing, restoring
+priorities or native configuration writes. Mindseye is not blind vision and is
+not turned on by these APIs; consuming its protection without gaining the goal
+will retain uncertainty rather than repeat pills.
+
 ## Complete source-key disposition
 
 Historical Fallout baseline (unchanged source manifest): **304** deduplicated rows,
 originally **189 excluded**, **6 passive**, **36 supported**, **73 unknown**.
-The table below preserves that original audit disposition; the phase-1 official
-Archivist/curative tables above supersede overlapping current-mechanic meanings.
+The current table updates blindness/deafness from UNKNOWN to SUPPORTED:
+**189 excluded, 6 passive, 38 supported, 71 unknown** (still 304).
+The phase-1 official Archivist/curative tables above supersede other overlapping
+current-mechanic meanings.
 New official rows are not silently counted as new members of that old manifest.
 
 SUPPORTED means implementation coverage, not live ownership or armed state.
@@ -251,7 +335,7 @@ or class restriction. UNKNOWN has no activation path pending current evidence.
 | `berserk` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
 | `berserking` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
 | `bladefury` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
-| `blindness` | UNKNOWN | Legacy self-afflicted PvP tactic; no verified safe BASH use/vision mechanic. No native defense or client pill owner. |
+| `blindness` | SUPPORTED | Explicit shared CURATIVE goal: outc amaurosis then eat amaurosis; current native affliction-ignore/resource proof required. Not a native DEF control or blind-vision claim. |
 | `bliss` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
 | `blissed` | UNKNOWN | Current ability, ownership, source identity or safe command not verified; no sender. |
 | `blood_thirst` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
@@ -290,7 +374,7 @@ or class restriction. UNKNOWN has no activation path pending current evidence.
 | `countercurrent` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
 | `damariel_symbol` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
 | `dauntless` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
-| `deafness` | UNKNOWN | Legacy self-afflicted PvP tactic; no verified safe BASH use/vision mechanic. No native defense or client pill owner. |
+| `deafness` | SUPPORTED | Explicit shared CURATIVE goal: outc ototoxin then eat ototoxin; independent native affliction-ignore/resource proof required. Not a native DEF control. |
 | `deathaura` | EXCLUDED | Other-class/source-only entry; no current Monk activation ownership. |
 | `deathsight` | SUPPORTED | Curated skill owner; fresh per-group ownership and observed recovery required. |
 | `density` | SUPPORTED | FIRSTAID sole owner; full native priority snapshot required. |
