@@ -152,7 +152,7 @@ local function defense_rows(c,state,filter)
    seen[e.key]=true
    local foreign=e.relevant==false or (e.owner=="MONK"or e.owner=="ARCHIVIST")and e.owner~=class
    local client=e.owner==class or e.owner=="SKILL"or e.owner=="TATTOO"or e.owner=="CURATIVE MANUAL"
-   if filter=="ALL" or not foreign and (filter=="ACTIVE" and e.active==true or filter=="CLIENT" and client or e.owner==filter) then rows[#rows+1]=e end
+   if not foreign and (filter=="ALL" or filter=="ACTIVE" and e.active==true or filter=="CLIENT" and client or e.owner==filter) then rows[#rows+1]=e end
   end
  end
  return rows

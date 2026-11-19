@@ -256,7 +256,7 @@ assert(not reloaded.defense_action('keep','archive_manual on') and not reloaded.
 entries[2].known=false
 assert(not reloaded.defense_action('keep','nightsight on') and not reloaded.defense_slot(2),'known=false row actionable');entries[2].known=nil
 manager.buttons.ACTIVE.click();assert(manager.rows[1].info.hidden,'foreign active row escaped ALL')
-manager.buttons.ALL.click();contains(manager.rows[5].info,'WRONG CLASS')
+manager.buttons.ALL.click();for _,row in ipairs(manager.rows)do assert(row.key~='toughness','ALL exposed a foreign-class defense')end;assert(manager.rows[5].key=='speed','ALL lost native shared defense')
 -- Same key/control at same slot is still stale across a class boundary.
 local old_shared_click=manager.rows[2].toggle.click
 state.player.class='Monk'
