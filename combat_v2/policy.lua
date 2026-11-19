@@ -6,9 +6,41 @@ local function name(v)
  local n=type(v)=='table' and v.name or v
  return type(n)=='string' and n:match("^[%a][%a'%-]*$") and n:lower() or nil
 end
+-- Exact room identities only: settings keys never accept numbers or coercion.
+local function room_key(id)
+ if type(id)=='string' and id:match('^[1-9]%d*$') then return id end
+ if type(id)=='number' and id>0 and id<=9007199254740991 and id==math.floor(id) then return string.format('%.0f',id) end
+end
+function M.set_approved_rooms(s,map)
+ local p=s.policy;local approved={}
+ if type(map)~='table' then p.approved_rooms={};return false end
+ for id,yes in pairs(map)do
+  if type(id)~='string' or not room_key(id) or yes~=true then p.approved_rooms={};return false end
+  approved[id]=true
+ end
+ p.approved_rooms=approved;return true
+end
+local function load_approved_rooms(s)
+ -- Optional Mudlet facilities only; no global/profile-root fallback, evaluation or writes.
+ if type(getMudletHomeDir)~='function' or type(io)~='table' or type(io.open)~='function'
+  or type(yajl)~='table' or type(yajl.to_value)~='function' then return end
+ s.policy.approved_rooms={}
+ local ok,home=pcall(getMudletHomeDir)
+ if not ok or type(home)~='string' or home=='' then return end
+ local opened,file=pcall(io.open,home..'/combat_v2/bashing-rooms.json','r')
+ if not opened or not file then return end
+ local read,content=pcall(function()return file:read('*a')end)
+ pcall(function()file:close()end)
+ if not read or type(content)~='string' then return end
+ local decoded,data=pcall(yajl.to_value,content)
+ if not decoded or type(data)~='table' then return end
+ for key in pairs(data)do if key~='approved_rooms' then return end end
+ M.set_approved_rooms(s,data.approved_rooms)
+end
 function M.init(s,g)
  s.policy=s.policy or {areas={},players={},web={members={}},visit=0,group_web=true}
  local p=s.policy;p.web={members={}};p.players={};p.players_known=false
+ M.set_approved_rooms(s,p.approved_rooms or {});load_approved_rooms(s)
  p.self_name=norm(g and g.Char and g.Char.Name and g.Char.Name.name)
  if g and g.Room and g.Room.Info then M.room(s,g.Room.Info) end
  if g and g.Room and type(g.Room.Players)=='table' then M.players(s,g.Room.Players) end
@@ -41,7 +73,9 @@ function M.has_others(s)
  return false
 end
 function M.area_allowed(s)
- local p=s.policy
+ local p=s.policy;local id=room_key(s.room.id)
+ if not id then return false,'BASH paused: room identity unknown' end
+ if p.approved_rooms and p.approved_rooms[id]==true then return true end
  if p.area=='' or not p.area then return false,'BASH paused: room area unknown' end
  if p.areas_loaded and p.areas[p.area] then return true end
  if p.consent==p.visit then return true end

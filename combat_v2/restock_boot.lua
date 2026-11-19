@@ -54,6 +54,7 @@ local function guard_travel(c)
  for _,key in ipairs({'recall_ready','send_recall'}) do
   local previous=io[key]
   if previous then io[key]=function(...)
+   if io.mount_deferred and io.mount_deferred() then return false,'Mount convenience deferred outside private Haven' end
    if M.hold(c) then return false,'Restock owns client' end
    return previous(...)
   end end

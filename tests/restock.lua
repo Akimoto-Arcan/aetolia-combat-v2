@@ -350,3 +350,4 @@ test('native fixed-width directory padding for both supplies',function()
  local a=fixture(150,960);a.complete_health();a.arrive();padded(a,'anabiotic','73003','an anabiotic pill',4)
 end)
 print('restock: '..tests..' tests, '..assertions..' assertions passed (offline fake IO only)')
+return {fixture=fixture,runtime=runtime,hooks=hooks} -- Isolated reusable offline fixtures only.

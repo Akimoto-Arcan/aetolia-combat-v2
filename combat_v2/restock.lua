@@ -47,27 +47,70 @@ local function dirrow(k,line)
  end
 end
 local function waresrow(k,line)
- local id,desc,stock,price=line:match('^%s*([%a]*%d+)%s+(.+)%s+(%d+)%s+(%d+)gp%s*$')
+ local id,desc,stock,price=line:match('^%s*([%w]+)%s+(.+)%s+(%d+)%s+(%d+)gp%s*$')
  if id and #id<=40 and description(k,desc) and unit(k,desc) and integer(stock) and integer(price) and tonumber(price)>0 then
   if k=='health' and not id:match('^cask%d+$') then return end
+  if k=='anabiotic' and id~='anabiotic' and not id:match('^pill%d+$') then return end
   return {id=id,stock=tonumber(stock),price=tonumber(price),description=desc}
  end
 end
 M.directory_row=dirrow;M.wares_row=waresrow
-function M.new(io,settings,state)
+-- Strict flat JSON, no loadstring/eval, duplicate/unknown keys fail closed.
+-- Private config never persists permission or armed controller state.
+function M.settings_json(raw)
+ if type(raw)~='string' or #raw>1024 then return nil,'invalid restock settings' end
+ local body=raw:match('^%s*{%s*(.-)%s*}%s*$');if not body then return nil,'invalid restock JSON' end
+ local result={};local count=0
+ while body~='' do
+  local name,value,tail=body:match('^"([a-z_]+)"%s*:%s*("[0-9]+")%s*(.*)$')
+  if not name then name,value,tail=body:match('^"([a-z_]+)"%s*:%s*(%a+)%s*(.*)$') end
+  if not name or result[name]~=nil then return nil,'invalid/duplicate restock setting' end
+  if name=='haven_room' then
+   local room=value:match('^"([1-9]%d*)"$');if not room or #room>9 or not integer(room) then return nil,'invalid Haven room' end
+   result[name]=room
+  elseif name=='globe_haven_return' and (value=='true' or value=='false') then result[name]=value=='true'
+  else return nil,'unsupported restock setting' end
+  count=count+1
+  if tail=='' then body='' elseif tail:sub(1,1)==',' and tail:sub(2):match('%S') then body=tail:sub(2):match('^%s*(.-)%s*$') else return nil,'invalid restock JSON separator' end
+ end
+ if count~=2 or not result.haven_room or result.globe_haven_return==nil then return nil,'incomplete restock settings' end
+ return result
+end
+function M.read_settings(api)
+ if type(api.getMudletHomeDir)~='function' then return {} end -- injected offline runtime has no persisted profile
+ local ok,home=pcall(api.getMudletHomeDir);if not ok or type(home)~='string' then return {},'restock settings home unavailable' end
+ local open=api.open_file or io.open
+ local good,f,err,code=pcall(open,home..'/combat_v2/restock-settings.json','r')
+ if not good then return {},'restock settings open failed: '..tostring(f) end
+ if not f then
+  if code==2 or (err==nil and code==nil) then return {} end -- absent: legacy ordinary trips
+  return {},'restock settings open failed: '..tostring(err)
+ end
+ local read,raw=pcall(f.read,f,1025);local closed=pcall(f.close,f)
+ if not read or not closed then return {},'restock settings read/close failed' end
+ local cfg,why=M.settings_json(raw)
+ return cfg or {},why
+end
+function M.new(io,settings,state,configuration_error)
  io=io or {};settings=settings or {}
  local d=state or {enabled=false,active=false,busy=false,phase='idle',prompt=0,serial=0,status='disabled'}
  d.prompt=d.prompt or 0;d.serial=d.serial or 0;d.phase=d.phase or 'idle'
- local t={state=d,io=io}
+ d.configuration_error=configuration_error or d.configuration_error
+ if d.configuration_error then d.enabled=false;d.active=false;d.status='configuration error: '..d.configuration_error end
+ local t={state=d,io=io,settings=settings}
  local function now() return (io.now or os.time)() end
  local function view() return io.view() end
  -- Remember location for event classification only, never action authority.
  local function located(v) return not d.scope_unknown and v.room~=nil and v.area~=nil end
- local function fail(why)
+ local function fail(why,recoverable)
   d.active=false;d.resume_consent=false;d.reserved=false;d.fault=why;d.status='held: '..why
   if d.checkpoint and io.revoke_checkpoint and not d.checkpoint_revoked then d.checkpoint_revoked=true;pcall(io.revoke_checkpoint,d.checkpoint,d,why) end
   -- All unresolved sends, including resource transactions and routes, survive OFF.
-  if not d.pending and not d.purchase and not d.busy then d.busy=false end -- owned pause retains lease on faults
+  -- Only positively completed read-only/no-resource failures release this lease.
+  if recoverable and not d.pending and not d.purchase and not d.dispatching and (not io.safe_release or io.safe_release(d)) then
+   d.busy=false;d.owned_pause=false;d.route_owner=nil;d.route_serial=nil;d.route_destination=nil
+   d.recoverable=true;d.status='FAULT (automatic trip stopped; explicit controls available): '..why
+  end
   d.query_quarantine=d.pending and (d.pending.kind=='directory' or d.pending.kind=='wares' or d.pending.kind=='baseline' or d.pending.kind=='readback' or d.pending.kind=='inventory_before' or d.pending.kind=='inventory_after') and why or d.query_quarantine
   if io.release and not d.busy then io.release(d) end
   return false,why
@@ -92,11 +135,11 @@ function M.new(io,settings,state)
   if d.phase=='drain' then
    if v.mode~='BASH' then return fail('operator changed BASH mode') end
   elseif d.phase=='pausing' then
-   if (v.mode~='BASH' and not (d.dispatching and v.mode=='OFF')) or (located(v) and (not same(v.room,d.return_room) or not same(v.area,d.return_area))) then return fail('operator changed scope before owned pause') end
+   if (v.mode~='BASH' and not (d.dispatching and v.mode=='OFF')) or (located(v) and (not same(v.room,d.origin_room or d.return_room) or not same(v.area,d.origin_area or d.return_area))) then return fail('operator changed scope before owned pause') end
   elseif d.phase=='resume' or d.phase=='initial_wait' then
-   if v.mode~='BASH' or (located(v) and (not same(v.room,d.return_room) or not same(v.area,d.return_area))) then return fail('operator changed resumed mode/room/area') end
+   if v.mode~='BASH' or (located(v) and (not same(v.room,d.return_room) or (not d.haven_mode and not same(v.area,d.return_area)))) then return fail('operator changed resumed mode/room/area') end
   elseif v.mode~='OFF' then return fail('operator changed paused intent') end
-  if located(v) and d.phase~='monitor' and d.phase~='drain' and d.phase~='route' and d.phase~='pausing' and d.phase~='resume' and d.phase~='initial_wait' and d.phase~='return_check' then
+  if located(v) and d.phase~='monitor' and d.phase~='drain' and d.phase~='route' and d.phase~='pausing' and d.phase~='resume' and d.phase~='initial_wait' and d.phase~='return_check' and d.phase~='haven_exit' and d.phase~='haven_wait' and d.phase~='haven_return' then
    local expected=d.phase=='directory' and 12669 or d.candidate and d.candidate.room
    if not same(v.room,expected) or (d.stage_area~=nil and not same(v.area,d.stage_area)) then return fail('shopping room/area changed') end
   end
@@ -118,6 +161,7 @@ function M.new(io,settings,state)
   local ok,result=pcall(fn or io.send,command)
   d.dispatching=false
   if not ok or result==false then return fail('transport unknown: '..kind) end
+  p.transport_ok=true
   return true
  end
  local function query(kind,command) return commit(kind,command) end
@@ -125,22 +169,29 @@ function M.new(io,settings,state)
   d.after_route=nextphase;d.destination=tostring(room);d.phase='route'
   return commit('route',tostring(room),function(dest) return io.travel(dest) end)
  end
+ local function returning()
+  if not d.haven_mode then return route(d.return_room,'return_check') end
+  if not d.resume_globe then return fail('Haven return intent revoked; remains OFF',true) end
+  local v=view();d.last_shop_room=v.room;d.last_shop_area=v.area
+  d.phase='haven_wait';d.haven_wait_at=d.haven_wait_at or now();d.status='Haven return waiting: full HP, full mana and readiness required'
+  return true
+ end
  local function nextkind()
   d.index=d.index+1;d.kind=kinds[d.index];d.candidates=nil;d.candidate=nil;d.tries=0
   while d.kind do local st=stock(d.kind);if not st or st.count<target[d.kind] then break end;d.index=d.index+1;d.kind=kinds[d.index] end
-  if not d.enabled or not d.kind then return route(d.return_room,'return_check') end
+  if not d.enabled or not d.kind then return returning() end
   return route(12669,'directory')
  end
  local function choose()
-  if not d.enabled then return route(d.return_room,'return_check') end
+  if not d.enabled then return returning() end
   d.tries=(d.tries or 0)+1
   local c=d.candidates and d.candidates[d.tries]
-  if not c or d.tries>3 then return fail('no verified stocked affordable '..d.kind..' candidate (maximum 3)') end
+  if not c or d.tries>3 then return fail('no verified stocked affordable '..d.kind..' candidate (maximum 3)',true) end
   d.candidate=c;return route(c.room,'wares')
  end
  local function getbaseline()
-  if not d.enabled then return route(d.return_room,'return_check') end
-  local s=stock(d.kind);if not s or s.version==nil then return fail('authoritative stock version unavailable') end
+  if not d.enabled then return returning() end
+  local s=stock(d.kind);if not s or s.version==nil then return fail('authoritative stock version unavailable',true) end
   d.baseline_version=s.version;d.phase='baseline'
   return commit('baseline',d.kind,function(k) return io.query_stock(k) end)
  end
@@ -151,6 +202,7 @@ function M.new(io,settings,state)
  end
  -- Permission is independent of current mode, GLOBE and saved preferences.
  function t.start()
+  if d.configuration_error then return false,'configuration error: '..d.configuration_error end
   if d.dispatching then return false,'dispatch in progress' end
   if d.fault then return false,'unresolved fault requires reviewed recovery' end
   d.enabled=true
@@ -183,6 +235,17 @@ function M.new(io,settings,state)
   local prior_room,prior_area=d.last_room or d.reservation_room or d.return_room,d.last_area or d.reservation_area or d.return_area
   if full then d.last_room=room;d.last_area=area end
   if not d.busy and not d.reserved then return true end
+  if d.phase=='haven_exit' or d.phase=='haven_return' then
+   local p=d.pending
+   if p and full and ((p.kind=='haven_exit' and not same(room,p.room)) or (p.kind=='haven_return' and same(room,d.return_room))) then
+    p.arrival_room=room;p.arrival_area=area;p.arrival_prompt=d.prompt
+   end
+   return true -- Wrong/partial arrival never settles issued transport.
+  end
+  if d.haven_mode and (d.phase=='return_check' or d.phase=='resume' or d.phase=='initial_wait') then
+   if room~=nil and not same(room,d.return_room) then return fail('unexpected Haven room number') end
+   return true -- Labels/area never authorize a private room.
+  end
   local function mismatch(r,a) return (room~=nil and r~=nil and not same(room,r)) or (area~=nil and a~=nil and not same(area,a)) end
   if d.phase=='route' then
    if borrowed and d.pending and d.pending.kind=='route' then return true end
@@ -199,6 +262,8 @@ function M.new(io,settings,state)
   end
   local expected=d.return_room;local expected_area=d.return_area
   if d.phase~='pausing' and d.phase~='return_check' and d.phase~='resume' and d.phase~='initial_wait' then expected=d.phase=='directory' and 12669 or d.candidate and d.candidate.room;expected_area=d.stage_area end
+  if d.phase=='pausing' then expected=d.origin_room or expected;expected_area=d.origin_area or expected_area end
+  if d.phase=='haven_wait' then expected=d.last_shop_room;expected_area=d.last_shop_area end
   if mismatch(expected,expected_area) then return fail('unexpected room/area change') end
   return true
  end
@@ -209,7 +274,8 @@ function M.new(io,settings,state)
   -- continue the itinerary, resume or release an unresolved purchase on this path.
   if not d.active then
    local p=d.pending;local v=view()
-   if p and p.kind=='route' and located(v) and not v.travel_fault and v.travel_idle and same(v.room,d.destination) and d.prompt>p.prompt then d.pending=nil;d.route_settled=true end
+   if p and p.kind=='route' and p.transport_ok and located(v) and not v.travel_fault and v.travel_idle and same(v.room,d.destination) and d.prompt>p.prompt then d.pending=nil;d.route_settled=true end
+   if p and (p.kind=='haven_exit' or p.kind=='haven_return') and p.transport_ok and p.arrival_room and located(v) and same(v.room,p.arrival_room) and ready(v) and d.prompt>p.arrival_prompt then d.pending=nil;d.haven_settled=true end
    return false
   end
   d.pumping=true
@@ -219,21 +285,29 @@ function M.new(io,settings,state)
    if d.trip_at and now()-d.trip_at>1800 then return fail('bounded shopping duty deadline exceeded') end
    if d.drain_at and d.phase=='drain' and now()-d.drain_at>600 then return fail('safe fight-clear/readiness gap not proven within 600 seconds') end
    local p=d.pending
-   if p and now()-p.at>(p.kind=='route' and 300 or 60) then return fail('timeout: '..p.kind..'; no retry') end
+   if p and now()-p.at>(p.kind=='route' and 300 or ((p.kind=='haven_exit' or p.kind=='haven_return') and 120 or 60)) then return fail('timeout: '..p.kind..'; no retry') end
    if not located(v) then return end -- unknown context holds; leases still expire
    d.last_room=v.room;d.last_area=v.area
    if p then
-    if p.kind=='initial summon' then
+    if p.kind=='haven_exit' or p.kind=='haven_return' then
+     if not p.transport_ok or not p.arrival_room or not same(v.room,p.arrival_room) or not ready(v) or d.prompt<=p.arrival_prompt then return end
+     d.pending=nil;d.stage_area=v.area
+     if p.kind=='haven_exit' then return nextkind() end
+     d.return_area=v.area;d.return_ih=v.ih_evidence;d.return_item_version=v.item_version;d.phase='return_check'
+    elseif p.kind=='initial summon' then
      if v.globe_fault then return fail('native initial summon fault; barrier retained') end
      if not v.globe_idle or v.globe_pool_ready==false then return end
      d.pending=nil;d.busy=false;d.route_owner=nil;d.route_serial=nil;d.route_destination=nil;d.checkpoint=nil;d.checkpoint_restored=nil;d.checkpoint_revoked=nil;if io.release then io.release(d) end
      d.original_class=nil;d.original_session=nil;d.intent_epoch=nil;d.reserved=false;d.phase=d.enabled and 'monitor' or 'idle';d.active=d.enabled;d.pending_restock=false;d.owned_pause=false;d.trip_at=nil;d.status='exact return and saved GLOBE restored';return true
     elseif p.kind=='route' then
+     if v.travel_refusal and v.travel_refusal.kind=='find_cooldown' and v.travel_idle then
+      d.pending=nil;return fail(v.travel_refusal.reason,true)
+     end
      if v.travel_fault then return fail('route fault: '..tostring(v.travel_fault)) end
      if v.travel_idle and same(v.room,d.destination) and d.prompt>p.prompt then
       d.pending=nil;d.phase=d.after_route;d.stage_area=v.area
       if d.phase=='return_check' then
-       if not same(v.area,d.return_area) then return fail('return area mismatch') end
+       if not d.haven_mode and not same(v.area,d.return_area) then return fail('return area mismatch') end
        d.return_ih=v.ih_evidence;d.return_item_version=v.item_version
       end
      else return end
@@ -241,7 +315,7 @@ function M.new(io,settings,state)
      local s=stock(d.kind);local old=p.kind=='baseline' and d.baseline_version or d.readback_version
      if d.prompt<=p.prompt or not s or s.version==nil or s.version==old or s.pending then return end
      d.pending=nil
-     if p.kind=='baseline' then d.phase='inventory_before';d.before=s.count;if not d.enabled then return route(d.return_room,'return_check') end
+     if p.kind=='baseline' then d.phase='inventory_before';d.before=s.count;if not d.enabled then return returning() end
      else
       -- IC is absolute. BUY text alone cannot increase this count. INCALL may leave
       -- excess carried pills at cap; the cache itself is the only target proof.
@@ -249,14 +323,15 @@ function M.new(io,settings,state)
       d.purchase.cache_after=s.count;d.phase='inventory_after'
      end
     elseif d.prompt>p.prompt and p.complete then
+     if p.kind=='directory' or p.kind=='wares' or p.kind=='inventory_before' then d.last_readonly=p end
      d.pending=nil
-     if not d.enabled and not d.purchase then return route(d.return_room,'return_check') end
+     if not d.enabled and not d.purchase then return returning() end
      if p.kind=='directory' then
-      if p.bad or not p.header or not p.divider or #p.rows==0 then return fail('unproved directory framing/rows') end
+      if p.bad or not p.header or not p.divider or #p.rows==0 then return fail('unproved directory framing/rows',true) end
       table.sort(p.rows,function(a,b) if a.price==b.price then return tonumber(a.room)<tonumber(b.room) end;return a.price<b.price end)
       d.candidates=p.rows;d.tries=0;return choose()
      elseif p.kind=='wares' then
-      if p.bad or not p.header or not p.proprietor or not p.divider then return fail('unproved wares framing') end
+      if p.bad or not p.header or not p.proprietor or not p.divider then return fail('unproved wares framing',true) end
       table.sort(p.rows,function(a,b) return a.price<b.price end)
       local row=p.rows[1];local s=stock(d.kind)
       local n=s and math.ceil((target[d.kind]-s.count)/(d.kind=='health' and 50 or 1)) or 0
@@ -266,14 +341,14 @@ function M.new(io,settings,state)
       end
       d.item=row;return getbaseline()
      elseif p.kind=='inventory_before' then
-      if not p.gold then return fail('carried gold not proven') end
+      if not p.gold then return fail('carried gold not proven',true) end
       local s=stock(d.kind)
-      if not s or s.count~=d.before then return fail('cache changed after baseline; purchase cancelled') end
+      if not s or s.count~=d.before then return fail('cache changed after baseline; purchase cancelled',true) end
       local n=math.ceil((target[d.kind]-d.before)/(d.kind=='health' and 50 or 1))
       if n<=0 then return nextkind() end
-      if n>d.item.stock then return fail('insufficient native wares stock') end
+      if n>d.item.stock then return fail('insufficient native wares stock',true) end
       local cost=n*d.item.price
-      if cost>p.gold then return fail('insufficient carried gold; no bank/org funds') end
+      if cost>p.gold then return fail('insufficient carried gold; no bank/org funds',true) end
       d.purchase={kind=d.kind,count=n,cost=cost,gold_before=p.gold,before=d.before,expected=target[d.kind],maximum=d.before+n*(d.kind=='health' and 50 or 1),item=d.item.id}
       d.phase='buy'
      elseif p.kind=='buy' then
@@ -294,8 +369,8 @@ function M.new(io,settings,state)
    v=view();if not intent(v) then return false end
    -- Graceful OFF does not revoke the trip's resume grant. Settle any pending
    -- query first, then bypass remaining discovery and all unissued purchases.
-   if not d.enabled and d.busy and not d.pending and not d.purchase and d.phase~='route' and d.phase~='return_check' and d.phase~='resume' and d.phase~='initial_wait' then return route(d.return_room,'return_check') end
-   if not d.enabled and d.phase=='buy' and not d.pending then d.purchase=nil;return route(d.return_room,'return_check') end
+   if not d.enabled and d.busy and not d.pending and not d.purchase and d.phase~='route' and d.phase~='return_check' and d.phase~='resume' and d.phase~='initial_wait' and d.phase~='haven_exit' and d.phase~='haven_wait' and d.phase~='haven_return' then return returning() end
+   if not d.enabled and d.phase=='buy' and not d.pending then d.purchase=nil;return returning() end
    if d.phase=='monitor' then
     if not d.enabled or v.mode~='BASH' then return end
     if not class_known(v) or v.room==nil or v.area==nil then return end
@@ -305,7 +380,10 @@ function M.new(io,settings,state)
     d.return_room=nil;d.return_area=nil;d.reservation_room=v.room;d.reservation_area=v.area;d.checkpoint=nil;d.checkpoint_restored=nil;d.checkpoint_revoked=nil
     d.status='low cache; reserving next hop/spawn, finishing current NPC'
     d.original_class=v.class;d.original_session=v.session;d.intent_epoch=v.intent_epoch
-    d.resume_globe=v.globe_armed==true and v.globe_resume_allowed~=false;d.original_globe=d.resume_globe;d.resume_consent=true
+    local desired=v.globe_desired;if desired==nil then desired=v.globe_armed end
+    d.resume_globe=desired==true and v.globe_resume_allowed~=false;d.original_globe=d.resume_globe;d.resume_consent=true
+    d.haven_mode=d.resume_globe and settings.globe_haven_return==true and type(settings.haven_room)=='string' and settings.haven_room:match('^[1-9]%d*$')~=nil
+    d.haven_room=d.haven_mode and settings.haven_room or nil;d.haven_wait_at=nil
     d.drain_at=now();d.pending_restock=true
    end
    if d.phase=='drain' then
@@ -320,12 +398,13 @@ function M.new(io,settings,state)
     if io.walker_ready and not io.walker_ready(d) then return end
     if not v.empty or not v.room_known or not ready(v) then return end
     if not d.enabled then return t.off() end
-    d.return_room=v.room;d.return_area=v.area;d.departure_players=v.players
+    d.origin_room=v.room;d.origin_area=v.area;d.return_room=d.haven_room or v.room;d.return_area=d.haven_mode and nil or v.area;d.departure_players=v.players
     d.resume_master=v.upkeep_master==true;d.globe_rearmed=nil
     if io.acquire and io.acquire(d)==false then return fail('another activity owns client') end
     if not d.active or not d.resume_consent or not d.enabled or not intent(view()) then if io.release then io.release(d) end;return false end
     d.busy=true;d.trip_at=now();d.phase='pausing'
-    if io.checkpoint then
+    if d.haven_mode and io.walker_active and io.walker_active() then return fail('Haven GLOBE handoff cannot borrow an active walker',true) end
+    if not d.haven_mode and io.checkpoint then
      d.capturing_checkpoint=true
      local good,cp,why=pcall(io.checkpoint,d)
      d.capturing_checkpoint=nil
@@ -346,7 +425,16 @@ function M.new(io,settings,state)
     if not good or result==false or view().mode~='OFF' then return fail('could not pause offense') end
     if not d.resume_consent or not d.active then return false end
     d.owned_pause=true;d.original_mode='BASH';d.paused_at=now();d.index=0
+    if d.haven_mode and same(v.room,d.haven_room) then
+     d.phase='haven_exit';d.status='Haven exit pending';return query('haven_exit','exit haven')
+    end
     return nextkind()
+   elseif d.phase=='haven_wait' then
+    if not d.resume_globe then return fail('Haven return intent revoked; remains OFF',true) end
+    if now()-(d.haven_wait_at or now())>120 then return fail('full HP/mana not proven for Haven return',true) end
+    if not same(v.room,d.last_shop_room) or not same(v.area,d.last_shop_area) then return fail('Haven return waiting scope changed',true) end
+    if not v.full_resources or not ready(v) then return end
+    d.phase='haven_return';d.status='Haven return pending: awaiting actual configured Room.Info';return query('haven_return','return to haven')
    elseif d.phase=='route' then return commit('route',d.destination,function(dest) return io.travel(dest) end)
    elseif d.phase=='baseline' then return commit('baseline',d.kind,function(k) return io.query_stock(k) end)
    elseif d.phase=='readback' then return commit('readback',d.kind,function(k) return io.query_stock(k) end)
@@ -359,7 +447,7 @@ function M.new(io,settings,state)
     return query('buy',cmd)
    elseif d.phase=='inventory_after' then return query('inventory_after','inventory')
    elseif d.phase=='return_check' then
-    if not same(v.room,d.return_room) or not same(v.area,d.return_area) then return fail('return room/area mismatch') end
+    if not same(v.room,d.return_room) or (not d.haven_mode and not same(v.area,d.return_area)) then return fail('return room/area mismatch') end
     if not d.resume_consent then return fail('resume consent revoked') end
     if not safeplayers(v) or v.players==d.departure_players then return fail('return blocked: fresh solo player list required; stays OFF') end
     if not ready(v) then return end
@@ -412,7 +500,7 @@ function M.new(io,settings,state)
  end
  function t.text(line)
   local p=d.pending;if not d.active or not p or type(line)~='string' or d.fault then return end
-  if p.kind=='route' or p.kind=='initial summon'then return end -- native owners enforce their own finite leases
+  if p.kind=='route' or p.kind=='initial summon' or p.kind=='haven_exit' or p.kind=='haven_return' then return end -- native owners enforce their own finite leases
   p.lines=p.lines+1
   if p.lines>300 or #line>1000 then return fail('bounded response exceeded') end
   if p.kind=='directory' then
@@ -466,6 +554,7 @@ function M.adapter(c,api)
   local ok,_,_,tcp=pcall(api.getConnectionInfo);return ok and tcp==true
  end
  local function view()
+  if c.travel and c.travel.io and c.travel.io.mount_deferred then c.travel.io.mount_deferred() end
   local s=c.current or {};local p=s.player or {};local r=c.runner or {};local b=s.buffs or {};local m=s.mental or {};local w=s.walker or {};local g=c.elemental_recovery or {};local cd=c.containers_data or {};local tr=c.travel_owner or {};local root=r.root or c.root or {}
   local q=g.pool or {};local exhausted=g.fault=='all carried globes exhausted' and q.enabled==true and q.known==true and q.ever_owned==true and not q.query
   if exhausted then for id in pairs(q.owned or {}) do if not (q.exhausted or {})[id] then exhausted=false end end end
@@ -487,8 +576,9 @@ function M.adapter(c,api)
   for _,it in pairs(room.items or {}) do local f=tostring(it.attrib or '');if (f:find('m',1,true) or it.icon=='monster') and not f:find('d',1,true) and not f:find('x',1,true) then empty=false end end
   local pol=s.policy or {}
   local xp=c.xp_globe_cutoff;local globe_allowed=not(xp and xp.enabled and xp.triggered)
-  return {globe_resume_allowed=globe_allowed,class=p.class,globe_armed=g.armed==true,upkeep_master=b.master==true,globe_pool_ready=not (c.elementals and c.elementals.pool_enable) or (q.enabled==true and q.known==true and not q.query),mode=c.mode,room=room.id,area=room.area,session=c.session_generation or s.session_generation or s.session_id,intent_epoch=c.restock_intent_epoch,ih_evidence=ih,item_version=room.item_version,connected=connected() and yes(s.connected),dead=yes(p.dead) or (tonumber(p.hp) or 0)<=0,ready=rd,blocked=blocked,empty=empty,room_known=known==true,mounted=p.mounted~=false and tonumber(p.mounted)~=0,hp_percent=(tonumber(p.maxhp) or 0)>0 and p.hp/p.maxhp*100 or nil,players_known=pol.players_known==true,players_room=pol.players_room,players=pol.players,self_name=pol.self_name,
-   supplies_busy=c.supplies_data and c.supplies_data.pending,globes_exhausted=exhausted,globe_fault=g.fault,travel_fault=tr.fault or tr.follow_fault,travel_idle=tr.phase=='idle' and not (tr.pending or tr.dispatching or tr.intent or tr.route or tr.follow_pending or tr.follow_due or tr.recall_due),globe_idle=not g.pending and not g.committed and not g.fault and (g.phase==nil or g.phase=='idle')}
+  local desired=g.desiredOnCurrent;if desired==nil then desired=g.armed==true end
+  return {full_resources=(tonumber(p.maxhp) or 0)>0 and (tonumber(p.maxmana) or 0)>0 and (tonumber(p.hp) or 0)>=(tonumber(p.maxhp) or math.huge) and (tonumber(p.mana) or 0)>=(tonumber(p.maxmana) or math.huge),globe_desired=desired,globe_resume_allowed=globe_allowed,class=p.class,globe_armed=g.armed==true,upkeep_master=b.master==true,globe_pool_ready=not (c.elementals and c.elementals.pool_enable) or (q.enabled==true and q.known==true and not q.query),mode=c.mode,room=room.id,area=room.area,session=c.session_generation or s.session_generation or s.session_id,intent_epoch=c.restock_intent_epoch,ih_evidence=ih,item_version=room.item_version,connected=connected() and yes(s.connected),dead=yes(p.dead) or (tonumber(p.hp) or 0)<=0,ready=rd,blocked=blocked,empty=empty,room_known=known==true,mounted=p.mounted~=false and tonumber(p.mounted)~=0,hp_percent=(tonumber(p.maxhp) or 0)>0 and p.hp/p.maxhp*100 or nil,players_known=pol.players_known==true,players_room=pol.players_room,players=pol.players,self_name=pol.self_name,
+   supplies_busy=c.supplies_data and c.supplies_data.pending,globes_exhausted=exhausted,globe_fault=g.fault,travel_refusal=tr.refusal,travel_fault=tr.fault or tr.follow_fault,travel_idle=tr.phase=='idle' and not (tr.pending or tr.dispatching or tr.intent or tr.route or tr.follow_pending or tr.follow_due or tr.recall_due),globe_idle=not g.pending and not g.committed and not g.fault and (g.phase==nil or g.phase=='idle')}
  end
  return {now=api.getEpoch or api.clock or os.time,view=view,
   stocks=function()
@@ -499,6 +589,8 @@ function M.adapter(c,api)
    end
    return result
   end,
+  safe_release=function() local v=view();return not v.blocked and v.travel_idle end,
+  walker_active=function() return ((c.current or {}).walker or {}).active==true end,
   owned=function(d) return not c.user_activity or c.user_activity==d end,
   walker_arriving=function(room,area)
    local w=(c.current or {}).walker or {}
@@ -595,7 +687,10 @@ function M.attach(c,settings)
  if c.restock_data and (c.restock_data.busy or c.restock_data.pending or c.restock_data.purchase) then return nil,'unfinished restock owner retained' end
  local old=c.restock_data;local api=c.restock_api or _G
  for _,k in ipairs({'tempRegexTrigger','tempPromptTrigger','tempTimer','registerAnonymousEventHandler','killTrigger','killTimer','killAnonymousEventHandler'}) do if type(api[k])~='function' then return nil,'Mudlet API unavailable: '..k end end
- local t=M.new(M.adapter(c,api),settings);c.restock_controller=t;c.restock_data=t.state;t.handles={};t.attached=true
+ if settings~=nil then c.restock_settings_error=nil end -- explicit reviewed valid configuration
+ if settings==nil then settings=c.restock_settings;if settings==nil then local why;settings,why=M.read_settings(api);c.restock_settings_error=why end end
+ c.restock_settings=settings or {}
+ local t=M.new(M.adapter(c,api),c.restock_settings,nil,c.restock_settings_error);c.restock_controller=t;c.restock_data=t.state;t.handles={};t.attached=true
  local function add(kind,id) assert(handle(id),'invalid '..kind..' registration ID');t.handles[#t.handles+1]={kind,id} end
  local ok,why=pcall(function()
   add('trigger',api.tempRegexTrigger('^.*$',function() t.text(api.line or line or '') end))

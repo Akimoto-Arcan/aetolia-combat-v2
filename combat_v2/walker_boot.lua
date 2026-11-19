@@ -135,7 +135,11 @@ end
 local function resources(c)
  local s=c.current;local r=c.runner;local m=s.mental or {};local b=s.buffs or {};local g=c.elemental_recovery or {};local co=c.containers_data or {}
  local tr=c.travel_owner or {};local ink=c.tattoo_owner or {};local root=r.root or c.root or {}
- if c.transport_unknown or root.transport_unknown or root.dispatching or root.action_dispatching or r.transport_unknown or r.waiting or r.fault or r.dispatching or r.transport_commit or r.transport_barrier or m.eq_pending or m.pending or m.fault or m.dispatching or b.pending or b.fault or b.dispatching or g.committed or g.dispatching or g.pending or g.fault or co.barrier or co.action_dispatching then return true end
+ if c.transport_unknown or root.transport_unknown or root.dispatching or root.action_dispatching or r.transport_unknown or r.waiting or r.fault or r.dispatching or r.transport_commit or r.transport_barrier or m.eq_pending or m.pending or m.fault or m.dispatching or b.pending or b.fault or b.dispatching or g.committed or g.dispatching or co.barrier or co.action_dispatching then return true end
+ -- A settled terminal diagnostic is not physical work; all uncertain GLOBE
+ -- state (including read-only probes) remains fenced. Missing helper fails closed.
+ local tm=c.travel_module
+ if (g.pending or g.fault)and not (tm and type(tm.terminal_globe_exhaustion)=='function'and tm.terminal_globe_exhaustion(c)==true)then return true end
  if tr.pending or tr.dispatching or tr.fault or tr.follow_pending or tr.follow_fault or tr.recall_due or tr.intent or tr.route or ink.txn or ink.pending or ink.dispatching or ink.fault then return true end
  if c.convenience and (c.convenience.busy(c)or c.convenience.hold(c))then return true end
  if c.lunch_boot and c.lunch_boot.busy(c)then return true end
