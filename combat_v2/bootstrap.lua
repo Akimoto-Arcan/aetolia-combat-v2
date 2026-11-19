@@ -91,7 +91,8 @@ function combat_v2_supplies(action)
  if not c.supplies then return false,"Supply monitor unavailable"end
  if action=="check"or action=="audit"then
   return c.supplies.audit(c,function(command)assert(command=="fluidcache"or command=="ic"or command=="fc missing"or command=="ic missing","Read-only supply command rejected");return send(command)end)
- elseif action~="status"then return false,"cv2 supplies status | check"end
+ elseif action=="usage"then for _,line in ipairs(c.supplies.report(c))do print(line)end;return true
+ elseif action~="status"then return false,"cv2 supplies status | usage | check"end
  local s=c.supplies.state(c);print("FLUIDCACHE",s.level,s.status,"health",s.stocks.health and s.stocks.health.count or"unknown","mana",s.stocks.mana and s.stocks.mana.count or"unknown");return true
 end
 function combat_v2_globe(action)
@@ -566,6 +567,7 @@ c.gui.create();refresh()
 if c.supplies then c.supplies.detach(c)end
 c.containers_required=true
 c.containers=dofile(root.."containers.lua")
+c.ledger=dofile(root.."ledger.lua")
 c.supplies=dofile(root.."supplies.lua")
 c.supplies.bind_containers(c,function(command)return send(command)end)
 c.supplies.attach(c)

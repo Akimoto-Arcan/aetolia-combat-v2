@@ -95,6 +95,15 @@ function M.audit_containers(c,kind)
     type(c.containers_query_sender)~='function' or not connected(c) then return false end
   local s=c.containers.state(c)
   if s.pending then return false end
+  if c.ledger and c.containers_data and c.containers_data.quarantine then
+    -- Passive observed counts never release the helper's action-safety latch.
+    d.containers_last_attempt=now(c);d.containers_refresh_due=nil
+    local commands=kind and {({vial='viallist',pipe='pipelist',bandage='bandagelist'})[kind]} or {'viallist','pipelist','bandagelist'}
+    if kind and not commands[1] then return false end
+    local ok=true
+    for _,cmd in ipairs(commands)do local sent,result=pcall(c.containers_query_sender,cmd);if not sent or result==false then ok=false end end
+    return ok
+  end
   d.containers_last_attempt=now(c)
   d.containers_refresh_due=nil
   return c.containers.audit(c,c.containers_query_sender,kind)
@@ -131,6 +140,7 @@ local function record(c,key,n,source,version)
   local d=data(c)
   d.version=(d.version or 0)+1
   d.stocks[key]={count=n,source=source,at=now(c),version=version or d.version}
+  if c.ledger then c.ledger.cache(c,key,n,source,d.stocks[key].at) end
   M.render(c)
 end
 -- Explicit trusted stock events never make an entire source complete/fresh.
@@ -173,6 +183,17 @@ function M.state(c)
   local carried
   if c.containers and type(c.containers.state)=='function' then carried=c.containers.state(c)
   elseif c.containers_required then carried={issues={'Carried containers unavailable'},stale=true} end
+  if c.ledger then
+    s.ledger=c.ledger.state(c)
+    if s.ledger.complete then
+      local blocked=c.containers_data and c.containers_data.quarantine
+      s.refill_blocked=blocked
+      local helper=carried
+      carried={issues={},stale=false,pending=s.ledger.pending==true,tracked=true,refill=helper and helper.refill}
+      for _,issue in ipairs(s.ledger.issues or {})do carried.issues[#carried.issues+1]=issue end
+      if helper and helper.refill then carried.issues[#carried.issues+1]=helper.refill.id..': '..(helper.refill.fault or 'refill awaiting confirmation')end
+    end
+  end
   s.containers=carried
   if carried and (#(carried.issues or {})>0 or carried.stale or carried.pending) and s.level=='ok' then
     s.level='warning'
@@ -219,6 +240,7 @@ function M.render(c)
   local note=''
   if not s.containers then note='Carried vials/bandages and pipes unverified.' end
   if #zero>0 then note='Reserve empty; carried vials/bandages may remain. '..note end
+  if s.refill_blocked then note=note..' Passive usage tracking active; automatic container refill paused (safety latch).' end
   if s.stale or #s.unknown>0 or s.pending then
     note=note..' Unknown: '..#s.unknown..'. '..s.status..'.'
   end
@@ -314,6 +336,12 @@ local function missingList(f,text,section)
 end
 function M.text(c,line)
   if type(line)~='string' then return end
+  if c.ledger then
+    local event=c.ledger.text(c,line)
+    if event and event.cache then
+      local e=event.cache;if allowed[e.key]then M.stock(c,e.key,e.count,e.source)end
+    end
+  end
   if c.containers and c.containers.text then c.containers.text(c,line) end
   container_hint(c,line)
   expire(c)
@@ -476,6 +504,7 @@ local function requestMissing(c)
   return success
 end
 function M.prompt(c)
+  if c.ledger then c.ledger.prompt(c) end
   if c.containers and c.containers.prompt then c.containers.prompt(c) end
   expire(c)
   local d=data(c)
@@ -492,10 +521,6 @@ function M.audit(c,sender,cache_only,source)
   if source~=nil and source~='fluidcache' and source~='ic' then return false,'unsupported source' end
   expire(c)
   local d=data(c)
-  if connected(c) and type(sender or c.supplies_sender)=='function' then
-    d.requested=true
-    if not cache_only then M.audit_containers(c) end
-  end
   local framed=false
   for _,s in pairs(d.sources) do framed=framed or s.frame~=nil end
   if d.pending or framed or d.dispatching or d.auditing then return false,'audit already pending' end
@@ -503,6 +528,7 @@ function M.audit(c,sender,cache_only,source)
   if type(sender)~='function' then return false,'no injected read-only sender' end
   if not connected(c) then return false,'disconnected' end
   d.requested=true;c.supplies_sender=sender;d.last_attempt=now(c)
+  if not cache_only then M.audit_containers(c) end
   d.audit_id=(d.audit_id or 0)+1
   d.auditing=true;d.missing_wanted={}
   local success=true
@@ -517,6 +543,25 @@ function M.audit(c,sender,cache_only,source)
   M.render(c)
   if success then return true end
   return false,'audit send failed'
+end
+function M.report(c)
+  local s=M.state(c)
+  if not s.ledger then return {'Usage ledger unavailable'} end
+  local lines={'CACHE RESERVES / CARRIED USES / CONFIRMED CONSUMPTION (since tracker start)'}
+  local keys={};for k in pairs(allowed)do keys[#keys+1]=k end;table.sort(keys)
+  for _,key in ipairs(keys)do
+    local name=key:gsub('^ic:','');local ic=allowed[key]=='ic'
+    local pipe=name=='reishi'or name=='willow'or name=='yarrow'
+    local bandage=name=='caloric'or name=='epidermal'or name=='mass'or name=='mending'or name=='restoration'or name=='soothing'
+    local kind=ic and (pipe and 'pipe'or 'pill')or (bandage and 'bandage'or 'vial')
+    local row=s.ledger.carried[kind]and s.ledger.carried[kind][name]
+    local stock=s.stocks[key];local reserve=stock and stock.count~=nil and tostring(stock.count)or 'unknown'
+    local carry=row and row.count~=nil and ((row.estimated and '~'or '')..tostring(row.count))or 'unknown'
+    local used=row and row.used or 0
+    lines[#lines+1]=(ic and 'IC 'or 'FC ')..name..': reserve '..reserve..' | carried '..carry..(kind=='pipe'and ' puffs'or kind=='pill'and ' pills'or kind=='bandage'and ' presses'or ' sips')..' | used '..used
+  end
+  if s.refill_blocked then lines[#lines+1]='Automatic container refill paused: '..s.refill_blocked..'. Passive tracking remains active.'end
+  return lines
 end
 function M.detach(c)
   local o=c.supplies_owner
@@ -572,6 +617,7 @@ function M.attach(c,preserve)
         if owner.alive then
           if not connected(c) then
             if c.containers and c.containers.invalidate then c.containers.invalidate(c) end
+            if c.ledger then c.ledger.invalidate(c) end
             for _,s in pairs(d.sources) do s.frame=nil; s.pending=false; s.stale=true; s.status='disconnected' end
           end
           M.render(c)
