@@ -1,7 +1,9 @@
 -- Explicit sensory intent needs current cure-ignore and actual resource proof.
 -- Current Mindseye is one-time sensory protection, not vision while blind.
 -- No live/network/IO. Counts below are synthetic offline fixture data only.
-local root=assert(arg[1]);local B=dofile(root..'buffs.lua');local S=dofile(root..'state.lua')
+-- Historical algorithm regression only; production retirement is independently
+-- proved against the unmodified module in sensory_retirement.lua and integration.
+local root=assert(arg[1]);local B=dofile((arg[0]:match('^(.*/)') or '')..'legacy_sensory_fixture.lua')(root..'buffs.lua');local S=dofile(root..'state.lua')
 local clock=100;function getEpoch()return clock end
 function getConnectionInfo()return 'fixture',0,true end
 local n=0;local function check(v,why)n=n+1;assert(v,why or ('assertion '..n))end
@@ -373,4 +375,4 @@ for _,h in ipairs({0,'unknown'})do
  B.vitals(s,{herb=0});B.vitals(s,{herb=1});tick();check(s.buffs.pending==p,'old ready prompt crossed a new herb cycle')
  B.on_prompt(s);tick();check(not s.buffs.pending and #sent==2,'fresh recovered prompt did not settle')
 end
-print('PASS current sensory safety '..n..' assertions: native12, opt-in sensory transactions, resource/policy barriers, retained failed transport, one-time Mindseye, native curing untouched')
+print('PASS legacy sensory algorithm fixture '..n..' assertions: native12, opt-in sensory transactions, resource/policy barriers, retained failed transport, one-time Mindseye, native curing untouched')

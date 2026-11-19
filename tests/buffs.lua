@@ -42,7 +42,7 @@ end
 test('catalog safe defaults, no emergency or arbitrary commands',function()
  local s,sent,tick=fixture();local n=0
  for i,e in ipairs(B.catalog) do eq(e.default,i<=8 or e.key=='immunity' or e.key=='mindseye',e.key);if e.default then n=n+1 end end
- eq(n,10);eq(#B.catalog,49);eq(B.state(s).master,false);eq(B.state(s).sequence,false)
+ eq(n,10);eq(#B.catalog,55);eq(B.state(s).master,false);eq(B.state(s).sequence,false)
  eq(tick().busy,false);eq(#sent,0)
  eq(B.toggle(s,'regeneration on;kill',true),false);eq(B.toggle(s,'numbness',true),false)
  eq(B.toggle(s,'vitality','on'),false);eq(#sent,0)
@@ -382,6 +382,9 @@ local function row(s,k)
  for _,e in ipairs(B.rows(s)) do if e.key==k then return e end end
  error('missing row '..k)
 end
+local function absent(s,k)
+ for _,e in ipairs(B.rows(s))do if e.key==k then return e end end
+end
 local function priority_rows(s,lines)
  local seen={}
  for _,line in ipairs(lines) do B.text(s,line);seen[tonumber(line:match('^%s*(%d+):')) or 0]=true end
@@ -400,12 +403,12 @@ test('rows ordered deduplicated tri-state metadata and actual extras',function()
   if i<=#B.catalog then eq(e.key,B.catalog[i].key) end
  end
  for _ in pairs(B.native_catalog) do count=count+1 end
- eq(count,12);eq(#rows,84);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
+ eq(count,12);eq(#rows,82);eq(row(s,'courage').owner,'FIRSTAID');eq(row(s,'courage').control,'native')
  eq(row(s,'courage').wanted,nil);eq(row(s,'weathering').owner,'MONK');eq(row(s,'regeneration').drain,true)
- eq(row(s,'blindness').wanted,false);eq(row(s,'blindness').control,'class')
+ eq(absent(s,'blindness'),nil);eq(absent(s,'deafness'),nil)
  s.player.defences['blind']=true;s.player.defences.deaf=true;s.player.defences.new_power=true
- eq(row(s,'blindness').active,true);eq(row(s,'deafness').active,true);eq(row(s,'new_power').owner,'UNAVAILABLE')
- eq(#B.rows(s),85);eq(#sent,0);eq(B.state(s).master,false)
+ eq(absent(s,'blindness'),nil);eq(absent(s,'deafness'),nil);eq(row(s,'new_power').owner,'UNAVAILABLE')
+ eq(#B.rows(s),83);eq(#sent,0);eq(B.state(s).master,false)
  B.sync(s,'List',{'regeneration','insomnia','unlisted_power'})
  -- Simulate bootstrap replacing canonical state after our sync.
  s.player.defences={}
@@ -474,7 +477,7 @@ test('general exact own up down evidence no consumption or affliction mutation',
  end
  B.text(s,'You eat an acuity pill.');eq(row(s,'clarity').active,nil)
  B.text(s,'You are blind.');B.text(s,'You are deaf.')
- eq(row(s,'blindness').active,true);eq(row(s,'deafness').active,true)
+ eq(B.state(s).observed.blindness,true);eq(B.state(s).observed.deafness,true)
  eq(s.player.afflictions.blind,true);eq(s.player.afflictions.deaf,true);eq(s.player.afflictions.blindness,nil)
  tick();eq(#sent,0)
 end)
@@ -488,8 +491,8 @@ test('named own gains strips degradation and aliases shared without speech',func
  B.text(s,'You have gained the kai_trance defence.');clock=clock+3;tick();eq(#sent,1)
  B.text(s,'Your Trance defence is degraded away.');tick();eq(#sent,2)
  B.sync(s,'Add','kai_trance');B.on_prompt(s);tick();clock=clock+3;tick();eq(#sent,2)
- B.text(s,'You have gained the blind defence.');eq(row(s,'blindness').active,true)
- B.text(s,'Your blindness defence has been stripped.');eq(row(s,'blindness').active,false)
+ B.text(s,'You have gained the blind defence.');eq(B.state(s).observed.blindness,true)
+ B.text(s,'Your blindness defence has been stripped.');eq(B.state(s).observed.blindness,false)
  B.text(s,'You have gained the strange_aura defence.');eq(row(s,'strange_aura').active,true)
  B.text(s,'Your strange_aura defence is degraded away.');eq(row(s,'strange_aura').active,false)
 end)
@@ -502,7 +505,7 @@ test('native ownership never casts courage or general commands even disabled',fu
  eq(#sent,0);eq(B.state(s).pending,nil);eq(row(s,'courage').wanted,false)
  for _,k in ipairs({'clarity','blindness','flame','owl','strange_aura'}) do
   B.text(s,'You have gained the '..k..' defence.');B.text(s,'Your '..k..' defence has been stripped.');tick()
-  eq(row(s,k).owner,k=='clarity' and 'SKILL' or k=='blindness' and 'CURATIVE' or 'UNAVAILABLE');if k=='clarity' or k=='blindness' then eq(row(s,k).wanted,false)else eq(row(s,k).wanted,nil)end;eq(#sent,0)
+  if k=='blindness' then eq(absent(s,k),nil) else eq(row(s,k).owner,k=='clarity' and 'SKILL' or (k=='flame' or k=='owl') and 'TATTOO' or 'UNAVAILABLE');if k=='clarity' or k=='flame' or k=='owl' then eq(row(s,k).wanted,false)else eq(row(s,k).wanted,nil)end end;eq(#sent,0)
  end
 end)
 
@@ -511,10 +514,11 @@ test('general positives survive partial raw listing but full GMCP clears them',f
  B.text(s,'You have the following active defences:')
  B.text(s,'You are regenerating lost health through the power of Kaido.')
  B.text(s,'You are blind.');B.text(s,'You are protected by 30 defences.')
- for _,k in ipairs({'arcane','telesense','regeneration','boosting','blindness'}) do eq(row(s,k).active,true,k) end
+ for _,k in ipairs({'arcane','telesense','regeneration','boosting'}) do eq(row(s,k).active,true,k) end
+ eq(B.state(s).observed.blindness,true);eq(absent(s,'blindness'),nil)
  eq(B.state(s).defs_known,true);B.sync(s,'List',{'regeneration'})
  for _,k in ipairs({'arcane','telesense','boosting'}) do eq(row(s,k).active,false,k) end
- eq(row(s,'blindness').active,true,'DEF absence cannot clear sensory goal')
+ eq(B.state(s).observed.blindness,false,'full DEF absence clears legacy DEF-only observation, not raw afflictions');eq(absent(s,'blindness'),nil)
  eq(row(s,'regeneration').active,true);eq(#sent,0)
 end)
 test('remaining audited native and general own-list positives',function()

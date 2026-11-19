@@ -17,6 +17,7 @@ local function ink(s)
  B.text(s,'You have the following tattoos:')
  B.text(s,'Left arm:    Cloak        Uses left: 2')
  B.text(s,'Right leg:   Mindseye     Uses left: 2')
+ for _,name in ipairs({'Firefly','Flame','Starburst'})do B.text(s,'Torso: '..name..' Uses left: 2')end
  for _,name in ipairs({'Boar','Moon','Moss','Owl','Mountain'})do B.text(s,'Head:        '..name..'         Active')end
  B.on_prompt(s)
 end
@@ -29,9 +30,10 @@ for _,e in ipairs(B.catalog)do
  check(not s.buffs.master and not s.buffs.sequence,'startup armed '..e.key)
  check(tick().busy==false and #sent==0,'startup sent '..e.key)
  if e.drain then check(e.default==false,'drain armed by default '..e.key)end
- if e.command and not e.curative and not B.native_catalog[e.key] then
+ if e.command and not e.login_auto and not e.curative and not B.native_catalog[e.key] then
   if e.depends then B.sync(s,'Add',e.depends)end
   if e.key=='immunity' then clock=clock+121 end -- unknown prior cooldown fence
+  if e.key=='starburst' then clock=clock+121;check(B.toggle(s,'starburst',true))end
   check(B.start(s));tick();check(sent[1]==e.command,'wrong owner/command '..e.key)
   tick();check(#sent==1,'duplicate '..e.key)
   B.text(s,'Reporter says, "You have gained the '..e.key..' defence."')
@@ -104,20 +106,20 @@ do
 end
 -- Fresh event provenance, zero/string encodings and newer strips defeat cached flags.
 do
- local s=fresh();B.vitals(s,{blind='1',deaf=1});check(row(s,'blindness').active and row(s,'deafness').active)
- B.sync(s,'List',{});check(row(s,'blindness').active and row(s,'deafness').active,'List erased fresh Vitals positives')
- B.text(s,'Your blind defence has been stripped.');check(row(s,'blindness').active==false)
- B.sync(s,'List',{});check(row(s,'blindness').active==false,'old flags resurrected strip')
- B.vitals(s,{blind='0',deaf=0});check(row(s,'blindness').active==false and row(s,'deafness').active==false)
- B.affliction_flags(s,'Add',{name='blind'});check(row(s,'blindness').active==true)
- B.affliction_flags(s,'Remove',{'blind'});check(row(s,'blindness').active==false)
- B.affliction_flags(s,'List',{'blind'});B.sync(s,'List',{});check(row(s,'blindness').active==true,'DefList erased independent fresh Afflictions positive')
+ local s=fresh();B.vitals(s,{blind='1',deaf=1});check(B.state(s).observed.blindness and B.state(s).observed.deafness)
+ B.sync(s,'List',{});check(B.state(s).observed.blindness and B.state(s).observed.deafness,'List erased fresh Vitals positives')
+ B.text(s,'Your blind defence has been stripped.');check(B.state(s).observed.blindness==false)
+ B.sync(s,'List',{});check(B.state(s).observed.blindness==false,'old flags resurrected strip')
+ B.vitals(s,{blind='0',deaf=0});check(B.state(s).observed.blindness==false and B.state(s).observed.deafness==false)
+ B.affliction_flags(s,'Add',{name='blind'});check(B.state(s).observed.blindness==true)
+ B.affliction_flags(s,'Remove',{'blind'});check(B.state(s).observed.blindness==false)
+ B.affliction_flags(s,'List',{'blind'});B.sync(s,'List',{});check(B.state(s).observed.blindness==true,'DefList erased independent fresh Afflictions positive')
  check(s.buffs.flag_sources.blindness=='afflictions')
- B.affliction_flags(s,'List',{});check(row(s,'blindness').active==false,'new empty Afflictions List replayed old positive')
- B.vitals(s,{blind=1});B.affliction_flags(s,'List',{});check(row(s,'blindness').active==true,'Afflictions absence erased independent Vitals positive')
- B.text(s,'Your blind defence has been stripped.');B.sync(s,'List',{});check(row(s,'blindness').active==false)
+ B.affliction_flags(s,'List',{});check(B.state(s).observed.blindness==false,'new empty Afflictions List replayed old positive')
+ B.vitals(s,{blind=1});B.affliction_flags(s,'List',{});check(B.state(s).observed.blindness==true,'Afflictions absence erased independent Vitals positive')
+ B.text(s,'Your blind defence has been stripped.');B.sync(s,'List',{});check(B.state(s).observed.blindness==false)
  local unknown=fresh();unknown.buffs.defs_known=false;B.vitals(unknown,{blind=0,deaf='0'})
- check(row(unknown,'blindness').active==false and row(unknown,'deafness').active==false,'fresh zero required unrelated full DefList')
+ check(B.state(unknown).observed.blindness==false and B.state(unknown).observed.deafness==false,'fresh zero required unrelated full DefList')
 end
 -- Catalog-version fencing preserves unresolved request and restoration memory.
 do
@@ -126,7 +128,7 @@ do
  B.text(s,"You have set the 'courage' defence to the 3 priority.");check(B.native_priority(s,'courage')==nil,'ACK bypassed expanded-catalog readback')
  B.text(s,'Your defense priorities:');for i=1,24 do B.text(s,i..':')end;B.text(s,'Defs with priority 26 are ignored.');check(B.native_priority(s,'blindness')==nil)
  B.text(s,'Your defense priorities:');for i=1,25 do B.text(s,i..': '..(i==2 and 'blindness, deafness, insulation, temperance, venom_resistance' or ''))end;B.text(s,'Defs with priority 26 are ignored.')
- for _,k in ipairs({'blindness','deafness','insulation','temperance','venom_resistance'})do check(B.native_priority(s,k)==nil and not B.native_catalog[k] and not row(s,k).required)end
+ for _,k in ipairs({'blindness','deafness','insulation','temperance','venom_resistance'})do check(B.native_priority(s,k)==nil and not B.native_catalog[k] and (not row(s,k) or not row(s,k).required))end
  check(B.native_priority(s,'speed')==26)
 end
 -- Tattoo ink is fresh report capability, never rank, saved preference or active intent.

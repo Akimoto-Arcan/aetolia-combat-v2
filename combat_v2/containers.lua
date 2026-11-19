@@ -374,8 +374,60 @@ local function stock(c,k,n)
   type(v.at)=='number' and now(c)>=v.at and now(c)-v.at<=(c.containers_stock_fresh_seconds or 90)
  return known and v.count>0,not known
 end
-local function service(c,actionSender)
+local function service(c,actionSender,policy)
+ local existing=data(c).barrier
+ local session=c.current
  expire(c);local d=data(c)
+ -- A hold may read back exactly one already committed transaction, never
+ -- discover usage/stock, select a refill or LIGHT. Keep audit's native framing
+ -- and transport quarantine; do not turn a failed readback into a retry.
+ if policy=='settle' then
+  local b=existing
+  if not b then return false end
+  local kind,phase=b.kind,b.phase
+  local sender=d.querySender
+  local function intact(inAudit)
+   local root=c.current or {};local r=c.runner or {}
+   if c.current~=session or c.containers_data~=d or d.barrier~=b or
+    b.kind~=kind or b.phase~=phase or not commands[kind] or
+    (phase~='waiting' and phase~='needs light' and phase~='light') or
+    b.fault or d.quarantine or d.action_dispatching or
+    c.transport_unknown or root.connected==false or root.transport_unknown or root.dispatching or root.action_dispatching or
+    r.transport_unknown or r.transport_barrier or r.fault or r.dispatching then return false end
+   if inAudit then
+    if not d.dispatching or d.sending~=kind then return false end
+   elseif d.dispatching then return false end
+   for _,k in ipairs(kinds) do
+    local source=d.sources[k]
+    if source.frame or (source.pending and not (inAudit and k==kind)) then return false end
+   end
+   return true
+  end
+  if not intact(false) or b.query_due~=true or type(sender)~='function' then return false end
+  -- State and connectivity providers may run callbacks. Recheck ownership
+  -- after each, and again after audit's expiry/clock/connection reads.
+  M.state(c)
+  if not intact(false) then return false end
+  local connected=online(c)
+  if not connected or not intact(false) or b.query_due~=true then return false end
+  local forwarded=false
+  local function guarded(command)
+   if forwarded or command~=commands[kind] or not intact(true) then return false end
+   local connectedNow=online(c)
+   if not connectedNow or not intact(true) then return false end
+   forwarded=true
+   return sender(command)
+  end
+  b.query_due=nil -- spend the single readback before any reentrant callback
+  local ok=pcall(M.audit,c,guarded,kind)
+  -- audit remembers its sender for future ordinary queries; never leave a
+  -- transaction-scoped closure installed as that long-lived transport.
+  if d.querySender==guarded then d.querySender=sender end
+  if not ok then quarantine(c,'query transport failed') end
+  return false
+ end
+ -- Expiry/readback may settle an old barrier; never fall through to a new fill.
+ if policy and (policy~='continue' or not existing or d.barrier~=existing) then return false end
  if d.quarantine or d.dispatching or d.action_dispatching or not online(c) then return false end
  if quiet(c) then
   for _,k in ipairs(kinds) do
@@ -406,6 +458,7 @@ local function service(c,actionSender)
  local s=M.state(c)
  if not quiet(c) and not s.completefresh then return false end
  local b=d.barrier;local command
+ if policy and b~=existing then return false end
  if b then
   if b.phase~='needs light' or b.fault or not fresh(c,d.sources[b.kind]) or d.sources[b.kind].pending then return false end
   local r=s.containers[b.id]
@@ -444,11 +497,11 @@ local function service(c,actionSender)
  b.query_due=true
  return ok and result~=false,command
 end
-function M.service(c,actionSender)
+function M.service(c,actionSender,policy)
  local d=data(c)
  if d.servicing then return false end
  d.servicing=true
- local ok,result,command=pcall(service,c,actionSender)
+ local ok,result,command=pcall(service,c,actionSender,policy)
  d.servicing=false
  if not ok then return false end
  return result,command

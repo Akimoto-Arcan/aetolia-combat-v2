@@ -565,4 +565,238 @@ for _,api in ipairs({'tempRegexTrigger','tempPromptTrigger','registerAnonymousEv
   tempAlias=saved.tempAlias
  end)
 end
+-- Synthetic IDs only: all ownership originates in fresh fake native events.
+local function inv(c,ids)
+ local items={}
+ for _,id in ipairs(ids or {'101','102','103','104'}) do items[#items+1]={id=id,name='a globe of elemental energy'} end
+ E.item(c,'List',{location='inv',items=items})
+end
+local function enablepool(c)
+ c.current.player.class='Monk'
+ sendGMCP=function(cmd) eq(cmd,[[Char.Items.Inv ""]]) end
+ eq(E.pool_enable(c,true),true)
+end
+local function pooled()
+ local c,sent=fixture();E.arm(c,true);enablepool(c);inv(c);return c,sent
+end
+local function zero(c)
+ E.text(c,'This globe can be drained another 0 times.')
+end
+test('pool defaults off; cached native inventory cannot authorize enable',function()
+ local c,sent=fixture();eq(E.state(c).pool,nil)
+ gmcp={Char={Items={List={location='inv',items={{id='101',name='a globe of elemental energy'}}}}}}
+ E.arm(c,true);enablepool(c);eq(#sent,1);eq(sent[1],'ii globe')
+ eq(E.state(c).pool.known,false);E.text(c,failure);tick(c);eq(#sent,1)
+ E.item(c,'List',{location='room',items=gmcp.Char.Items.List.items});tick(c);eq(#sent,1)
+ inv(c);tick(c);eq(sent[2],'probe 101');eq(E.state(c).pending.targetID,'101')
+ gmcp=nil
+end)
+test('four owned globes mixed zero positive counts consume all with bounded probes',function()
+ local c,sent=pooled();E.text(c,failure);tick(c)
+ for _,id in ipairs({'101','102'}) do
+  eq(sent[#sent],'probe '..id);zero(c);local n=#sent
+  zero(c);E.text(c,failure);tick(c);eq(#sent,n)
+  inv(c);tick(c);eq(#sent,n,'zero must wait for real prompt')
+  E.prompt(c);tick(c)
+ end
+ eq(sent[#sent],'probe 103');probe(c,2);eq(sent[#sent],'drain 103');ack(c);finish(c)
+ E.text(c,failure);tick(c);eq(sent[#sent],'probe 103');probe(c,1);ack(c);finish(c)
+ E.text(c,failure);tick(c);eq(sent[#sent],'probe 103');zero(c);inv(c);E.prompt(c);tick(c)
+ eq(sent[#sent],'probe 104');probe(c,1);eq(sent[#sent],'drain 104');ack(c);finish(c)
+ E.text(c,failure);tick(c);eq(sent[#sent],'probe 104');zero(c);inv(c);E.prompt(c);tick(c)
+ local b=E.state(c);eq(b.fault,'all carried globes exhausted');eq(b.armed,false)
+ eq(b.committed,nil);eq(b.pending.phase,'probe');eq(b.pending.targetID,'104');eq(b.pending.count,0)
+ eq(b.last_probe.targetID,'104');eq(b.last_probe.readonly,true)
+ local commands={};for _,cmd in ipairs(sent) do commands[cmd]=(commands[cmd] or 0)+1 end
+ eq(commands['drain 103'],2);eq(commands['drain 104'],1);eq(commands['ii globe'],5)
+ local n=#sent;for i=1,100 do E.text(c,failure);E.prompt(c);tick(c);inv(c) end;eq(#sent,n)
+end)
+test('all four zero sends exactly four probes five bounded inventory flushes no actions',function()
+ local c,sent=pooled();E.text(c,failure);tick(c)
+ for _,id in ipairs({'101','102','103','104'}) do
+  eq(sent[#sent],'probe '..id);zero(c);zero(c);inv(c);E.prompt(c);tick(c)
+ end
+ eq(#sent,9);eq(E.state(c).fault,'all carried globes exhausted');eq(E.state(c).committed,nil)
+ local n=#sent;clock=clock+100;for i=1,100 do tick(c);E.prompt(c) end;eq(#sent,n)
+end)
+test('pool enabling existing generic probe does not retarget positive request',function()
+ local c,sent=fixture();start(c);local p=E.state(c).pending
+ enablepool(c);inv(c);eq(E.state(c).pending,p);eq(p.targetID,nil)
+ probe(c,3);eq(sent[#sent],'drain globe');eq(E.state(c).pending.targetID,nil)
+ ack(c);finish(c);E.text(c,failure);tick(c);eq(sent[#sent],'probe 101')
+end)
+test('generic zero after opt in discovers ID with read-only probe not inferred exhaustion',function()
+ local c,sent=fixture();start(c);enablepool(c);inv(c);zero(c)
+ eq(E.state(c).fault,nil);eq(next(E.state(c).pool.exhausted),nil)
+ inv(c);E.prompt(c);tick(c);eq(sent[#sent],'probe 101');eq(E.state(c).pending.targetID,'101')
+ probe(c,1);eq(sent[#sent],'drain 101')
+end)
+test('pending target frozen through OFF pool toggle inventory reorder and reload',function()
+ local c,sent=pooled();E.text(c,failure);tick(c);probe(c,2)
+ local b=E.state(c);local p=b.pending;eq(p.targetID,'101');eq(b.committed,true)
+ inv(c,{'104','103','102'});E.pool_enable(c,false);eq(p.targetID,'101')
+ enablepool(c);inv(c,{'102'});eq(b.pending,p);eq(p.targetID,'101')
+ E.arm(c,false);E.detach(c);local fresh=dofile(root..'elementals.lua');fresh.attach(c)
+ eq(b.pending,p);eq(p.targetID,'101');eq(b.committed,true);eq(b.pool.enabled,false)
+ eq(fresh.arm(c,true),false);eq(sent[3],'drain 101')
+end)
+test('pool enabling generic committed drain never changes identity',function()
+ local c,sent=fixture();start(c);probe(c,2);local p=E.state(c).pending
+ enablepool(c);inv(c);eq(E.state(c).pending,p);eq(p.targetID,nil);eq(E.state(c).committed,true)
+ ack(c);eq(sent[#sent],'summon elemental');eq(E.state(c).pending.targetID,nil);finish(c)
+end)
+test('inventory snapshots do not invent charges or revive verified zero',function()
+ local c,sent=pooled();E.text(c,failure);tick(c);zero(c);inv(c);E.prompt(c);tick(c)
+ eq(E.state(c).pool.exhausted['101'],true);eq(sent[#sent],'probe 102')
+ inv(c);inv(c,{'104','103','102','101'});E.prompt(c);tick(c)
+ eq(E.state(c).pending.count,nil);eq(sent[#sent],'probe 102');eq(E.state(c).pool.exhausted['101'],true)
+ probe(c,1);inv(c);eq(sent[#sent],'drain 102');ack(c);finish(c)
+ inv(c);E.text(c,failure);tick(c);eq(sent[#sent],'probe 102')
+end)
+test('native Add Update Remove preserve exact ownership and reject other items',function()
+ local c,sent=pooled()
+ E.item(c,'Remove',{location='inv',item='101'})
+ E.item(c,'Update',{location='inv',item={id='102',attrib=''}})
+ E.item(c,'Update',{location='inv',item={id='103',name='a wooden globe'}})
+ E.item(c,'Add',{location='inv',item={id='105',name='a globe of elemental energy'}})
+ E.item(c,'Add',{location='inv',item={id='001',name='a globe of elemental energy replica'}})
+ E.item(c,'Remove',{location='room',item='102'})
+ E.text(c,failure);tick(c);eq(sent[#sent],'probe 102')
+ eq(E.state(c).pool.owned['105'],true);eq(E.state(c).pool.owned['103'],nil);eq(E.state(c).pool.owned['001'],nil)
+end)
+test('removal before physical drain revokes authority without consuming',function()
+ local c,sent=pooled();E.text(c,failure);tick(c)
+ E.text(c,'This globe can be drained another 4 times.')
+ E.item(c,'Remove',{location='inv',item='101'});E.prompt(c);tick(c)
+ eq(#sent,2);eq(E.state(c).fault,'probed globe ownership lost');eq(E.state(c).committed,nil)
+end)
+test('server confirmed removed remaining IDs yields distinct exhausted not unknown commit',function()
+ local c,sent=pooled();E.text(c,failure);tick(c);zero(c)
+ inv(c,{});E.prompt(c);tick(c);eq(E.state(c).fault,'all carried globes exhausted')
+ eq(E.state(c).pending.targetID,'101');eq(E.state(c).committed,nil)
+end)
+test('missing empty malformed and unfresh inventory never claims exhausted',function()
+ for _,kind in ipairs({'timeout','empty','invalid','wrongname','duplicate','too_many'}) do
+  local c,sent=fixture();E.arm(c,true);enablepool(c)
+  if kind=='empty' then inv(c,{})
+  elseif kind=='invalid' then inv(c,{'101;drain globe'})
+  elseif kind=='duplicate' then inv(c,{'101','101'})
+  elseif kind=='too_many' then local ids={};for i=1,33 do ids[i]=tostring(i) end;inv(c,ids)
+  elseif kind=='wrongname' then E.inventory(c,'List',{location='inv',items={{id='101',name='a globe of elemental energy replica'}}}) end
+  E.text(c,failure);tick(c);clock=clock+12;tick(c)
+  eq(#sent,1,kind);eq(E.state(c).armed,false,kind)
+  eq(E.state(c).fault=='all carried globes exhausted',false,kind)
+ end
+end)
+test('inventory query false throw and timeout preserve committed barriers',function()
+ for _,outcome in ipairs({'false','throw','timeout'}) do
+  local c,sent=fixture();start(c);probe(c,2);local p=E.state(c).pending
+  c.current.player.class='Monk';sendGMCP=function()
+   if outcome=='false' then return false elseif outcome=='throw' then error('fake query failure') end
+  end
+  local ok=E.pool_enable(c,true)
+  if outcome=='timeout' then eq(ok,true);clock=clock+12;tick(c) else eq(ok,false) end
+  eq(E.state(c).armed,false);eq(E.state(c).pending,p);eq(E.state(c).committed,true);eq(p.targetID,nil)
+  eq(E.arm(c,true),false)
+ end
+end)
+test('nested pool query and physical callbacks cannot dispatch twice or switch targets',function()
+ local c,sent=fixture();E.arm(c,true);c.current.player.class='Monk'
+ sendGMCP=function() inv(c);E.service(c) end
+ c.runner.sender=function(cmd)
+  sent[#sent+1]=cmd
+  if cmd=='ii globe' then E.text(c,failure);tick(c)
+  elseif cmd=='probe 101' then E.text(c,'This globe can be drained another 1 time.')
+  elseif cmd=='drain 101' then E.text(c,drain)
+  elseif cmd=='summon elemental' then E.text(c,success) end
+  E.prompt(c);tick(c)
+ end
+ eq(E.pool_enable(c,true),true);eq(#sent,1)
+ for i=1,10 do tick(c) end
+ eq(table.concat(sent,'|'),'ii globe|probe 101|drain 101|summon elemental');eq(E.state(c).pending,nil)
+end)
+test('pool exact drain uncertain transports stay frozen across reload',function()
+ for _,sender in ipairs({function()return false end,function()error('fake drain transport')end}) do
+  local c,sent=pooled();E.text(c,failure);tick(c)
+  E.text(c,'This globe can be drained another 1 time.');E.prompt(c);E.service(c,sender)
+  local b=E.state(c);local p=b.pending;eq(p.targetID,'101');eq(p.phase,'drain');eq(b.committed,true)
+  E.pool_enable(c,false);E.detach(c);eq(E.arm(c,true),false);eq(b.pending,p);eq(p.targetID,'101')
+ end
+end)
+test('pool disconnect class change room change revoke proof and never rearm',function()
+ for _,change in ipairs({function(c)tcp=false end,function(c)c.current.player.class='Other'end,function(c)c.current.room.id=999 end}) do
+  local c,sent=pooled();E.text(c,failure);tick(c);probe(c,1);local p=E.state(c).pending
+  change(c);tick(c);local b=E.state(c)
+  eq(b.pool.enabled,false);eq(b.pool.known,false);eq(b.armed,false);eq(b.pending,p);eq(b.committed,true)
+  tcp=true;c.current.player.class='Monk';c.current.room.id=123;inv(c);E.prompt(c);tick(c)
+  eq(b.pool.enabled,false);eq(b.armed,false);eq(sent[#sent],'drain 101')
+ end
+end)
+test('pool event binder owns complete namespace without restarting kill owner',function()
+ local c,sent=fixture();local events={};local id=0;local killed={}
+ registerAnonymousEventHandler=function(name,fn) id=id+1;events[name]=fn;return id end
+ killAnonymousEventHandler=function(n)killed[n]=true end
+ E.attach(c);E.arm(c,true);local handles=E.state(c).handles;enablepool(c)
+ eq(E.state(c).handles,handles);eq(E.state(c).armed,true);local n=id
+ eq(E.pool_attach(c),true);eq(id,n)
+ gmcp={Char={Items={List={location='inv',items={{id='101',name='a globe of elemental energy'}}}}}}
+ events['gmcp.Char.Items.List']();eq(E.state(c).pool.known,true)
+ E.text(c,failure);tick(c);eq(sent[#sent],'probe 101')
+ events.sysDisconnectionEvent();eq(E.state(c).pool.known,false);eq(E.state(c).pool.enabled,false);eq(E.state(c).armed,false)
+ E.detach(c);eq(#E.state(c).pool_handles,0);eq(next(killed)~=nil,true)
+ gmcp=nil;registerAnonymousEventHandler=nil;killAnonymousEventHandler=nil
+end)
+test('explicit pool opt in resumes preupgrade generic exhausted diagnostic read only',function()
+ local c,sent=fixture();start(c);probe(c,0);local b=E.state(c);local p=b.pending
+ eq(b.fault,'globe exhausted');enablepool(c);eq(b.pending,p);eq(p.targetID,nil)
+ eq(b.armed,true);eq(b.fault,nil);eq(b.committed,nil);eq(sent[#sent],'ii globe')
+ inv(c);tick(c);eq(sent[#sent],'ii globe');E.prompt(c);tick(c);eq(sent[#sent],'probe 101')
+ eq(b.last_probe.count,0);eq(b.last_probe.targetID,nil)
+end)
+test('pool opt in never pardons read-only timeout or unknown physical state',function()
+ local c,sent=fixture();start(c);clock=clock+12;tick(c);local b=E.state(c);local p=b.pending
+ enablepool(c);inv(c);E.prompt(c);tick(c);eq(b.armed,false);eq(b.fault,'recovery timeout');eq(b.pending,p)
+ eq(#sent,2)
+end)
+test('all exhausted latch cannot be armed from cached presence or duplicate lists',function()
+ local c,sent=pooled();E.text(c,failure);tick(c)
+ for i=1,4 do zero(c);inv(c);E.prompt(c);tick(c) end
+ eq(E.arm(c,true),false);inv(c);eq(E.arm(c,true),false);eq(#sent,9)
+ E.item(c,'Add',{location='inv',item={id='105',name='a globe of elemental energy'}})
+ eq(E.arm(c,true),true);E.text(c,failure);tick(c);eq(sent[#sent],'probe 105')
+end)
+test('recorder inventory revocation cannot send selected physical drain',function()
+ local c,sent=pooled();E.text(c,failure);tick(c)
+ c.state={record=function(_,_,cmd)
+  if cmd=='drain 101' then E.item(c,'Remove',{location='inv',item='101'});E.service(c) end
+ end}
+ probe(c,2);eq(#sent,2);eq(E.state(c).armed,false);eq(E.state(c).pending.targetID,'101')
+ eq(E.state(c).fault,'probed globe ownership lost');eq(E.state(c).committed,true)
+end)
+for name,block in pairs(blockers) do
+ test('pool zero successor retains readiness barrier: '..name,function()
+  local c,sent=pooled();E.text(c,failure);tick(c);zero(c);inv(c)
+  block(c);local n=#sent;E.prompt(c);tick(c);eq(#sent,n)
+  eq(E.state(c).pending.targetID,'101');eq(E.state(c).committed,nil)
+ end)
+end
+test('pool query has bounded timeout even if GLOBE owner is unarmed',function()
+ local c,sent=fixture();local timers={};local id=0
+ tempTimer=function(_,fn) id=id+1;timers[id]=fn;return id end
+ killTimer=function(n)timers[n]=nil end
+ enablepool(c);eq(E.state(c).armed,false);eq(type(next(timers)),'number')
+ clock=clock+12;local n,fn=next(timers);timers[n]=nil;fn()
+ eq(E.state(c).fault,'owned inventory query timeout');eq(next(timers),nil);eq(#sent,1)
+ E.detach(c);tempTimer=nil;killTimer=nil
+end)
+test('pool OFF cannot unpin an existing probe or hide its ownership removal',function()
+ for _,remove in ipairs({false,true}) do
+  local c,sent=pooled();E.text(c,failure);tick(c);local p=E.state(c).pending
+  E.pool_enable(c,false);eq(p.targetID,'101')
+  if remove then E.item(c,'Remove',{location='inv',item='101'}) end
+  probe(c,1)
+  if remove then eq(#sent,2);eq(E.state(c).fault,'probed globe ownership lost')
+  else eq(sent[#sent],'drain 101');eq(E.state(c).pending.targetID,'101') end
+ end
+end)
 print(string.format('elementals: %d tests, %d assertions passed',count,checks))

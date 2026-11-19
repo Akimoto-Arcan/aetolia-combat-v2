@@ -1,4 +1,6 @@
 local root=getMudletHomeDir().."/combat_v2/"
+local convenience=dofile(root.."travel_boot.lua")
+if combat_v2 and convenience.busy(combat_v2)then print("Reload refused: unresolved travel/inking retained");return end
 combat_v2=combat_v2 or {};local c=combat_v2
 for _,key in ipairs({"gmcp_handler","text_handler"}) do if c[key] then killAnonymousEventHandler(c[key]);c[key]=nil end end
 for _,id in ipairs(c.handlers or {}) do killAnonymousEventHandler(id) end
@@ -341,7 +343,7 @@ function combat_v2_buffs(action,rest)
     -- A saved wanted flag never grants current-session sensory opt-in.
     ok,why=c.buffs.select_sensory(c.current,key,value=="on")
     if not ok and c.buff_sensory_source.blocked_reason then why=c.buff_sensory_source.blocked_reason end
-    if not ok and value=="on"and not c.buff_sensory_source.blocked_reason then
+    if not ok and why~="CURABLE AFFLICTION: self-affliction retired" and value=="on"and not c.buff_sensory_source.blocked_reason then
      local d=c.buff_sensory_source;local need=key..":"..tostring(c.buffs.state(c.current).sensory_epoch or 0)
      if not d.requests[need]then
       d.requests[need]=true
@@ -770,4 +772,5 @@ c.ledger=dofile(root.."ledger.lua")
 c.supplies=dofile(root.."supplies.lua")
 c.supplies.bind_containers(c,function(command)return send(command)end)
 c.supplies.attach(c)
+local convenience_file=io.open(root.."convenience-settings.json","r");if convenience_file then convenience_file:close();local ok,why=convenience.attach(c);if not ok then print("Convenience: "..tostring(why))end end
 print("Combat V2 backend ready (OFF). t NAME; cv2 bash / pvp / assist; cv2 help; cv2 trace.")

@@ -87,6 +87,22 @@ assert(other.cards.player_afflictions.p.height>=280 and other.cards.enemy_afflic
 assert(other.cards.player_afflictions.p.x+other.cards.player_afflictions.p.width<other.cards.enemy_afflictions.p.x,'panels overlap')
 assert(border==650,'main console border not resized')
 assert(other.cards.player_afflictions.html:find('none observed',1,true),'missing explicit empty state')
+state.player.afflictions={blindness=true,deafness=true};state.target.afflictions={blindness=true,deafness=true}
+other.refresh(state,combat_v2.runner,combat_v2.cure)
+assert(other.cards.player_afflictions.html:find('[2]',1,true)and other.cards.player_afflictions.html:find('blindness',1,true)and other.cards.player_afflictions.html:find('deafness',1,true),'curable sensory afflictions missing from self display/count')
+assert(other.cards.enemy_afflictions.html:find('[2]',1,true)and other.cards.enemy_afflictions.html:find('blindness',1,true)and other.cards.enemy_afflictions.html:find('deafness',1,true),'enemy sensory tracking was hidden')
+assert(state.player.afflictions.blindness and state.player.afflictions.deafness,'render mutated authoritative afflictions')
+-- Both raw sensory entries participate in page count and reused callbacks.
+local saved_per_page=combat_v2_ui.per_page;combat_v2_ui.per_page=1
+combat_v2_ui.pages.player_afflictions=9;other.refresh(state,combat_v2.runner,combat_v2.cure)
+assert(other.cards.player_afflictions.html:find('[2]',1,true)and combat_v2_ui.pages.player_afflictions==2,'sensory paging/count wrong')
+other.create();combat_v2_ui.per_page=1
+other.buttons.player_afflictions_next.click();assert(combat_v2_ui.pages.player_afflictions==1,'reused callback omitted sensory page')
+assert(other.cards.player_afflictions.html:find('blindness',1,true),'blindness page hidden')
+other.buttons.player_afflictions_next.click();assert(combat_v2_ui.pages.player_afflictions==2 and other.cards.player_afflictions.html:find('deafness',1,true),'deafness page hidden')
+combat_v2_ui.per_page=saved_per_page
+state.player.afflictions={};state.target.afflictions={};other.refresh(state,combat_v2.runner,combat_v2.cure)
+
 for i=1,40 do state.player.afflictions[string.format('aff_%02d',i)]=true;state.target.afflictions[string.format('enemy_%02d',i)]=true end
 other.refresh(state,combat_v2.runner,combat_v2.cure)
 assert(other.cards.player_afflictions.html:find('[40]',1,true),'player count wrong')
@@ -293,33 +309,25 @@ repeat
  local page=archive_manager.page;reloaded.defense_page(1)
  if archive_manager.page==page then break end
 until false
-assert(archives==14 and seen_rows.daydream and seen_rows.blindness and seen_rows.deafness and seen_rows.cloak and seen_rows.nightsight and seen_rows.clarity and not seen_rows.weathering and not seen_rows.speed,'actual CLIENT projection lost Archivist/shared/sensory/tattoo/manual or included foreign/native')
--- CURATIVE rows are class-neutral, but a fresh-proof lease is checked again
--- on click, not merely at paint time. No sends/configuration from GUI.
+assert(archives==14 and seen_rows.daydream and not seen_rows.blindness and not seen_rows.deafness and seen_rows.cloak and seen_rows.nightsight and seen_rows.clarity and not seen_rows.weathering and not seen_rows.speed,'actual CLIENT projection lost class/shared/manual rows or included sensory/foreign/native')
+-- Even fresh legacy policy/stock proof cannot restore sensory defense controls.
 local sensory_clock=500;function getEpoch()return sensory_clock end
 local ap=archive_state.player;ap.balance=true;ap.equilibrium=true;ap.left_arm_balance=true;ap.right_arm_balance=true
 actual.vitals(archive_state,{herb='1',blind='0',deaf='0'})
 assert(actual.set_sensory_context(archive_state,{class='archivist',epoch=archive_state.buffs.sensory_epoch or 0,observed_at=500,herb='1',priorities={blindness=26,deafness=26},stocks={amaurosis=10,ototoxin=10},eating_allowed=true,curing_clear=true,barriers_clear=true}))
 reloaded.defense_page(0,'CLIENT')
-local sensory_click
+archive_state.buffs.wanted.blindness=true;archive_state.buffs.wanted.deafness=true
+archive_state.buffs.sensory_optin={blindness=true,deafness=true}
+local call_count=#calls
 repeat
- for _,row in ipairs(archive_manager.rows)do if row.key=='blindness'then assert(not row.toggle.hidden,'fresh shared sensory row not actionable');sensory_click=row.toggle.click end end
- if sensory_click then break end
- local page=archive_manager.page;reloaded.defense_page(1);assert(page~=archive_manager.page,'sensory goal missing from CLIENT')
+ for _,row in ipairs(archive_manager.rows)do if not row.info.hidden then assert(row.key~='blindness' and row.key~='deafness','retired sensory defense visible')end end
+ local page=archive_manager.page;reloaded.defense_page(1);if page==archive_manager.page then break end
 until false
-sensory_clock=506;local call_count=#calls
-assert(not sensory_click() and #calls==call_count,'stale sensory proof click dispatched')
+assert(not reloaded.defense_action('keep','blindness on') and not reloaded.defense_action('keep','deafness on') and #calls==call_count,'retired sensory GUI producer dispatched')
+sensory_clock=506
 reloaded.refresh_defenses(archive_state)
-for _,row in ipairs(archive_manager.rows)do if row.key=='blindness'then assert(row.toggle.hidden,'expired sensory row exposed fake ON')end end
 assert(not reloaded.defense_action('keep','daydream on') and #calls==dispatched and sends==0,'actual manual row dispatched')
--- Lost activation proof must never trap wanted ON; OFF only revokes local intent.
-archive_state.buffs.wanted.blindness=true;archive_state.buffs.sensory_optin={blindness=true}
-reloaded.refresh_defenses(archive_state)
-local off_visible=false
-for _,row in ipairs(archive_manager.rows)do if row.key=='blindness'then off_visible=not row.toggle.hidden end end
-assert(off_visible,'expired selected sensory goal hid WANTED OFF')
-assert(reloaded.defense_action('keep','blindness off'),'expired sensory evidence prevented local intent revocation')
-assert(not reloaded.defense_action('keep','blindness on'),'expired sensory evidence authorized ON')
+assert(archive_state.buffs.wanted.blindness==false and archive_state.buffs.wanted.deafness==false and not next(archive_state.buffs.sensory_optin),'GUI refresh retained obsolete saved intent')
 archive_state.buffs.wanted.mindseye=true;archive_state.buffs.tattoos.mindseye=nil
 assert(reloaded.defense_action('keep','mindseye off'),'missing ink prevented deselection')
 archive_state.buffs.wanted.toughness=true

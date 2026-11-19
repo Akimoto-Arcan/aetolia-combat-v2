@@ -57,6 +57,7 @@ function contract.set_group_known(s,group,list)contract_calls.lists[#contract_ca
 function contract.vitals()end
 function dofile(path)
  if contract_only and path:match('/buffs.lua$')then return contract end
+ if arg[2]=='legacy-sensory' and path:match('/buffs.lua$')then return realdofile((arg[0]:match('^(.*/)') or '')..'legacy_sensory_fixture.lua')(path) end
  if path:match('/gui.lua$')then return {create=function()end,refresh=function()end,show_defenses=function()shown=shown+1;return true end}end
  return realdofile(path)
 end
@@ -304,15 +305,16 @@ check(s.buffs.known.mindcloak and not s.buffs.known.cloak,'Telepathy Cloak becam
 text('You have the following tattoos:');text('Head: Boar Active');text('Left arm: Cloak Uses left: 2');text('Right leg: Mindseye Uses left: 2');prompt()
 check(M.availability(s,'cloak') and M.availability(s,'mindseye'),'actual TATTOOS/prompt did not populate ownership')
 local function defense_row(key)for _,r in ipairs(M.rows(s))do if r.key==key then return r end end end
+local function sensory_seen(k)local b=M.state(s);return b.have[k]==true or b.observed[k]==true end
 def('List',{});check(defense_row('boar').active==true and defense_row('boar').availability=='PASSIVE','active tattoo became phantom missing')
 gmcp.Char.Vitals.blind='1';gmcp.Char.Vitals.deaf='1';handlers['gmcp.Char.Vitals']()
-check(defense_row('blindness').active and defense_row('deafness').active,'actual fresh blind/deaf Vitals not ingested')
-def('List',{});check(defense_row('blindness').active,'DefList absence erased fresh blind flag')
+check(sensory_seen('blindness') and sensory_seen('deafness'),'actual fresh blind/deaf Vitals not ingested')
+def('List',{});check(sensory_seen('blindness'),'DefList absence erased fresh blind flag')
 text('Your blind defence has been stripped.');tick();tick()
-check(defense_row('blindness').active==false,'cached Vitals tick resurrected strip')
-def('List',{});check(defense_row('blindness').active==false,'cached Vitals positivity survived newer strip')
+check(sensory_seen('blindness')==false,'cached Vitals tick resurrected strip')
+def('List',{});check(sensory_seen('blindness')==false,'cached Vitals positivity survived newer strip')
 gmcp.Char.Vitals.blind='0';gmcp.Char.Vitals.deaf='0';handlers['gmcp.Char.Vitals']()
-check(defense_row('blindness').active==false and defense_row('deafness').active==false,'zero flags are truthy')
+check(sensory_seen('blindness')==false and sensory_seen('deafness')==false,'zero flags are truthy')
 check(not s.buffs.master and not s.buffs.sequence and #sent==before,'read-only group/ink/Vitals discovery armed or sent')
 for _,entry in ipairs(M.catalog)do if entry.drain and entry.key~='regeneration' then check(not s.buffs.wanted[entry.key],'new drain default ON')end end
 handlers['sysDisconnectionEvent']();check(next(s.buffs.tattoos)==nil and not s.buffs.known.mindcloak,'disconnect reused ink/group ownership')
@@ -423,6 +425,33 @@ local function sensory_frame(blind,deaf,variant)
   if i==20 then text('               brittle_skin]')end
  end
  text('Affs with priority 26 are ignored.')
+end
+if arg[2]~='legacy-sensory' then
+ -- Real bootstrap/public API: even fully funded, native-ignored stale goals
+ -- cannot select, withdraw, consume, or hide these curable afflictions.
+ combat_v2_stop();M.reset(s);afflist();resources();def('List',{})
+ for _,e in ipairs(M.catalog)do s.buffs.wanted[e.key]=false end
+ before=#sent
+ for _,k in ipairs({'blindness','deafness'})do
+  s.buffs.wanted[k]=true;s.buffs.sensory_optin=s.buffs.sensory_optin or {};s.buffs.sensory_optin[k]=true
+  check(not combat_v2_buffs('keep',k..' on'),'public API re-enabled retired affliction')
+  check(not M.select_sensory(s,k,true) and not M.toggle(s,k,true),'direct API re-enabled retired affliction')
+  check(not defense_row(k),'retired affliction defense row remains')
+ end
+ check(#sent==before,'rejected sensory selection sent an audit/action')
+ for _,name in ipairs({'blind','deaf'})do check(not M.toggle(s,name,true),'alias re-enabled retired affliction')end
+ combat_v2_buffs('start');combat_v2_buffs('on');tick();prompt();tick()
+ check(#sent==before and not s.buffs.pending,'saved opt-in restarted self-affliction')
+ gmcp.Char.Afflictions={List={{name='blindness'},{name='deafness'}}};handlers['gmcp.Char.Afflictions.List']()
+ check(s.player.afflictions.blindness and s.player.afflictions.deafness,'raw curable afflictions lost')
+ check(not defense_row('blindness') and not defense_row('deafness'),'raw afflictions re-added defense rows')
+ gmcp.Char.Afflictions={Remove={name='blindness'}};handlers['gmcp.Char.Afflictions.Remove']()
+ gmcp.Char.Afflictions.Remove={name='deafness'};handlers['gmcp.Char.Afflictions.Remove']()
+ check(not s.player.afflictions.blindness and not s.player.afflictions.deafness,'native cure removal not ingested')
+ check(#sent==before,'native cure fought by client')
+ print=realprint
+ realprint('PASS buffs production integration ('..n..' assertions): retired sensory public API, raw afflictions and native cure ingestion')
+ return
 end
 resources();before=#sent
 check(not M.availability(s,'blindness'),'no policy proof granted sensory goal')
@@ -596,4 +625,4 @@ text('Your cureset has changed.');check(not c.buff_sensory_source.policy and not
 c.buff_sensory_audit(false);sensory_frame(26,26);prompt();gmcp.Char.Status.class='Archivist';handlers['gmcp.Char.Status']()
 check(not c.buff_sensory_source.policy and not M.availability(s,'blindness'),'class change retained policy')
 for i=before+3,#sent do check(not sent[i]:match('^firstaid priority [a-z_]+ %d'),'sensory integration wrote affliction priorities')end
-print=realprint;print('PASS buffs integration '..n..' assertions: native 26-row sensory proof, bounded requests, honest freshness/epochs, interlocks, explicit opt-in, exact consumable pair, plus prior contracts')
+print=realprint;print('PASS legacy sensory integration fixture '..n..' assertions: native 26-row sensory proof, bounded requests, honest freshness/epochs, interlocks, explicit opt-in, exact consumable pair, plus prior contracts')

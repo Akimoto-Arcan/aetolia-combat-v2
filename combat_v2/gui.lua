@@ -289,7 +289,7 @@ function M.refresh_defenses(state)
    else row.toggle:hide()end
   end
  end
- p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE is observed, never inferred from wanted. OBSERVED rows are read-only.<br>FIRSTAID ON: saved priority or default P8 only after full priority snapshot; OFF = P26.<br>defup audit: native DEF priorities. defup sensory [stock]: read-only sensory proof.<br>CURATIVE needs ignored affliction P26 + fresh resources; selecting never arms MASTER.</span>"))
+ p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE is observed, never inferred from wanted. OBSERVED rows are read-only.<br>FIRSTAID ON: saved priority or default P8 only after full priority snapshot; OFF = P26.<br>defup audit: native DEF priorities.<br>Blindness/deafness are curable afflictions, not defenses. Mindseye provides one-time sensory protection.</span>"))
  return true
 end
 
@@ -504,12 +504,13 @@ function M.create()
  for _,k in ipairs({"player_afflictions","enemy_afflictions"}) do
   for _,direction in ipairs({"prev","next"}) do
    local key=k.."_"..direction
-   if not ui.buttons[key] then button(ui,key,direction=="prev" and "‹" or "›",function()
+   local click=function()
     local entries=sorted(k=="player_afflictions" and combat_v2.current.player.afflictions or combat_v2.current.target.afflictions)
     local pages=math.max(1,math.ceil(#entries/(ui.per_page or 1)))
     ui.pages[k]=((ui.pages[k] or 1)-1+(direction=="next" and 1 or -1))%pages+1
     combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure)
-   end) end
+   end
+   if not ui.buttons[key] then button(ui,key,direction=="prev" and "‹" or "›",click)else ui.buttons[key]:setClickCallback(click)end
   end
  end
  if not ui.buttons.enemy_afflictions_reset then button(ui,"enemy_afflictions_reset","RESET",function()local ok,why=combat_v2_reset_enemy_afflictions();if not ok and why then print(why)end end) end

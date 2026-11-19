@@ -52,6 +52,17 @@ local additions={
  {key='dodgemelee',label='Dodging (all)',group='avoidance',ability='dodging',command='dodge all',ids={'dodge'}},
  {key='divertmelee',label='Diversion (all)',group='avoidance',ability='diversion',command='divert all',ids={'diverting','diversion'}},
  {key='voice_recognition',label='Voice Recognition (passive)',ability='recognition',group='vision',passive=true},
+ -- Current AB: these five autoactivate on login, but fresh ink needs TOUCH.
+ -- A reported ACTIVE tattoo is never an activation budget. Only an explicit
+ -- positive Uses left row can authorize the conditional producer below.
+ {key='boar',group='tattoos',tattoo=true,login_auto=true,command='touch boar'},
+ {key='moon',group='tattoos',tattoo=true,login_auto=true,command='touch moon'},
+ {key='moss',group='tattoos',tattoo=true,login_auto=true,command='touch moss'},
+ {key='owl',group='tattoos',tattoo=true,login_auto=true,command='touch owl'},
+ {key='mountain',group='tattoos',tattoo=true,login_auto=true,command='touch mountain'},
+ {key='firefly',group='tattoos',tattoo=true,command='touch firefly'},
+ {key='flame',group='tattoos',tattoo=true,command='touch flame'},
+ {key='starburst',label='Starburst (consumed death protection)',group='tattoos',tattoo=true,command='touch starburst',cooldown_loss=120},
  {key='cloak',group='tattoos',tattoo=true,command='touch cloak'},
  {key='mindseye',label='Mindseye (one-time sensory protection)',group='tattoos',tattoo=true,default=true,command='touch mindseye',ids={'allsight'}}
 }
@@ -87,11 +98,9 @@ for _,e in ipairs(M.archivist_catalog) do
  e.reason=e.reason or 'Missing verified Archivist energy/number state; tracking only'
  M.catalog[#M.catalog+1]=e
 end
--- Explicit user-selected intentional affliction goals, not official DEF IDs.
+-- Retained only for raw sensory observations and committed-action settlement.
+-- Blindness/deafness are curable afflictions, never selectable defense goals.
 local sensory={blindness='amaurosis',deafness='ototoxin'}
-for _,k in ipairs({'blindness','deafness'}) do
- M.catalog[#M.catalog+1]={key=k,label=k=='blindness' and 'Blindness (intentional)' or 'Deafness (intentional)',class='shared',group='curatives',curative=true,self_afflicted=true,default=false,command='eat '..sensory[k],prepare='outc '..sensory[k]}
-end
 local passive_tattoos={boar=true,moon=true,moss=true,owl=true,mountain=true}
 local function now() return getEpoch and getEpoch() or os.clock() end
 local function norm(x) return tostring(x or ''):lower():gsub('[%s_%-]','') end
@@ -103,7 +112,7 @@ end
 -- Native FIRSTAID owns these IDs even when disabled. No commands in this catalog.
 M.native_catalog={}
 local native_order={'courage','density','fangbarrier','insomnia','levitation','rebounding','waterbreathing','instawake','arcane','harmony','speed','vigor'}
-local general_order={'blindness','deafness','insulation','temperance','venom_resistance','antivenin','daydream','cloak','clarity','deathsight','divertmelee','dodgemelee','divine_speed','hypersight','irongrip','metawake','thirdeye','shielded','vigilance','skywatch','tremorsense','recognition','selfishness','alertness','telesense','bolstered','safeguard','flame','firefly','mindseye','starburst','boar','moon','moss','owl'}
+local general_order={'insulation','temperance','venom_resistance','antivenin','daydream','cloak','clarity','deathsight','divertmelee','dodgemelee','divine_speed','hypersight','irongrip','metawake','thirdeye','shielded','vigilance','skywatch','tremorsense','recognition','selfishness','alertness','telesense','bolstered','safeguard','flame','firefly','mindseye','starburst','boar','moon','moss','owl'}
 local metadata={}
 for _,k in ipairs(native_order) do
  local e={key=k,label=k:sub(1,1):upper()..k:sub(2)}
@@ -111,10 +120,6 @@ for _,k in ipairs(native_order) do
 end
 for _,k in ipairs(general_order) do
  metadata[k]=metadata[k] or {key=k,label=k:gsub('_',' '):gsub('^%l',string.upper)};aliases[norm(k)]=k
-end
-for _,k in ipairs({'blindness','deafness'}) do
- metadata[k].self_afflicted=true
- metadata[k].reason='Explicit opt-in requires fresh cure-ignore, herb and stock proof; Mindseye is not blind vision'
 end
 metadata.mountain={key='mountain',label='Mountain'}
 general_order[#general_order+1]='mountain'
@@ -141,8 +146,8 @@ local curatives={
 for _,c in ipairs(curatives) do
  M.curative_catalog[#M.curative_catalog+1]={key=c[1],kind='official_defence',source=c[2],producer=c[3],delivery=c[4],class='shared',owner=M.native_catalog[c[1]] and 'FIRSTAID' or c[1]=='daydream' and 'CURATIVE MANUAL' or 'SKILL'}
 end
-for _,k in ipairs({'blindness','deafness'}) do M.curative_catalog[#M.curative_catalog+1]={key=k,kind='intentional_affliction',source='Herbalism',producer=sensory[k],delivery='consumed',class='shared',owner='CURATIVE'} end
 aliases.blind='blindness';aliases.deaf='deafness'
+aliases.blindness='blindness';aliases.deafness='deafness'
 local function key(x)
  if type(x)=='table' then x=x.name or x.id or x.key end
  return aliases[norm(x)]
@@ -175,6 +180,13 @@ function M.state(s)
    defs_known=false,cancel={},cooldown={},retry={},prompt=0,status='disarmed'}
  end
  local b=s.buffs
+ -- Revoke obsolete saved intent without clearing a committed pending barrier.
+ for k in pairs(sensory) do if not index[k] then
+  b.wanted[k]=false
+  if b.sensory_optin then b.sensory_optin[k]=nil end
+  if b.todo then b.todo[k]=nil end
+  if b.cancel then b.cancel[k]=nil end
+ end end
  if b.class_schema~='monk-archivist-v1' then
   b.class_schema='monk-archivist-v1';b.wanted.recognition=false;b.wanted.voice_recognition=false
   for _,e in ipairs(M.archivist_catalog) do b.wanted[e.key]=false end
@@ -212,6 +224,7 @@ function M.rows(s)
   local k=observed_key(id);if k and yes(v) then positive[k]=true end
  end
  local function add(k,e)
+  if sensory[k] and not index[k] then return end
   if seen[k] then return end;seen[k]=true
   local active
   if b.have[k] or b.observed[k] or positive[k] then active=true elseif b.defs_known or (passive_tattoos[k] and b.observed[k]==false) or b.vitals_flags[k]==false then active=false end
@@ -225,7 +238,7 @@ function M.rows(s)
   rows[#rows+1]={key=k,label=e and e.label or k,active=active,wanted=wanted,
    owner=e and e.curative and 'CURATIVE' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or e and e.owner or class and (e.class=='archivist' and 'ARCHIVIST' or e.class=='monk' and 'MONK' or 'SKILL') or tattoo and 'TATTOO' or 'UNAVAILABLE',
    control=native and 'native' or class and not e.passive and not e.tracking_only and 'class' or 'observed',priority=pri,drain=e and e.drain==true or false,
-   available=available,availability=reason,group=e and e.group,passive=e and e.passive or tattoo and tattoo.active,
+   available=available,availability=reason,group=e and e.group,passive=e and e.passive or e and e.login_auto and tattoo and tattoo.active,
    required=k=='mindseye',class=e and e.class or 'shared',relevant=not class or in_class(b,e),tracking_only=e and e.tracking_only or k=='daydream',
    off=e and e.off,requires_full=e and e.requires_full,cooldown_loss=e and e.cooldown_loss,cooldown_activation=e and e.cooldown_activation}
  end
@@ -314,6 +327,7 @@ end
 function M.invalidate(s)
  local b=M.state(s);b.known={};b.groups={};b.tattoos={};b.tattoos_ready=false;b.tattoo_listing=nil;b.vitals_flags={};b.flag_sources={};b.known_ready=false
  b.sensory_context=nil;b.herb=nil;b.sensory_optin={};b.sensory_epoch=(b.sensory_epoch or 0)+1
+ b.starburst_optin=nil;b.starburst_clock_known=nil
  b.observed={};b.have={};b.defs_known=false;b.ability_listing=nil;b.immunity_clock_known=false
  b.native_priorities={};b.native_full_required=true;b.native_listing=nil;b.native_version=(b.native_version or 0)+1
  if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false
@@ -360,6 +374,7 @@ function M.set_sensory_context(s,c)
 end
 function M.sensory_ready(s,k)
  local b=M.state(s);local c=b.sensory_context
+ if sensory[k] and not index[k] then return false,'CURABLE AFFLICTION: self-affliction retired' end
  if not sensory[k] or not c or c.class~=b.class or c.epoch~=(b.sensory_epoch or 0) or now()<c.observed_at or now()-c.observed_at>5 then return false,'UNKNOWN: fresh sensory policy/resource proof required' end
  if c.priorities[k]~=26 then return false,'UNKNOWN/ACTIVE: native affliction cure must be ignored at priority 26' end
  if b.vitals_flags[k]==nil and not b.have[k] then return false,'UNKNOWN: current sensory flag required' end
@@ -373,6 +388,7 @@ end
 function M.select_sensory(s,k,on)
  local b=M.state(s)
  if not sensory[k] or type(on)~='boolean' then return false,'Expected sensory goal and boolean' end
+ if on and not index[k] then return false,'CURABLE AFFLICTION: self-affliction retired' end
  if on and (not in_class(b,index[k]) or not M.sensory_ready(s,k)) then return false,'Fresh sensory cure-ignore/resource proof required' end
  b.sensory_optin=b.sensory_optin or {};b.sensory_optin[k]=on;b.wanted[k]=on
  if not on and b.todo then b.todo[k]=nil end
@@ -380,6 +396,7 @@ function M.select_sensory(s,k,on)
 end
 function M.availability(s,k)
  local b=M.state(s);local e=index[k]
+ if sensory[k] and not e then return false,'CURABLE AFFLICTION: self-affliction retired' end
  if M.native_catalog[k] then return true,'NATIVE' end
  if e and not in_class(b,e) then return false,'CLASS-SPECIFIC: '..tostring(e.class)..' only' end
  if e and e.curative then return M.sensory_ready(s,k) end
@@ -387,6 +404,23 @@ function M.availability(s,k)
  if e and e.passive then return false,b.known[k] and 'PASSIVE' or 'NOT LEARNED' end
  if e and e.tattoo then
   local t=b.tattoos[k]
+  if t and t.active and not e.login_auto then return false,'ACTIVE: tattoo already activated' end
+  if e.login_auto then
+   if t and t.active then return false,'PASSIVE' end
+   if not (b.tattoos_ready and t and t.touchable==true and t.active==false and (t.charges or 0)>0) then
+    return false,'UNKNOWN: fresh inactive ink with explicit Uses left required; ACTIVE/login/removal grants no TOUCH'
+   end
+  end
+  if k=='starburst' then
+   if not b.defs_known or not b.starburst_clock_known then return false,'UNKNOWN: current death protection/cooldown required' end
+   -- Legacy AC2 conflated these protections with Starburst. Do not port its
+   -- auto-touch triggers or infer absence from a partial text DEF report.
+   local conflicts={starburst=true,soulcage=true,rebirth=true,substitute=true,soul_substitute=true,soulstore=true,soul_store=true,soulstored=true,soul_storage=true,death_protection=true,resurrection=true,reincarnation=true}
+   for _,map in ipairs({b.have,b.observed,(s.player or {}).defences or {}}) do
+    for id,on in pairs(map) do if yes(on) and conflicts[tostring(id):lower():gsub('[ %-]','_')] then return false,'ACTIVE: death protection already present' end end
+   end
+   if (b.cooldown.starburst or 0)>now() then return false,'UNKNOWN/COOLDOWN: wait two minutes before Starburst' end
+  end
   return t~=nil and (t.charges or 0)>0,b.tattoos_ready and (t and (t.charges or 0)>0 and 'AVAILABLE' or 'UNAVAILABLE: no charged tattoo') or 'UNKNOWN: fresh TATTOOS required'
  end
  if e then
@@ -418,15 +452,20 @@ local function observe(s,k,on)
   -- A snapshot crossing any tattoo event cannot prove current ink/status.
   b.tattoo_version=(b.tattoo_version or 0)+1
   if tattoo then
-   if not on then tattoo.active=false
+   if not on then
+    tattoo.active=false
+    -- A missing/faded autoactivated tattoo is not freshly inked ownership.
+    if passive_tattoos[k] then tattoo.charges=nil;tattoo.touchable=nil;b.known[k]=nil end
    elseif e and e.tattoo and not (b.pending and b.pending.key==k and b.pending.tattoo_debited) then
     -- External activation has no correlated debit. Revoke, never guess stock;
     -- repeated own gain lines are harmless and cannot restore authorization.
-    tattoo.charges=nil;b.known[k]=nil
+    tattoo.charges=nil;tattoo.touchable=nil;b.known[k]=nil
    end
+   if on and passive_tattoos[k] then tattoo.active=true;tattoo.touchable=nil end
   end
  end
  if index[k] then b.have[k]=on or nil else b.observed[k]=on or false end
+ if passive_tattoos[k] then b.observed[k]=on or false end
  local p=s.player or {};p.defences=p.defences or {};s.player=p
  -- Keep legacy identifiers consumed by mental.lua coherent, without replacing
  -- generic GMCP defences (which include many unrelated abilities).
@@ -452,12 +491,16 @@ local function observe(s,k,on)
 end
 local function snapshot(s,have)
  local b=M.state(s)
+ if not b.starburst_clock_known then
+  b.cooldown.starburst=math.max(b.cooldown.starburst or 0,now()+120);b.starburst_clock_known=true
+ end
  if not b.immunity_clock_known then
   b.cooldown.immunity=math.max(b.cooldown.immunity or 0,now()+120);b.immunity_clock_known=true
  end
  for _,e in ipairs(M.catalog) do
   -- Missing vitality in a first snapshot is NOT evidence it was triggered.
   if e.curative then have[e.key]=b.have[e.key] or nil
+  elseif e.login_auto and b.tattoos[e.key] and b.tattoos[e.key].active then have[e.key]=have[e.key] or b.have[e.key] or nil
   elseif have[e.key] or b.have[e.key] or canonical_have(s,e.key) then observe(s,e.key,have[e.key]==true) end
  end
  b.have=have;b.defs_known=true;b.defs_at=now()
@@ -561,6 +604,10 @@ local extra_up={
  dodgemelee={'You begin to focus your efforts on dodging all attacks.','You are dodging all attacks.','You are already dodging all attacks.','You begin to focus your efforts on dodging melee attacks.'},
  divertmelee={'You begin to focus your efforts on diverting damage from all attacks.','You are diverting all attacks.','You are already diverting all attacks.'},
  cloak={'You caress the tattoo and immediately you feel a cloak of protection surround you.'},
+ boar={'Your boar tattoo has been activated.'},moon={'Your moon tattoo has been activated.'},
+ moss={'Your moss tattoo has been activated.'},owl={'Your owl tattoo has been activated.'},
+ firefly={'You touch the firefly tattoo and suddenly your surroundings are alight.','You use Tattoos Firefly.'},
+ flame={'You use Tattoos Flame.'},
  mindseye={'Touching the mindseye tattoo, your senses are suddenly heightened.','You use Tattoos Mindseye.','You are already using the mindseye defense.'},
  blindness={'Your eyes dim as you lose your sight.','It has no effect. You are already blind.'},
  deafness={'It has no effect. You are already deaf.'},
@@ -684,8 +731,11 @@ function M.text(s,line)
   local active=line:match('^[%a ]+:%s+(%a+)%s+Active%s*$')
   local k=name and norm(name) or active and norm(active)
   if k then
-   local t=b.tattoo_listing[k] or {charges=0};b.tattoo_listing[k]=t
-   t.charges=t.charges+(tonumber(count) or 0);t.active=t.active or active~=nil
+   local t=b.tattoo_listing[k] or {charges=0,active=false};b.tattoo_listing[k]=t
+   local n=tonumber(count)
+   if n and (n==math.huge or n<0 or n%1~=0) then b.tattoo_listing_uncertain=true;return end
+   t.charges=t.charges+(n or 0);t.active=t.active or active~=nil
+   t.touchable=not t.active and n~=nil and t.charges>0
    return
   end
  end
@@ -714,6 +764,8 @@ function M.text(s,line)
   line:match('^Your ([%a_ %-]+) defence is degraded away%.$')
  if name then k=observed_key(name);if k then observe(s,k,false) end;return end
  if b.pending and (line=='You must regain balance first.' or line=='You must regain equilibrium first.' or
+  b.pending.key=='firefly' and line=='You cannot activate your firefly tattoo again just yet.' or
+  b.pending.key=='flame' and line=='You have no flame.' or
   line=='You do not possess that ability.' or line=='You have not learned that ability.' or line=='You do not know that ability.' or
   line=='You know of no such ability.' or line=='You cannot perform that ability.' or line=='You have not yet learned that ability.') then
   if b.pending.key=='immunity' then
@@ -786,7 +838,7 @@ function M.master(s,on)
 end
 function M.toggle(s,name,on)
  local b=M.state(s);local k=key(name);local e=k and index[k]
- if e and e.curative then return M.select_sensory(s,k,on) end
+ if sensory[k] then return M.select_sensory(s,k,on) end
  if not e then return false,k and metadata[k] and metadata[k].reason or 'Unknown defence' end
  if M.native_catalog[k] then return false,'Native FIRSTAID owns this defence' end
  if not in_class(b,e) or e.tracking_only then return false,select(2,M.availability(s,k)) end
@@ -795,9 +847,11 @@ function M.toggle(s,name,on)
  if on and not M.availability(s,k) then return false,select(2,M.availability(s,k)) end
  if on then
   local ok,why=M.master(s,true);if not ok then return false,why end
+  if k=='starburst' then b.starburst_optin=true end
   b.wanted[k]=true;b.cancel[k]=nil;return true,why
  end
  b.wanted[k]=false
+ if k=='starburst' then b.starburst_optin=nil end
  if b.todo then b.todo[k]=nil end
  -- Queue even if currently absent: a preceding in-flight ON can still succeed.
  if e.off then b.cancel[k]=true;return true,e.label..' off queued (confirmation required)' end
@@ -809,6 +863,15 @@ function M.on_prompt(s)
   if b.tattoo_listing_version==(b.tattoo_version or 0) and not b.tattoo_listing_uncertain and
    not (b.pending and b.pending.tattoo_debited) then
    b.tattoos=b.tattoo_listing;b.tattoos_ready=true
+   -- Fresh report status replaces earlier autoactivated positives. An ACTIVE
+   -- row still has zero/unknown uses; never manufacture a charge for it.
+   for k in pairs(passive_tattoos) do
+    local t=b.tattoos[k]
+    if not (t and t.active) then
+     b.have[k]=nil;b.observed[k]=false
+     for id in pairs((s.player or {}).defences or {}) do if observed_key(id)==k then s.player.defences[id]=nil end end
+    end
+   end
   end
   b.tattoo_listing=nil
   for _,e in ipairs(M.catalog) do if e.tattoo then
@@ -825,7 +888,10 @@ local function percent(v,max)
  return 100*v/max
 end
 local function eligible(s,b,e)
+ -- Public catalog tables are metadata, not authority to reintroduce a producer.
+ if sensory[e.key] and index[e.key]~=e then return false,'Retired self-affliction producer' end
  if e.curative and not (b.sensory_optin and b.sensory_optin[e.key]) then return false,'Explicit sensory opt-in required' end
+ if e.key=='starburst' and b.starburst_optin~=true then return false,'Explicit current-session Starburst opt-in required' end
  local p=s.player;local hp=percent(p.hp,p.maxhp);local mp=percent(p.mana,p.maxmana)
  if not hp or not mp or hp<65 or mp<50 then return false,'resources' end
  if e.requires_full and (hp<100 or mp<100) then return false,'full HP and mana required' end
@@ -848,7 +914,7 @@ local function send_checked(b,sender,command)
  if not ok or result==false then fault(b,'Buff send failed: '..tostring(result)..'; review/reset required');return false end
  return true
 end
-local function service(s,runner,sender,hold)
+local function service(s,runner,sender,hold,policy)
  local b=M.state(s);local t=now()
  if not M.supported_class(b.class) or not connected(s) or s.training_battle_ended then
   M.stop(s,'disconnected/dead/class/training stop');M.invalidate(s)
@@ -875,6 +941,8 @@ local function service(s,runner,sender,hold)
   end
   return {busy=true,status=b.fault or 'awaiting buff confirmation and ready prompt'}
  end
+ -- Suppression survives state/reentrant settlement: no discovery, OFF or TOUCH.
+ if policy then return {busy=false,status='convenience action unresolved'} end
  if b.fault then return {busy=false,status=b.fault} end
  if not b.master and not b.sequence and not next(b.cancel) then return {busy=false,status=b.status} end
  local can_cancel=false
@@ -964,11 +1032,11 @@ local function service(s,runner,sender,hold)
  b.status=b.fault or 'sent: '..command
  return {busy=true,status=b.status}
 end
-function M.service(s,runner,sender,hold)
+function M.service(s,runner,sender,hold,policy)
  local b=M.state(s)
  if b.servicing then return {busy=b.pending~=nil,status='buff service reentrant; deferred'} end
  b.servicing=true
- local ok,result=pcall(service,s,runner,sender,hold)
+ local ok,result=pcall(service,s,runner,sender,hold,policy)
  b.servicing=false
  if not ok then fault(b,'Buff service error: '..tostring(result)..'; review/reset required');return {busy=b.pending~=nil,status=b.fault} end
  return result
