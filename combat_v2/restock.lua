@@ -556,8 +556,25 @@ function M.adapter(c,api)
  local function view()
   if c.travel and c.travel.io and c.travel.io.mount_deferred then c.travel.io.mount_deferred() end
   local s=c.current or {};local p=s.player or {};local r=c.runner or {};local b=s.buffs or {};local m=s.mental or {};local w=s.walker or {};local g=c.elemental_recovery or {};local cd=c.containers_data or {};local tr=c.travel_owner or {};local root=r.root or c.root or {}
-  local q=g.pool or {};local exhausted=g.fault=='all carried globes exhausted' and q.enabled==true and q.known==true and q.ever_owned==true and not q.query
-  if exhausted then for id in pairs(q.owned or {}) do if not (q.exhausted or {})[id] then exhausted=false end end end
+  local q=g.pool or {};local exhausted=false
+  local terminal=c.travel_module and c.travel_module.terminal_globe_exhaustion
+  if terminal~=nil then
+   if type(terminal)=='function' then local ok,v=pcall(terminal,c);exhausted=ok and v==true end
+  else
+   -- Legacy standalone adapters have no travel module. Only their fully known
+   -- pool can qualify; missing helpers never infer revoked inventory authority.
+   local gp=g.pending
+   local unsent=gp and gp.phase==g.phase and ((g.phase=='waiting' and gp.kind==nil) or (g.phase=='normal' and gp.kind==nil))
+   exhausted=g.fault=='all carried globes exhausted' and g.armed==false and not g.committed and not g.dispatching and (not gp or unsent) and q.enabled==true and q.known==true and q.ever_owned==true and q.query==nil and not q.dispatching and type(q.owned)=='table' and type(q.exhausted)=='table'
+   if exhausted then
+    local count=0
+    for key,value in pairs(q.owned) do
+     count=count+1
+     local number=tonumber(key)
+     if count>32 or type(key)~='string' or not number or number<=0 or number~=math.floor(number) or string.format('%.0f',number)~=key or value~=true or q.exhausted[key]~=true then exhausted=false;break end
+    end
+   end
+  end
   local blocked=c.transport_unknown or root.transport_unknown or root.dispatching or root.action_dispatching or r.pending or r.waiting or r.dispatching or r.fault or r.transport_unknown or r.transport_barrier or b.pending or b.fault or b.dispatching or m.eq_pending or m.pending or m.physical_transport or m.fault or m.dispatching or w.pending or w.fault or w.dispatching or cd.barrier or cd.action_dispatching or g.committed or g.dispatching or tr.pending or tr.dispatching or tr.intent or tr.route or tr.fault or tr.follow_fault or tr.follow_pending or tr.follow_due or tr.recall_due
   -- Known unsent waiting/normal and read-only probes remain intact; unknown phases block.
   if g.pending and not ((g.phase=='probe' and g.pending.phase=='probe' and g.pending.kind=='recovery') or (g.phase=='waiting' and not g.pending.kind) or (g.phase=='normal' and not g.pending.kind)) then blocked=true end
@@ -577,6 +594,8 @@ function M.adapter(c,api)
   local pol=s.policy or {}
   local xp=c.xp_globe_cutoff;local globe_allowed=not(xp and xp.enabled and xp.triggered)
   local desired=g.desiredOnCurrent;if desired==nil then desired=g.armed==true end
+  -- A closed exhausted owner is not authority to restore stale GLOBE intent.
+  if exhausted and desired==true and not (q.enabled==true and q.known==true and not q.query) then rd=false end
   return {full_resources=(tonumber(p.maxhp) or 0)>0 and (tonumber(p.maxmana) or 0)>0 and (tonumber(p.hp) or 0)>=(tonumber(p.maxhp) or math.huge) and (tonumber(p.mana) or 0)>=(tonumber(p.maxmana) or math.huge),globe_desired=desired,globe_resume_allowed=globe_allowed,class=p.class,globe_armed=g.armed==true,upkeep_master=b.master==true,globe_pool_ready=not (c.elementals and c.elementals.pool_enable) or (q.enabled==true and q.known==true and not q.query),mode=c.mode,room=room.id,area=room.area,session=c.session_generation or s.session_generation or s.session_id,intent_epoch=c.restock_intent_epoch,ih_evidence=ih,item_version=room.item_version,connected=connected() and yes(s.connected),dead=yes(p.dead) or (tonumber(p.hp) or 0)<=0,ready=rd,blocked=blocked,empty=empty,room_known=known==true,mounted=p.mounted~=false and tonumber(p.mounted)~=0,hp_percent=(tonumber(p.maxhp) or 0)>0 and p.hp/p.maxhp*100 or nil,players_known=pol.players_known==true,players_room=pol.players_room,players=pol.players,self_name=pol.self_name,
    supplies_busy=c.supplies_data and c.supplies_data.pending,globes_exhausted=exhausted,globe_fault=g.fault,travel_refusal=tr.refusal,travel_fault=tr.fault or tr.follow_fault,travel_idle=tr.phase=='idle' and not (tr.pending or tr.dispatching or tr.intent or tr.route or tr.follow_pending or tr.follow_due or tr.recall_due),globe_idle=not g.pending and not g.committed and not g.fault and (g.phase==nil or g.phase=='idle')}
  end

@@ -491,6 +491,7 @@ test('valid unsolicited owned full waits for later prompt when no query sent',fu
  sendGMCP=prior
 end)
 test('Globe OFF terminal exhaustion passes real walker gate and owned ordinary route',function()
+ for _,closed in ipairs({false,true})do
  for _,walking in ipairs({false,true})do
   local c,s,t,d=fresh(false,'{"haven_room":"73077","globe_haven_return":true}')
   c.supplies.stock(c,'health',199,'offline low cache');c.supplies.stock(c,'ic:anabiotic',1200,'offline low cache')
@@ -498,6 +499,10 @@ test('Globe OFF terminal exhaustion passes real walker gate and owned ordinary r
   local g=c.elemental_recovery
   g.armed=false;g.fault='all carried globes exhausted';g.phase='waiting';g.pending={phase='waiting'}
   g.pool={enabled=true,known=true,ever_owned=true,owned={},exhausted={}}
+  if closed then
+   g.phase='idle';g.status='disarmed';g.pending=nil
+   g.pool.enabled=false;g.pool.known=false;g.pool.dispatching=false
+  end
   local pending=g.pending;local pool=g.pool
   eq(t.io.view().ready,true,'restock view recognizes terminal exhaustion')
   eq(c.travel_module.blocked(c),false,'travel admits only proven non-transport terminal diagnostic')
@@ -522,6 +527,59 @@ test('Globe OFF terminal exhaustion passes real walker gate and owned ordinary r
   -- Existing native mode-OFF disarm may discard known unsent intent after
   -- acquisition; neither pure classifier nor the resource gate does so.
   eq(g.fault,'all carried globes exhausted');eq(g.pool,pool);eq(g.armed,false)
+ end
+ end
+end)
+local function retired(c)
+ local g=c.elemental_recovery
+ g.armed=false;g.phase='idle';g.status='disarmed';g.pending=nil;g.committed=nil;g.dispatching=nil;g.fault='all carried globes exhausted'
+ g.pool={enabled=false,known=false,ever_owned=true,owned={},exhausted={},query=nil,dispatching=false,room=71001}
+ return g
+end
+test('closed exhausted owner OFF monitor remains entirely passive',function()
+ local c,s,t,d=fresh();assert(combat_v2_set_mode('OFF'));local g=retired(c);local pool=g.pool
+ local prior=sendGMCP;local queries=0;sendGMCP=function()queries=queries+1;return true end
+ assert(combat_v2_restock('on'));local before=#sent
+ for i=1,5 do clock=clock+1;prompt();c.travel.tick();t.tick()end
+ eq(#sent,before);eq(queries,0);eq(c.mode,'OFF');eq(g.armed,false);eq(pool.enabled,false);eq(pool.known,false);eq(g.pool,pool);eq(g.fault,'all carried globes exhausted');eq(d.enabled,true)
+ local view=t.io.view();eq(view.globes_exhausted,true);eq(view.globe_pool_ready,false);eq(view.globe_desired,false);eq(view.globe_fault,g.fault)
+ sendGMCP=prior
+ -- Later explicit BASH consent may start only the ordinary native route.
+ combat_v2_set_mode('BASH');eq(c.mode,'BASH');eq(g.armed,false)
+ inspect(c,{MOUNT});t.tick();eq(d.fault,nil);eq(d.pending.kind,'route');eq(d.destination,'12669');eq(d.resume_globe,false)
+ eq(count('exit haven'),0);eq(count('return to haven'),0);eq(count('summon elemental'),0);eq(count('drain globe'),0)
+end)
+test('restock shares typed helper and retains independent resource fences',function()
+ for _,why in ipairs({'valid','missing','wrongtype','nontyped','throw','false','legacy','legacy_wrongtype','legacy_nontyped','legacy_throw','legacy_false','root','transport','defense','pending','commit','query','probe','stale_desired'})do
+  local c,s,t,d=fresh(false,'{"haven_room":"73077","globe_haven_return":true}');local g=retired(c)
+  if why=='missing'then c.travel_module.terminal_globe_exhaustion=nil
+  elseif why=='wrongtype'then c.travel_module.terminal_globe_exhaustion=true
+  elseif why=='nontyped'then c.travel_module.terminal_globe_exhaustion=function()return 'true'end
+  elseif why=='throw'then c.travel_module.terminal_globe_exhaustion=function()error('synthetic classifier failure')end
+  elseif why=='false'then c.travel_module.terminal_globe_exhaustion=function()return false end
+  elseif why=='legacy'then c.travel_module=nil;g.pool.enabled=true;g.pool.known=true
+  elseif why=='root'then c.runner.root={transport_unknown=true}
+  elseif why=='transport'then c.transport_unknown=true
+  elseif why=='defense'then c.defense.plan=function()return {hold=true}end
+  elseif why=='pending'then g.pending={};g.phase='waiting'
+  elseif why=='commit'then g.committed=true
+  elseif why=='query'then g.pool.query={}
+  elseif why=='probe'then g.phase='probe';g.pending={phase='probe',kind='recovery'}
+  elseif why=='stale_desired'then g.desiredOnCurrent=true end
+  local legacy=why:match('^legacy')~=nil
+  if legacy and why~='legacy'then
+   g.pool.enabled=true;g.pool.known=true
+   if why=='legacy_wrongtype'then c.travel_module.terminal_globe_exhaustion=true
+   elseif why=='legacy_nontyped'then c.travel_module.terminal_globe_exhaustion=function()return 'true'end
+   elseif why=='legacy_throw'then c.travel_module.terminal_globe_exhaustion=function()error('synthetic fully-known helper failure')end
+   else c.travel_module.terminal_globe_exhaustion=function()return false end end
+  end
+  local view=t.io.view()
+  eq(view.ready,why=='valid'or why=='legacy','restock view '..why)
+  eq(view.globe_pool_ready,legacy,'no invented inventory authority '..why)
+  if why=='stale_desired'then
+   inspect(c,{MOUNT});assert(combat_v2_restock('on'));local before=#sent;t.tick();eq(d.pending,nil);eq(#sent,before);eq(count('exit haven'),0);eq(g.armed,false)
+  end
  end
 end)
 test('terminal exhaustion exception rejects unknown pool pending and physical commitments',function()

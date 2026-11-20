@@ -342,6 +342,10 @@ end
 -- fault/pending bookkeeping and never admits an outstanding inventory query.
 function M.terminal_globe_exhaustion(c)
  local g=c.elemental_recovery or {};local gp=g.pending;local q=g.pool
+ -- Explicit OFF revokes live pool authority but can leave a settled exhausted
+ -- owner diagnostic. This proves no resources or actions, never inventory readiness.
+ local closed=g.fault=='all carried globes exhausted' and g.armed==false and g.phase=='idle' and g.status=='disarmed' and gp==nil and not g.committed and not g.dispatching and not g.transport_unknown and type(q)=='table' and q.enabled==false and q.known==false and q.ever_owned==true and type(q.owned)=='table' and next(q.owned)==nil and type(q.exhausted)=='table' and q.query==nil and q.dispatching==false and not q.transport_unknown
+ if closed then return true end
  local known_unsent=gp and gp.phase==g.phase and ((g.phase=='waiting' and gp.kind==nil) or (g.phase=='normal' and gp.kind==nil))
  local exhausted=g.fault=='all carried globes exhausted' and g.armed==false and not g.committed and not g.dispatching and (not gp or known_unsent) and type(q)=='table' and q.enabled==true and q.known==true and q.ever_owned==true and q.query==nil and not q.dispatching and type(q.owned)=='table' and type(q.exhausted)=='table'
  if exhausted then

@@ -45,4 +45,42 @@ local Reload=dofile(root..'travel.lua');eq(Reload.bind_session(native,api),true)
 hook();assert(native.haven_session_token~=token)
 native.travel={state={pending={kind='go'}},unresolved=function()return true end};eq(T.detach(native),false);eq(removed,0)
 native.travel={state={},unresolved=function()return false end};eq(T.detach(native),true);eq(removed,1);eq(native.haven_session_token,nil)
+-- Closed-owner diagnostic carries no live inventory authority and has no IO.
+local function closed()
+ return {elemental_recovery={armed=false,phase='idle',status='disarmed',fault='all carried globes exhausted',pool={enabled=false,known=false,ever_owned=true,room=71001,owned={},exhausted={},dispatching=false}}}
+end
+local mutations={
+ armed=function(g)g.armed=true end,missing_armed=function(g)g.armed=nil end,
+ phase=function(g)g.phase='waiting'end,status=function(g)g.status='idle'end,
+ fault=function(g)g.fault='unknown transport'end,pending=function(g)g.pending={}end,
+ probe=function(g)g.phase='probe';g.pending={phase='probe',kind='recovery'}end,
+ committed=function(g)g.committed=true end,dispatching=function(g)g.dispatching=true end,
+ transport=function(g)g.transport_unknown={}end,pool=function(g)g.pool=nil end,
+ enabled=function(g)g.pool.enabled=true end,known=function(g)g.pool.known=true end,
+ missing_enabled=function(g)g.pool.enabled=nil end,missing_known=function(g)g.pool.known=nil end,
+ ever_owned=function(g)g.pool.ever_owned=false end,missing_owned=function(g)g.pool.owned=nil end,
+ owned=function(g)g.pool.owned['88002']=true;g.pool.exhausted['88002']=true end,
+ false_owned=function(g)g.pool.owned['88002']=false end,
+ exhausted=function(g)g.pool.exhausted=nil end,query=function(g)g.pool.query={}end,
+ false_query=function(g)g.pool.query=false end,pool_dispatch=function(g)g.pool.dispatching=true end,
+ missing_dispatch=function(g)g.pool.dispatching=nil end,pool_transport=function(g)g.pool.transport_unknown={}end
+}
+local settled=closed();local g=settled.elemental_recovery;local pool=g.pool
+pool.quarantine='preserved diagnostic'
+eq(T.terminal_globe_exhaustion(settled),true);eq(T.blocked(settled),false)
+eq(g.pool,pool);eq(pool.quarantine,'preserved diagnostic');eq(pool.known,false);eq(pool.enabled,false);eq(g.fault,'all carried globes exhausted')
+for name,mutate in pairs(mutations)do
+ local c=closed();mutate(c.elemental_recovery)
+ eq(T.terminal_globe_exhaustion(c),false)
+end
+for _,field in ipairs({'armed','phase','status','fault','pool'})do
+ local c=closed();c.elemental_recovery[field]=nil;eq(T.terminal_globe_exhaustion(c),false)
+end
+for _,field in ipairs({'enabled','known','ever_owned','owned','exhausted','dispatching'})do
+ local c=closed();c.elemental_recovery.pool[field]=nil;eq(T.terminal_globe_exhaustion(c),false)
+end
+for _,field in ipairs({'fault','transport_unknown','dispatching','action_dispatching','transportBarriers','transport_barriers','transport_barrier','transport_commit'})do
+ local c=closed();c.root={[field]={unknown=true}}
+ eq(T.terminal_globe_exhaustion(c),true);eq(T.blocked(c),true)
+end
 print('travel_cooldown: '..n..' assertions passed (offline only)')
