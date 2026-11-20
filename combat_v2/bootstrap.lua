@@ -9,6 +9,7 @@ for _,key in ipairs({"alias","target_alias"}) do if c[key] then killAlias(c[key]
 for _,key in ipairs({"retry_timer","watch_timer","ih_timer","buff_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
 c.state=dofile(root.."state.lua");c.current=c.state.upgrade(c.current)
 c.tracker=dofile(root.."tracker.lua");c.bashing=dofile(root.."bashing.lua");c.bashing.bind(c.state);c.mobs=dofile(root.."mobs.lua");c.bashing.bind_mobs(c.mobs)
+c.areas=dofile(root.."areas.lua");c.bashing.bind_areas(c.areas);c.areas.invalidate(c.current);c.current.hunting.preset=nil
 c.monk=dofile(root.."monk.lua");c.monk.bind(c.tracker)
 c.events=dofile(root.."events.lua");c.events.bind(c.tracker)
 c.runner_module=dofile(root.."runner.lua");c.curing=dofile(root.."curing.lua");c.gui=dofile(root.."gui.lua")
@@ -363,6 +364,11 @@ function combat_v2_buffs(action,rest)
  buff_wake();combat_v2_tick();if why then print(why)end;return true,why
 end
 
+function combat_v2_priority_held()
+ local r=c.runner or {};local root=r.root or c.root or {};local s=c.current
+ local m=s.mental or {};local b=s.buffs or {};local g=c.elemental_recovery or {};local co=c.containers_data or {}
+ return r.waiting or r.dispatching or r.transport_commit or r.transport_barrier or r.transport_unknown or c.transport_unknown or root.transport_unknown or root.dispatching or root.action_dispatching or m.pending or m.eq_pending or m.dispatching or b.pending or b.dispatching or g.committed or g.dispatching or co.barrier or co.action_dispatching or c.monk.flurry_active and c.monk.flurry_active(s)
+end
 local function cancel_ih()
  if c.ih_timer then killTimer(c.ih_timer);c.ih_timer=nil end
  local scan=c.current.hunting.ih;if scan then scan.active=false;scan.pending=false end
@@ -377,6 +383,8 @@ end
 function combat_v2_ih_result()
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active or not scan.pending or not scan.responded then return false end
+ if scan.invalidated or scan.recovery_prompt and not scan.prompt_ready then return false,"awaiting fresh solicited list and prompt"end
+ if s.hunting.preset and combat_v2_priority_held()then return false,"priority waits for action settlement"end
  if c.walker_boot then c.walker_boot.inspected(c,scan)end
  local ok,why=c.bashing.ih_select(s)
  if ok then
@@ -445,6 +453,65 @@ local function watchdog()
  elseif c.runner_module.watchdog(c.runner) then combat_v2_stop(c.runner.status);return end
  if c.mode~="OFF" and c.mode~="SHADOW" then c.watch_timer=tempTimer(1,watchdog) end
 end
+-- Pure configuration gate: stricter than read-only inventory/travel readiness.
+-- Inspect both roots; a distinct runner root must not hide shared ownership.
+function combat_v2_area_settled()
+ local s=c.current;local r=c.runner or {};local w=s.walker or {}
+ if c.mode~='OFF'or s.mode~='OFF'or r.mode~='OFF'then return false end
+ local function occupied(v)return type(v)=='table'and next(v)~=nil or type(v)~='table'and v~=nil and v~=false end
+ local function any(t,keys)
+  if type(t)~='table'then return false end
+  for _,k in ipairs(keys)do if occupied(t[k])then return true end end
+  return false
+ end
+ local barriers={'transport_unknown','transportUnknown','transport_commit','transportCommit','transport_barrier','transportBarrier','transport_barriers','transportBarriers','dispatching','action_dispatching','actionDispatching','committed','pending','fault'}
+ if combat_v2_priority_held()or any(c,barriers)or any(r,barriers)or any(r.root,barriers)or any(c.root,barriers)then return false end
+ if any(w,{'active','offer','pending','dispatching','physical_dispatch','arrival_hold','restock_checkpoint','suspended','suspension','fault'})then return false end
+ for _,owner in ipairs({s.mental or {},s.buffs or {},c.elemental_recovery or {},c.containers_data or {},c.tattoo_owner or {}})do
+  if any(owner,{'pending','eq_pending','dispatching','action_dispatching','committed','barrier','fault','txn','query','quarantine'})then return false end
+ end
+ if any((c.elemental_recovery or {}).pool,{'query','dispatching','pending','fault'})then return false end
+ local tr=c.travel_owner or c.travel_state or (c.travel and c.travel.state)or {}
+ if any(tr,{'pending','intent','route','pumping','stopping','dispatching','fault','follow_pending','follow_fault','follow_due','recall_due','recalled','refresh_due','refresh_dispatching','haven_refresh'})then return false end
+ if tr.phase and tr.phase~='idle'then return false end
+ local d=c.restock_data or {}
+ if any(d,{'busy','reserved','owned_pause','owned_lease','lease','checkpoint','pending','purchase','query_quarantine','dispatching','route_owner','fault'})then return false end
+ if d.active and d.phase~='monitor'and d.phase~='idle'and d.phase~='off'then return false end
+ if c.user_activity~=nil and c.user_activity~=false and c.user_activity~=d then return false end
+ local restock=c.restock_module or c.restock_boot
+ if restock and ((restock.busy and restock.busy(c))or (restock.movement_reserved and restock.movement_reserved(c))or (restock.reserved and restock.reserved(c))or (restock.owns_transition and restock.owns_transition(c)))then return false end
+ if c.convenience and ((c.convenience.busy and c.convenience.busy(c))or (c.convenience.hold and c.convenience.hold(c)))then return false end
+ if c.lunch_boot and c.lunch_boot.busy and c.lunch_boot.busy(c)then return false end
+ return true
+end
+function combat_v2_area_configure(id,area,rooms,encounter)
+ if not combat_v2_area_settled()then return false,'configure only while OFF and fully settled'end
+ local ok,why=c.areas.configure(c.current,id,area,rooms,encounter)
+ if ok and c.walker_boot then c.walker_boot.revoke(c,'private preset configured; fresh consent required')end
+ return ok,why
+end
+function combat_v2_area_preset(args)
+ local action,id=tostring(args or ''):match('^(%S+)%s*(.-)$');action=(action or 'status'):lower()
+ if action=='list'then
+  local ids={};for k in pairs(c.areas.catalog)do ids[#ids+1]=k end;table.sort(ids);print('Area presets: '..table.concat(ids,', '));return true
+ elseif action=='status'then
+  local p=c.current.hunting.preset;local status=p and (p.id..' / '..p.area)or 'none (stationary legacy queue)'
+  print('Area preset: '..status..'; '..tostring(c.runner.status));return true,status
+ elseif action~='select'and action~='off'and action~='pressure'then return false,'cv2 area list|status|select PRESET|pressure 1..4|off; area yes|no is separate policy consent'end
+ if not combat_v2_area_settled()then return false,'configure only while OFF and fully settled'end
+ local ok,why=true,'Preset OFF'
+ if action=='select'then ok,why=c.areas.select(c.current,id)
+ elseif action=='pressure'then
+  local p=c.current.hunting.preset;local limit=tonumber(id)
+  if not p or p.id~='tiyen'or not limit or limit%1~=0 or limit<1 or limit>4 then return false,'select Tiyen; pressure limit must be an integer 1..4'end
+  p.cutter_limit=limit;c.current.hunting.area_dirty=true;why='Cutter pressure HOLD at '..limit..'; no retreat'
+ end
+ if not ok then return false,why end
+ if c.walker_boot then c.walker_boot.revoke(c,'area preset changed; fresh walking consent required')end
+ cancel_ih();c.current.hunting.watch=nil;c.current.hunting.verified_generation=nil;c.runner.pending=nil
+ if action=='off'then c.current.hunting.preset=nil;c.areas.invalidate(c.current)end
+ print(why);return true,why
+end
 function combat_v2_area_approve(visit,yes)
  local ok,why=c.policy.approve(c.current,visit,yes~=false)
  if ok then combat_v2_tick() end
@@ -466,7 +533,7 @@ function combat_v2_tick()
  if s.stop_reason then
   if s.stop_reason=="training battle ended" then combat_v2_stop(s.stop_reason);return false,"training battle ended" end
   if s.stop_reason=="target slain" and c.mode=="BASH" and s.hunting.active then
-   s.stop_reason=nil;local ok=c.bashing.killed(s)
+   s.stop_reason=nil;c.areas.killed(s);local ok=c.bashing.killed(s)
    if not ok then s.hunting.active=true;s.stop_reason=nil end
    combat_v2_start_ih("target slain; refresh room");return false,"checking IH"
   elseif c.mode=="BASH" and (s.stop_reason=="target unavailable" or s.stop_reason=="target left room; confirmation required") then
@@ -492,6 +559,23 @@ function combat_v2_tick()
    cancel_ih();s.hunting.verified_generation=nil;c.runner.pending=nil
    c.runner.status=not s.connected and "BASH paused: disconnected" or s.player.dead and "BASH paused: dead" or why
    area_prompt();refresh();return false,c.runner.status
+  end
+  if s.hunting.preset and s.hunting.area_dirty then
+   local r=c.runner
+   if combat_v2_priority_held()then return false,"priority waits for action settlement"end
+   local scan=s.hunting.ih
+   if scan and scan.active and scan.pending and scan.responded then return combat_v2_ih_result()end
+   if c.areas.fresh(s)and not s.hunting.area_recovery and not (scan and scan.active)then
+    local id,reason=c.areas.pick(s,s.room.items)
+    if id then
+     if tostring(s.target.name)~=id or s.target.dead then c.state.set_target(s,id);r.pending=nil end
+     s.target.display_name=s.room.items[id].name;s.hunting.target_name=s.target.display_name
+     s.hunting.verified_generation=s.target_generation;s.hunting.area_dirty=false;cancel_ih()
+    else s.hunting.verified_generation=nil;r.pending=nil;c.runner.status=reason;refresh();return false,reason end
+   else
+    s.hunting.verified_generation=nil
+    combat_v2_start_ih("priority requires fresh room list",true);return false,"checking IH"
+   end
   end
   if s.hunting.ih and s.hunting.ih.active then refresh();return false,"checking IH" end
   local watch=s.hunting.watch
@@ -631,6 +715,7 @@ for _,kind in ipairs({"Groups","List"})do
 end
 handler("sysDisconnectionEvent",function()
  if c.walker_boot then c.walker_boot.revoke(c,"disconnected; walking disabled")end
+ c.areas.invalidate(c.current)
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"disconnect")end
  c.buffs.stop(c.current,"disconnect; upkeep disarmed");buff_invalidate();local b=c.buffs.state(c.current);b.defs_known=false;b.defs_at=nil
  c.current.defense=nil;c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
@@ -687,6 +772,8 @@ end
 handler("gmcp.Char.Items.Remove",function() c.bashing.item_removed(c.current,gmcp.Char.Items.Remove);combat_v2_tick() end)
 handler("gmcp.Room.Info",function()
  local s=c.current;local info=gmcp.Room.Info or {};local changed=c.policy.room(s,info)
+ local encounter=s.hunting.encounter
+ c.areas.invalidate(s,encounter and (info.num==nil or tostring(encounter.room)==tostring(info.num))and (info.area==nil or encounter.area==info.area))
  if c.walker_boot then c.walker_boot.room(c,info,changed)end
  if changed and c.monk.cancel_flurry then c.monk.cancel_flurry(s,"room changed")end
  if changed then
@@ -711,6 +798,7 @@ c.line_trigger=tempRegexTrigger("^.*$",function()
  c.buffs.text(c.current,text)
  c.defense.text(c.current,text)
  c.mental.text(c.current,text)
+ c.areas.text(c.current,text)
  if c.policy.text(c.current,text) then combat_v2_tick();refresh();return end
  if c.bashing.ih_text(c.current,text) then combat_v2_ih_result();refresh();return end
  c.events.event(c.current,text);combat_v2_tick()
@@ -719,6 +807,10 @@ if type(tempPromptTrigger)=="function" then
  c.prompt_trigger=tempPromptTrigger(function()
   buff_snapshot()
   c.buff_sensory_prompt()
+  local scan=c.current.hunting.ih
+  if scan and scan.active and scan.pending and scan.responded and not scan.invalidated and scan.items==c.current.room.items and (not c.current.hunting.preset or c.areas.fresh(c.current))then
+   scan.prompt_ready=true;c.current.hunting.area_recovery=nil;combat_v2_ih_result()
+  end
   c.buffs.on_prompt(c.current);if c.buffs.has_work(c.current)then combat_v2_tick()end
   if c.gui.render_prompt then c.gui.render_prompt(c.current,c.runner) end
  end)
@@ -750,7 +842,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  elseif cmd=="status" then combat_v2_status()
  elseif cmd=="trace" then combat_v2_trace(rest)
  elseif cmd=="ih" then ok,why=combat_v2_start_ih("manual IH verification",true)
- elseif cmd=="area" then if rest=="yes" or rest=="no" then ok,why=combat_v2_area_approve(c.current.policy.visit,rest=="yes") else ok,why=false,"cv2 area yes|no" end
+ elseif cmd=="area" then if rest=="yes" or rest=="no" then ok,why=combat_v2_area_approve(c.current.policy.visit,rest=="yes") else ok,why=combat_v2_area_preset(rest) end
  elseif cmd=="areas" then c.policy.request_areas(c.current);send("areas")
  elseif cmd=="web" then c.policy.request_web(c.current);send("web members")
  elseif cmd=="route" then ok,why=combat_v2_set_route(rest)

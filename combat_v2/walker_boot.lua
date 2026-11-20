@@ -14,13 +14,16 @@ local function globe(c)return c.elemental_recovery and c.elemental_recovery.arme
 function M.graph(c)
  for _,k in ipairs({'getRoomArea','getAreaRooms','getRoomExits','roomLocked','getDoors','getRoomWeight'})do if type(_G[k])~='function'then return nil,'mapper API unavailable'end end
  local start=tonumber(c.current.room.id);if not start then return nil,'unknown room'end
+ local p=c.current.hunting.preset
+ if p and (not c.areas or not c.areas.scope(c.current)or p.rooms and not p.rooms[tostring(start)])then return nil,'preset room/area boundary'end
  local ok,area=pcall(getRoomArea,start);if not ok or not tonumber(area)or tonumber(area)<0 then return nil,'unmapped start'end
  local good,ids=pcall(getAreaRooms,area);if not good or type(ids)~='table'then return nil,'unknown area rooms'end
  local rooms,n,edges={},0,0
  for _,raw in pairs(ids)do
   n=n+1;if n>M.MAX_ROOMS then return nil,'area exceeds bounded room budget'end
   local id=tonumber(raw)
-  if id then
+  local preset=c.current.hunting.preset
+  if id and (not preset or not preset.rooms or preset.rooms[tostring(id)])then
    local a,actual=pcall(getRoomArea,id);local b,locked=pcall(roomLocked,id);local d,weight=pcall(getRoomWeight,id)
    local e,exits=pcall(getRoomExits,id);local f,doors=pcall(getDoors,id)
    if a and actual==area and b and locked==false and d and tonumber(weight)and tonumber(weight)<=1 and e and type(exits)=='table'and f and type(doors)=='table'then
@@ -55,6 +58,7 @@ end
 function M.items(c,payload)
  local s=c.current;local scan=s.hunting.ih
  if M.held(c)or type(payload)~='table'or payload.location~='room'or type(payload.items)~='table'or not scan or not scan.active or not scan.pending then return false end
+ if scan.invalidated or c.areas and (not c.areas.complete(payload)or not c.areas.fresh(s))then return false end
  for _,it in pairs(payload.items)do if type(it)~='table'or it.id==nil or type(it.name)~='string' then return false end end
  scan.walker_version=s.room.item_version;scan.walker_items=s.room.items
  return true
@@ -62,6 +66,9 @@ end
 function M.inspected(c,scan)
  local s=c.current;local w=c.walker.state(s)
  if M.held(c)or not scan or not scan.responded or scan.source or sid(scan.room_id)~=sid(s.room.id)or not scan.items then return false end
+ if scan.area~=nil and scan.area~=s.room.area then return false end
+ if scan.invalidated or scan.recovery_prompt and not scan.prompt_ready then return false end
+ if s.hunting.preset and (s.hunting.area_recovery or not c.areas or not c.areas.fresh(s)or not c.areas.scope(s))then return false end
  if not scan.walker_version or scan.walker_version~=(s.room.item_version or 0)or scan.walker_version<=(scan.start_version or 0)then return false end
  if scan.walker_items~=s.room.items or scan.items~=s.room.items then return false end
  if not c.policy.allowed(s)then return false end
@@ -73,6 +80,7 @@ function M.clear(c,scan)
  local s=c.current;local w=c.walker.state(s)
  -- No unanswered IH, incomplete list, partial update or quiet-watch clearance.
  if not M.inspected(c,scan)or not w.active then return false end
+ if c.areas and c.areas.blocked(s)then w.clear=nil;w.status="HOLD: living NPC or preset boundary";return false end
  return c.walker.mark_clear(s,s.room.item_version)
 end
 local function restock_module(c)return c.restock_module or c.restock_boot end
@@ -146,6 +154,7 @@ local function resources(c)
 end
 local function inspected_now(c)
  local s=c.current;local w=c.walker.state(s);local i=w.inspection
+ if s.hunting.preset and (s.hunting.area_recovery or not c.areas or not c.areas.fresh(s)or not c.areas.scope(s))then return false end
  return i and i.room==sid(s.room.id)and i.area==s.room.area and i.items==s.room.items and i.version==s.room.item_version and i.sequence==(w.room_sequence or 0)
 end
 local function no_npcs(c)
@@ -204,8 +213,10 @@ function M.step(c)
  local s=c.current;local w=c.walker.state(s)
  c.walker.expire(s)
  if not w.active or M.offense_held(c)or not w.clear then return false end
+ if s.hunting.preset and (not inspected_now(c)or s.hunting.area_recovery)then w.clear=nil;return false end
  if globe(c)then M.revoke(c,'GLOBE requires stationary room');return false end
  if w.clear.version~=(s.room.item_version or 0)then w.clear=nil;combat_v2_start_ih('room contents changed',true);return false end
+ if c.areas and c.areas.blocked(s)then w.clear=nil;return false end
  -- Freshly vetted enemies always interrupt movement.
  if c.bashing.watch_select(s)then w.clear=nil;s.hunting.verified_generation=s.target_generation;return false end
  local p=s.player
@@ -219,6 +230,8 @@ function M.step(c)
  local rm=restock_module(c)
  if rm and rm.movement_reserved and rm.movement_reserved(c)then return false end
  local hop=c.walker.next(s);if not hop then return false end
+ local preset=s.hunting.preset
+ if preset and (preset.area~=s.room.area or preset.rooms and not preset.rooms[tostring(hop.to)])then M.revoke(c,'preset destination boundary');return false end
  local info=gmcp and gmcp.Room and gmcp.Room.Info
  if not info or sid(info.num)~=sid(s.room.id)or type(info.exits)~='table'or sid(info.exits[hop.direction])~=hop.to then M.revoke(c,'live exit mismatch');w.fault='live exit mismatch';return false end
  if not c.walker.begin_step(s,hop)then return false end
@@ -244,6 +257,15 @@ function M.bind_guards(c)
 end
 function M.attach(c)
  c.walker_boot=M;c.walker_module=M;c.walker=c.walker or dofile(getMudletHomeDir()..'/combat_v2/walker.lua')
+ -- Fence the real graph visitation writer, not only the adapter's clear marker.
+ if not c.walker._area_clear_guard then
+  local mark_clear=c.walker.mark_clear
+  c.walker.mark_clear=function(s,version)
+   if s.hunting.preset and (s~=c.current or version~=s.room.item_version or not inspected_now(c)or c.areas.blocked(s))then return false end
+   return mark_clear(s,version)
+  end
+  c.walker._area_clear_guard=true
+ end
  -- Preserve the published state, runner, waits, and every previously installed guard.
  if not c.walker.state(c.current).restock_checkpoint then M.revoke(c,'installed; stationary BASH')end
  c.walker_defense_hold=c.walker_defense_hold or c.defense.hold
