@@ -467,8 +467,22 @@ function combat_v2_area_settled()
  local barriers={'transport_unknown','transportUnknown','transport_commit','transportCommit','transport_barrier','transportBarrier','transport_barriers','transportBarriers','dispatching','action_dispatching','actionDispatching','committed','pending','fault'}
  if combat_v2_priority_held()or any(c,barriers)or any(r,barriers)or any(r.root,barriers)or any(c.root,barriers)then return false end
  if any(w,{'active','offer','pending','dispatching','physical_dispatch','arrival_hold','restock_checkpoint','suspended','suspension','fault'})then return false end
- for _,owner in ipairs({s.mental or {},s.buffs or {},c.elemental_recovery or {},c.containers_data or {},c.tattoo_owner or {}})do
-  if any(owner,{'pending','eq_pending','dispatching','action_dispatching','committed','barrier','fault','txn','query','quarantine'})then return false end
+ local globe=c.elemental_recovery or {};local containers=c.containers_data or {}
+ local terminal=false
+ local classifier=c.travel_module and c.travel_module.terminal_globe_exhaustion
+ if globe.fault=='all carried globes exhausted'and not globe.pending and type(classifier)=='function'then
+  local ok,result=pcall(classifier,c);terminal=ok and result==true
+ end
+ for _,owner in ipairs({s.mental or {},s.buffs or {},globe,containers,c.tattoo_owner or {}})do
+  for _,field in ipairs({'pending','eq_pending','dispatching','action_dispatching','committed','barrier','fault','txn','query','quarantine','transport_unknown','transportUnknown','transport_commit','transportCommit','transport_barrier','transportBarrier','transport_barriers','transportBarriers'})do
+   if occupied(owner[field])then
+    -- Neither exception grants inventory confidence or resource/action authority.
+    -- Preserve the retired diagnostic and unrelated read-only container stream.
+    local retired=owner==globe and field=='fault'and terminal
+    local passive_stream=owner==containers and field=='quarantine'and owner.quarantine=='response timeout'
+    if not retired and not passive_stream then return false end
+   end
+  end
  end
  if any((c.elemental_recovery or {}).pool,{'query','dispatching','pending','fault'})then return false end
  local tr=c.travel_owner or c.travel_state or (c.travel and c.travel.state)or {}

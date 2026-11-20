@@ -232,4 +232,42 @@ c,s=setup();c.elemental_recovery.committed=true;items({});local scan=s.hunting.i
 gmcp.Room.Info={num=1,area='Other Area',exits=graph[1]};handlers['gmcp.Room.Info']()
 c.elemental_recovery.committed=nil;receive('You can see the following 1 objects:');triggers[c.prompt_trigger]()
 check(moves()==0 and not c.walker.mark_clear(s,s.room.item_version),'mixed room/area metadata certified old snapshot')
+-- A retired GLOBE diagnostic and an unrelated timed-out container query stream
+-- are not live resource ownership. Preserve both while configuring a fresh preset.
+local function native_idle_shape()
+ local state=fresh();local root=combat_v2;local g=root.elemental_recovery
+ state.room.area='Tcanna Island';state.policy.area='tcanna island';state.policy.areas={['tcanna island']=true}
+ -- Native profiles with convenience installed already publish this real module.
+ root.travel_module=root.travel_module or realdofile(getMudletHomeDir()..'/combat_v2/travel.lua')
+ g.armed=false;g.phase='idle';g.status='disarmed';g.fault='all carried globes exhausted';g.pending=nil;g.committed=nil;g.dispatching=nil
+ g.pool={enabled=false,known=false,ever_owned=true,owned={},exhausted={},query=nil,dispatching=false}
+ root.containers_data.quarantine='response timeout'
+ return root,state,g
+end
+c,s,g=native_idle_shape();local q=g.pool;local co=c.containers_data;local before=#sent
+check(combat_v2_area_settled(),'native retired-owner/passive-stream shape blocked')
+check(combat_v2_area_configure('tcanna',s.room.area),'native shape could not configure')
+check(combat_v2_area_preset('select tcanna'),'native shape could not select')
+check(combat_v2_area_preset('off'),'native shape could not turn preset off')
+check(g.fault=='all carried globes exhausted'and g.pool==q and not q.enabled and not q.known and not g.armed and co.quarantine=='response timeout','configuration rewrote resource diagnostics/authority')
+check(#sent==before and #gmcp_sent==0 and c.mode=='OFF'and not s.walker.active,'native configuration emitted activity')
+for _,field in ipairs({'pending','dispatching','committed','transport_unknown','transport_barrier','transport_commit','transport_barriers','transportBarriers'})do
+ c,s,g=native_idle_shape();g[field]={unknown=true};reject_all('retired GLOBE '..field)
+end
+for _,field in ipairs({'query','dispatching','pending','fault'})do
+ c,s,g=native_idle_shape();g.pool[field]={unknown=true};reject_all('retired pool '..field)
+end
+for _,field in ipairs({'pending','query','barrier','fault','action_dispatching','committed','transport_unknown','transport_barrier','transport_commit','transport_barriers','transportBarriers'})do
+ c,s,g=native_idle_shape();c.containers_data[field]={unknown=true};reject_all('passive container stream with '..field)
+end
+for _,bad in ipairs({false,'wrong-type','throws','nonboolean'})do
+ c,s,g=native_idle_shape()
+ if bad==false then c.travel_module.terminal_globe_exhaustion=nil
+ elseif bad=='wrong-type'then c.travel_module.terminal_globe_exhaustion={}
+ elseif bad=='throws'then c.travel_module.terminal_globe_exhaustion=function()error('classifier unavailable')end
+ else c.travel_module.terminal_globe_exhaustion=function()return 'true'end end
+ reject_all('invalid terminal classifier '..tostring(bad))
+end
+c,s,g=native_idle_shape();g.pool.known=true;reject_all('inconsistent retired pool')
+c,s,g=native_idle_shape();c.containers_data.quarantine='unproved transport';reject_all('unrecognized quarantine')
 realprint('PASS actual-bootstrap area priorities, multicast, walker/restock barriers: '..count..' assertions')
