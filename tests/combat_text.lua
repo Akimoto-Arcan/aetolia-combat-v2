@@ -57,7 +57,7 @@ lines(s,'You have recovered balance on your right arm.');R.tick(r);check(#sent==
 s=fresh();s.player.balance=false;s.player.left_arm_balance=false;s.player.right_arm_balance=false;lines(s,'You have recovered balance on all limbs.');check(s.player.balance and not s.player.left_arm_balance and not s.player.right_arm_balance,'all-limb text conflated arm channels')
 s=fresh('BASH');r=R.new(s,K);r.mode='BASH';R.tick(r);clock=clock+1;lines(s,"A dizzying beam of energy strikes you as your attack rebounds off of Enemy's shield.");check(R.tick(r) and sent[#sent]=='sck Enemy','explicit shield rejection did not permit safe shield-break recovery')
 s=fresh('BASH');lines(s,'You are in the Tiger stance.');check(K.choose(s).command=='scs','non-scorpion opening not enforced')
-lines(s,'You sink back into the menacing stance of the Scorpion.');check(K.choose(s).command=='combo Enemy spk ucp ucp','scorpion confirmation not used')
+lines(s,'You sink back into the menacing stance of the Scorpion.');check(K.choose(s).command=='combo Enemy spk spp spp','scorpion confirmation not used')
 s.player.prone=true;lines(s,'Making a call to your own, you kip yourself up and sink back into the Scorpion stance.');check(s.player.stance=='scorpion' and not s.player.prone,'scorpion kipup not recognized')
 
 -- Regression from the observed dummy session: command alias differs from server display name.

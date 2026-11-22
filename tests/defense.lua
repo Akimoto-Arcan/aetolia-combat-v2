@@ -65,12 +65,12 @@ for _,hp in ipairs({37,55,61,29,19,3})do
  check(D.state(s).low_health,'low-health warning was lost')
  local br=R.new(s,K);br.mode='BASH';br.sender=send;br.paused_health=true;n=#sent
  check(R.execute(br,R.propose(br)) and #sent==n+1,'BASH executor retained old health latch at '..hp..'%')
- check(sent[#sent]=='combo Fixture spk ucp ucp' and not br.paused_health,'BASH changed recipe or retained stale pause')
+ check(sent[#sent]=='combo Fixture spk spp spp' and not br.paused_health,'BASH changed recipe or retained stale pause')
 end
 local function bash_block(change,msg)
  s=fresh();s.mode='BASH';s.player.stance='scorpion';s.player.hp=3;change(s)
  local br=R.new(s,K);br.mode='BASH';br.sender=send;n=#sent
- check(not R.execute(br,{name='bash_strike',command='combo Fixture spk ucp ucp'}) and #sent==n,msg)
+ check(not R.execute(br,{name='bash_strike',command='combo Fixture spk spp spp'}) and #sent==n,msg)
 end
 bash_block(function(x)x.player.afflictions.paralysis=true end,'low-HP BASH bypassed paralysis')
 bash_block(function(x)x.player.afflictions.asleep=true end,'low-HP BASH bypassed sleep')

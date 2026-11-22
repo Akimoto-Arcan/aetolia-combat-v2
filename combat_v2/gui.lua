@@ -318,6 +318,11 @@ function M.help_text()
   "  Guards, corpses and loyal/protected NPCs are excluded.",
   "  Unlisted areas ask permission; unverified players pause attacks.",
   "  cv2 ih                Recheck current-room targets (BASH only).",
+  "  Enabling BASH offers opt-in Auto bash walking for a mapped area.",
+  "  YES walks one area pass; NO leaves ordinary stationary BASH.",
+  "  cv2 walk on / off     Offer walking / stop walking only.",
+  "  cv2 walk status       Show progress or a blocked step.",
+  "  cv2 off stops both. No walking before explicit Yes.",
   "  cv2 areas             Refresh the game's hunting-area list.",
   "  cv2 area yes / no     Answer the current area's approval prompt.",
   "  cv2 web               Refresh the current WEB MEMBERS roster.",
@@ -388,6 +393,30 @@ function M.help_text()
   "<white>Close with the window's X. Opening/closing help never changes modes.",
  },"\n").."<reset>\n"
 end
+function M.hide_walk_prompt()
+ local ui=combat_v2_ui;if ui and ui.walk_popup then ui.walk_popup.root:hide() end
+end
+function M.show_walk_prompt(area,count,token)
+ if not combat_v2_ui then M.create() end
+ local ui=combat_v2_ui;local w,h=getMainWindowSize()
+ if not ui.walk_popup then
+  local p={};ui.walk_popup=p
+  p.root=Geyser.Container:new({name="cv2_walk_prompt",x=0,y=80,width=340,height=150})
+  p.label=Geyser.Label:new({name="cv2_walk_prompt_text",x=0,y=0,width=340,height=150},p.root)
+  p.label:setStyleSheet("background-color:#192735;color:#d7e5f2;border:2px solid #507590;padding:10px;qproperty-alignment:'AlignTop | AlignLeft';")
+  p.yes=Geyser.Label:new({name="cv2_walk_yes",x=12,y=110,width=152,height=28},p.root)
+  p.no=Geyser.Label:new({name="cv2_walk_no",x=176,y=110,width=152,height=28},p.root)
+  for _,b in ipairs({p.yes,p.no})do b:setStyleSheet("background-color:#233c51;color:#d7e5f2;border:1px solid #507590;padding:4px;")end
+ end
+ local p=ui.walk_popup;p.root:move(math.max(0,(w-340)/2),math.max(0,math.min(100,h-150)))
+ p.label:echo(html("<b style='font-size:17px;color:"..C.accent..";'>Auto bash this area?</b><br>"..esc(area).." · "..esc(count).." mapped rooms<br>One pass; fight first, IH, then walk.<br>Stays inside this mapped area."))
+ p.yes:echo(html("<center>YES — WALK</center>"));p.no:echo(html("<center>NO — STAY HERE</center>"))
+ p.yes:setClickCallback(function()local ok,why=combat_v2_walk_answer(token,true);if not ok and why then print(why)end end)
+ p.no:setClickCallback(function()combat_v2_walk_answer(token,false)end)
+ p.root:show();if type(p.root.raise)=="function"then p.root:raise()end
+ return true
+end
+
 function M.show_help()
  if not openUserWindow then print("Combat V2 help: see docs/backend.md");return false end
  local ui=combat_v2_ui;local name="Combat V2 Help"
@@ -511,6 +540,7 @@ function M.refresh(state,runner,cure)
  local a=runner.pending or state.last_action or {}
  if state.defense and state.defense.hold and runner.mode~="OFF" then a={command="",reason="DEFENSE: "..state.defense.phase} end
  local restore=t.restoration;local restoration=""
+ if state.walker and state.walker.active then restoration="<br><span style='color:"..C.accent..";'>AUTO WALK: "..esc(state.walker.status or "clearing room").."</span>" end
  if restore and restore.active then local remaining=math.max(0,(restore.expected_end or 0)-(getEpoch and getEpoch() or os.clock()));restoration="<br><span style='font-size:11px;color:"..C.warn..";'>RESTORE: "..esc(restore.limb:gsub("_"," "))..(remaining>0 and string.format(" ~%.1fs",remaining) or " awaiting cure confirmation").."</span>" end
  M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"..restoration))
  M.cards.limbs:echo(html(heading("ENEMY LIMBS")..limb_rows(state,"enemy").."<br><span style='font-size:11px;'>Prone: "..(t.prone and "yes" or "no").." · Parry: "..esc(t.parry_limb or "unknown").."</span>"))

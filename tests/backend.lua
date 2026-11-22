@@ -14,7 +14,7 @@ end
 local s,r=fresh('BASH')
 check(K.choose(s).command=='scs','bashing must prepare Scorpion before SPK/UCP/UCP')
 E.event(s,'You sink back into the menacing stance of the Scorpion.')
-check(K.choose(s).command=='combo dummy spk ucp ucp','confirmed scorpion should use regular bashing combo')
+check(K.choose(s).command=='combo dummy spk spp spp','confirmed scorpion should use regular bashing combo')
 s.player.stance='tiger';check(K.choose(s).command=='scs','non-scorpion stance not corrected')
 check(not observe(s,'damage',{limb='left_leg',amount=10}) and s.target.limbs.left_leg==0,'bashing must not invent PvP trauma')
 s,r=fresh();check(observe(s,'damage',{limb='ll',amount=12.5}),'damage rejected');check(s.target.limbs.left_leg==12.5,'damage amount wrong')

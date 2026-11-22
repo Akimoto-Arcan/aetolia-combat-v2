@@ -414,6 +414,12 @@ local function send_checked(b,sender,command)
  if not ok or result==false then fault(b,'Buff send failed: '..tostring(result)..'; review/reset required');return false end
  return true
 end
+-- Shared physical-transport arbitration for public upkeep and bootstrap mental
+-- dispatch. `sent` is published only by finish_commit; READY/STOP is not proof.
+function M.transport_held(r)
+ local commit=r and r.transport_commit
+ return commit~=nil and (not commit.sent or commit.failed==true)
+end
 local function service(s,runner,sender,hold)
  local b=M.state(s);local t=now()
  if b.class~='monk' or not connected(s) or s.training_battle_ended then
@@ -462,6 +468,10 @@ local function service(s,runner,sender,hold)
   b.query={kind='defs',at=t};send_checked(b,sender,'defences')
   return {busy=false,status=b.fault or 'requested defence snapshot'}
  end
+ -- Audit queries and pending recovery above remain usable while transport is
+ -- unresolved. No activation OR explicit OFF may consume intent or create a
+ -- pending buff/send-history entry until the shared physical barrier clears.
+ if M.transport_held(runner) then return {busy=false,status='Transport commit unresolved; await sender completion or cv2 reset after review'} end
  local chosen,off
  for _,e in ipairs(M.catalog) do
   if b.cancel[e.key] then

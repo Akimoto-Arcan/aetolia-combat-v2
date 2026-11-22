@@ -21,6 +21,20 @@ BASH stays armed until you choose OFF or another mode. With no current target, i
 
 The bashing opening is `combo TARGET scs spp spp` whenever Scorpion is not confirmed. After a Scorpion stance message or GMCP confirmation, the normal combo is `combo TARGET sdk spp spp`. Stance is not assumed merely because a command was sent. Explicitly observed shield/rebounding still takes defensive precedence. No PvP limb tracking runs in BASH.
 
+## Opt-in area auto-walking
+
+Enabling BASH in a safely permitted mapped area offers a small `Auto bash this area?` popup. **No** leaves ordinary stationary BASH. **Yes** is scoped to the current room/area and starts one finite area pass from that room. Walking is never enabled just by loading code, existing BASH, or entering another area. A stale popup, mode change, disconnect, manual/unexpected room change, and movement timeout revoke walking. `cv2 walk on` offers consent again; `cv2 walk off` stops only walking; `cv2 off` stops both. Closing/declining is not permission.
+
+The route is generated from Mudlet's map for the current mapped area only. It uses a connected component of ordinary two-way exits, skips special exits, all explicitly mapped doors, locked rooms and above-default weighted rooms, and never chooses another mapped area. This is not a claim that the map is complete or that every unmapped hazard is known. No automatic door opening, teleporting, speedwalk queue, or travel to an area's starting room is used. You choose the starting room manually.
+
+Combat remains the existing vetted BASH selector. Targets take priority. After no eligible targets remain, a fresh IH confirmation marks the room cleared; the walker moves at most one hop, only with current area/player/web permission, enough health, no hindrance, no pending attack, real balance/EQ/arms, matching live GMCP exit, and unchanged clear-room evidence. It waits for the expected Room.Info arrival, fresh occupancy and IH in the next room before another hop. Changed room contents cancel stale clearance. Failed/unanswered IH is not proof an area is clear, so it never authorizes a move. Completion leaves stationary BASH/GMCP watch, not an endless circuit.
+
+Emergency healing and safety holds pause movement. A timeout or unexpected arrival disables the route without blind direction retries. No live movement was used to develop the walker; actual traversal still needs a user-approved controlled run.
+
+An already-issued hop remains a location barrier even after walking is turned off, STOP, reload, mode changes, manual retargeting, or manual `cv2 queue next`. All physical/mental offense (including ASSIST approval) and renewed walking consent are blocked until a genuine changed Room.Info confirms the expected destination. A timeout does not establish arrival; late expected arrival clears the barrier but never restores revoked consent. Unexpected destinations revoke the route and leave the barrier for review. Manual queue-next revokes both route and popup consent; automatic kill-chain advancement does not.
+
+If arrival cannot be confirmed, first stop and inspect the actual game location and `cv2 trace`, ensuring no movement remains in flight. Only after that operator review, use the existing `cv2 reset`: it clears the unresolved-hop barrier, leaves combat OFF, revokes walking, and discards cached room/occupancy evidence. It sends no game command or location request, does not infer location from cached same-room GMCP, and does not resume combat. Supply fresh Room.Info/occupancy evidence and explicitly re-arm a mode; walking requires a new Yes. Do not use reset as a timed retry.
+
 ## Defup and selected defense upkeep
 
 `defup` (or `cv2 defup`) prepares the selected missing Monk defenses once. `defup status`, `defup stop`, `defup audit` and `defup reset` inspect, disarm, request read-only skill/defense data, or perform reviewed recovery. DEFENSES in the header / `cv2 defs` opens a reusable native manager with separate observed ACTIVE/MISSING/UNKNOWN and wanted ON/OFF columns.

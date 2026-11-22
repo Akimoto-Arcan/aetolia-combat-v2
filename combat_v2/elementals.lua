@@ -56,6 +56,11 @@ local function gates(c)
  local s,r=c.current,c.runner
  if not c.policy or type(c.policy.allowed)~='function' then return false,'policy unavailable' end
  local ok,why=c.policy.allowed(s);if ok~=true then return false,why or 'policy hold' end
+ -- STOP/READY cannot resolve an unfinished or failed physical transport.
+ -- Older buff modules and standalone fixtures use the same commit predicate.
+ local commit=r.transport_commit
+ local held=c.buffs and type(c.buffs.transport_held)=='function' and c.buffs.transport_held(r)
+ if held or (commit~=nil and (not commit.sent or commit.failed==true)) then return false,'runner transport unresolved' end
  if r.waiting or r.fault or r.pending then return false,'runner pending/fault' end
  if not c.runner_module or not c.runner_module.ready(r) then return false,'not ready' end
  local p=s.player;local a=p.afflictions or {}
@@ -70,21 +75,13 @@ end
 local schedule
 function M.arm(c,on)
  local b=M.state(c)
- -- Only explicitly read-only phases are safe to discard without a commit flag.
- local unresolved=b.pending and b.pending.phase~='waiting' and b.pending.phase~='probe'
  if on~=true then
-  if b.committed or unresolved then fault(b,'disarmed with recovery unresolved') else b.pending=nil;b.phase='idle';b.armed=false;b.status='disarmed';untimer(b) end
+  if b.pending and b.committed then fault(b,'disarmed with recovery unresolved') else b.pending=nil;b.phase='idle';b.armed=false;b.status='disarmed';untimer(b) end
   return true,b
  end
- if b.committed or unresolved then return false,b end
- -- Validate the proposed scope before discarding any fault or read-only proof.
- local room=c.current and c.current.room and c.current.room.id
- local valid,why=scope(c,{room=room})
- if not valid then b.armed=false;b.status=why;return false,b end
- if b.pending and b.pending.phase~='waiting' and b.pending.phase~='probe' then return false,b end
- -- Only explicit ON cancels an uncommitted read-only attempt. It sends nothing
- -- and waits for a new own failure; a timeout never proves a physical recovery.
- untimer(b);b.pending=nil;b.fault=nil;b.phase='idle';b.room=room
+ if b.fault or b.pending then return false,b end
+ b.room=c.current and c.current.room and c.current.room.id
+ if not checkscope(c,b) then return false,b end
  b.armed=true;b.status='armed (waiting for own summon failure)';return true,b
 end
 function M.prompt(c)
@@ -105,12 +102,9 @@ function M.text(c,line)
    b.pending={phase='waiting',started=now()};b.phase='waiting';b.status='waiting for guarded empty room';schedule(c)
   end
  elseif p and p.phase=='probe' then
-  local element,count,unit=line:match('^This globe is infused with (%a+) and can be drained another (%d+) (times?)%.$')
-  if not element then count,unit=line:match('^This globe can be drained another (%d+) (times?)%.$') end
-  -- Fresh globes have no named infusion: DRAIN chooses the element. Accept
-  -- only exact single-digit native counts, not padded or coerced numbers.
-  if (not element or elements[element]) and count and count:match('^[0-4]$') and (unit=='times' or count=='1') then
-   if count=='0' then fault(b,'globe exhausted') else p.count=tonumber(count);p.ack=true end
+  local element,count=line:match('^This globe is infused with (%a+) and can be drained another (%d+) times%.$')
+  if element and elements[element] and tonumber(count)<=4 then
+   if tonumber(count)==0 then fault(b,'globe exhausted') else p.count=tonumber(count);p.ack=true end
   elseif line=='I do not see that here.' or line=='You see no such thing.' then fault(b,'globe not found') end
  elseif p and p.phase=='drain' then
   local element=line:match('^As you place a hand upon the globe, the energy within surges in response%. Tendrils of energy quickly escape their prison, infusing your body with the element of (%a+)%.$')

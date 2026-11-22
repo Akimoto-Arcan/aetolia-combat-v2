@@ -63,6 +63,45 @@ function M.event(s,text,is_prompt)
  if type(text)~="string" then return s end
  text=text:gsub(string.char(27).."%[[%d;]*m",""):match("^%s*(.-)%s*$")
  M.display_event(s,text,is_prompt);local low=text:lower();local p=s.player
+ -- This is a two-line first-person protocol, never a substring/chat parser.
+ local h=s.hunting
+ if h and text=="You feel an upsurge of martial power as you prepare to unleash a flurry of blows!" then
+  if s.mode=="BASH" and s.connected and not p.dead and (tonumber(p.hp) or 0)>0 then
+   h.flurry_frame={generation=s.target_generation,room=s.room and s.room.id,created=now(),lines=0}
+  end
+  return s
+ end
+ local f=h and h.flurry_frame
+ if f then
+  f.lines=f.lines+1
+  if f.generation~=s.target_generation or f.room~=(s.room and s.room.id) or s.mode~="BASH" then h.flurry_frame=nil
+  elseif text:match("^Flurry Combo:") then
+   local body=text:match("^Flurry Combo: (.+)$");local tokens,seen={},{}
+   local allowed={hfp=true,spp=true,hkp=true,snk=true,ucp=true,sdk=true,wwk=true,mnk=true,jbp=true,spk=true}
+   local valid=body and #body<=48 and now()-f.created<=2 and f.lines<=8
+   if valid then
+    for token in body:gmatch("[^,]+") do
+     token=token:match("^%s*(.-)%s*$")
+     if not allowed[token] or seen[token] then valid=false;break end
+     tokens[#tokens+1]=token;seen[token]=true
+    end
+    if #tokens~=10 or table.concat(tokens,", ")~=body then valid=false end
+   end
+   h.flurry_frame=nil
+   -- A header alone is capture, not replacement. Identical delivery is idempotent.
+   if valid and not (h.flurry and h.flurry.body==body and h.flurry.generation==f.generation and h.flurry.room==f.room) then
+    f.tokens=tokens;f.body=body;f.index=1;h.flurry=f
+   end
+   return s
+  elseif now()-f.created>2 or f.lines>8 then h.flurry_frame=nil end
+ end
+ if s.mode=="BASH" and (text=="You must regain balance first." or text=="You must regain equilibrium first.") then
+  -- A server refusal disproves a cached READY flag; require a real recovery.
+  p[text=="You must regain balance first." and "balance" or "equilibrium"]=false
+  s.reject_sequence=(s.reject_sequence or 0)+1
+  if s.tekura_inflight then s.tekura_inflight.rejected=true end
+  s.hit_context=nil;return s
+ end
  local training=s.training
  local report_end=text=='A runed target dummy says, "I have triumphed in battle!"' and training and training.enabled and training.generation==s.target_generation and training.room==s.room.id
  if text=="The dummy's eyes dim as it ceases fighting." or report_end then
@@ -152,12 +191,14 @@ function M.event(s,text,is_prompt)
  local ctx=context(s)
  if text=="The attack rebounds back onto you!" and ctx then observe(s,"rebounding",{value=true});s.reject_sequence=s.reject_sequence+1;s.hit_context=nil;return s end
  local attack,target=text:match("^You use Tekura (%w+) on (.+)%.$")
+ local tekura_header=attack~=nil
  if not attack then target=text:match("^You form a spear hand and stab out towards (%w+)%.$");if target then attack="spear" end end
  if not attack then target=text:match("^You pump out at (%w+) with a powerful side kick%.$");if target then attack="sidekick" end end
  if attack then
   attack=attack:lower()
   local matched=same(s,target)
   if not matched and attacks[attack] and Tracker and Tracker.bind_attack_name then matched=Tracker.bind_attack_name(s,target) end
+  if tekura_header and matched and s.tekura_inflight and s.tekura_inflight.on_header then s.tekura_inflight.on_header(attack) end
   if matched and attacks[attack] then s.hit_context={attack=attack,target=s.target.name,generation=s.target_generation,expires=now()+2,remaining=5} else s.hit_context=nil end
   return s
  end

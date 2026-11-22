@@ -5,11 +5,30 @@ local output={};local realprint=print;print=function(...)output[#output+1]=table
 function getEpoch()return clock end
 function getMudletHomeDir()return root:gsub('/combat_v2/$','')end
 function getConnectionInfo()return 'fixture',0,true end
-function registerAnonymousEventHandler(name,fn)handlers[name]=fn;return name end
-function killAnonymousEventHandler(name)handlers[name]=nil end
+local registrations={}
+function registerAnonymousEventHandler(name,fn)
+ serial=serial+1;registrations[serial]={name=name,fn=fn}
+ handlers[name]=function(...)
+  local current={};for id,h in pairs(registrations)do if h.name==name then current[#current+1]={id=id,fn=h.fn}end end
+  table.sort(current,function(a,b)return a.id<b.id end)
+  for _,h in ipairs(current)do if registrations[h.id]then h.fn(...)end end
+ end
+ return serial
+end
+function killAnonymousEventHandler(id)registrations[id]=nil end
 function tempRegexTrigger(_,fn)serial=serial+1;triggers[serial]=fn;return serial end
-function killTrigger()end
-function tempPromptTrigger(fn)prompt=fn;serial=serial+1;return serial end
+local prompts={}
+local function multicast(callbacks,...)
+ local current={};for id,fn in pairs(callbacks)do current[#current+1]={id=id,fn=fn}end
+ table.sort(current,function(a,b)return a.id<b.id end)
+ for _,h in ipairs(current)do if callbacks[h.id]then h.fn(...)end end
+end
+function killTrigger(id)triggers[id]=nil;prompts[id]=nil end
+function tempPromptTrigger(fn)
+ serial=serial+1;prompts[serial]=fn
+ prompt=function()multicast(prompts)end
+ return serial
+end
 function tempAlias(pattern,fn)aliases[pattern]=fn;return pattern end
 function killAlias(pattern)aliases[pattern]=nil end
 function tempTimer(delay,fn)serial=serial+1;timers[serial]={at=clock+delay,fn=fn};return serial end
@@ -37,7 +56,7 @@ local function check(ok,why)assert(ok,why);n=n+1 end
 local function tick()clock=clock+1;combat_v2_tick()end
 local function only(key)for _,e in ipairs(M.catalog)do s.buffs.wanted[e.key]=e.key==key end end
 local function def(kind,data)gmcp.Char.Defences=gmcp.Char.Defences or{};gmcp.Char.Defences[kind]=data;handlers['gmcp.Char.Defences.'..kind]()end
-local function text(value)line=value;triggers[c.line_trigger]();line=nil end
+local function text(value)line=value;multicast(triggers);line=nil end
 local function priority_rows(entries)
  for i=1,25 do text(i..': '..(entries[i]or''))end
 end
@@ -211,6 +230,191 @@ combat_v2_set_target('Lifecycle');check(cancelled['manual target changed'],'manu
 gmcp.Room.Info={num=2,area='Fixture Hunt'};handlers['gmcp.Room.Info']();check(cancelled['room changed'],'room transition omitted Flurry cancellation')
 handlers['sysDisconnectionEvent']();check(cancelled.disconnect,'disconnect omitted Flurry cancellation')
 combat_v2_stop();check(cancelled.OFF,'OFF omitted Flurry cancellation')
-combat_v2_reset_wait();check(cancelled["reviewed reset"],"reviewed reset omitted Flurry cancellation")
+c.runner.transport_commit={finished=true,failed=true};combat_v2_reset_wait();check(c.runner.transport_commit==nil,"reviewed reset retained transport barrier");check(cancelled["reviewed reset"],"reviewed reset omitted Flurry cancellation")
 c.monk.cancel_flurry=previous_cancel
-print=realprint;print('PASS buffs integration '..n..' assertions: aliases, snapshots, prompt/EQ, opt-in/cancel, preferences, modes, class/session ownership and fresh skill events')
+-- Shared-controller arbitration uses the real bootstrap, runner and public controls.
+local function transport_fixture()
+ clock=clock+20;c.buff_sender=nil;c.mental_sender=nil
+ c.current=c.state.new();gmcp.Char.Status.class='Monk'
+ gmcp.Char.Skills={Groups=group('Transcendent 100%')}
+ gmcp.Char.Vitals={hp=100,maxhp=100,mp=10000,maxmp=10000,wp=100,maxwp=100,balance=1,equilibrium=1,left_arm=1,right_arm=1,stance='scorpion'}
+ gmcp.Room={Info={num=1,area='Fixture Hunt'},Players={}}
+ dofile(root..'bootstrap.lua');s=c.current;M=c.buffs
+ handlers['gmcp.Char.Vitals']();def('List',{});only('toughness')
+ c.state.set_target(s,'123')
+ s.policy.area='fixture hunt';s.policy.areas={['fixture hunt']=true};s.policy.areas_loaded=true
+ s.policy.players={};s.policy.players_known=true;s.policy.players_room=s.room.id
+ s.room.items['123']={id='123',name='a fixture monster',attrib='m'}
+ s.hunting.verified_generation=s.target_generation
+ local seen=0;local id=registerAnonymousEventHandler('gmcp.Char.Vitals',function()seen=seen+1 end)
+ handlers['gmcp.Char.Vitals']();killAnonymousEventHandler(id)
+ check(seen==1 and s.connected,'multicast fixture replaced bootstrap vitals ingestion')
+ c.mode='BASH';s.mode='BASH';c.runner.mode='BASH'
+end
+local function mental_ready()
+ combat_v2_set_target('Fixture');s.policy.players={fixture=true};s.policy.players_known=true
+ local m=c.mental.state(s);m.status='locked';m.target='Fixture';m.lock_target='Fixture';m.last_blackout=-1000;m.retry_at=0
+ return m
+end
+local function sends_of(command,from)
+ local count=0;for i=(from or 0)+1,#sent do if sent[i]==command then count=count+1 end end;return count
+end
+local function class_sends()
+ local count=0;for _,h in ipairs(s.history)do if h.kind=='buff_send'then count=count+1 end end;return count
+end
+for _,failure in ipairs({'false','throw'})do
+ transport_fixture();local first=#sent
+ c.runner.sender=function(command)send(command);if failure=='throw'then error('offline unknown attack')end;return false end
+ local ok=c.runner_module.tick(c.runner);local commit=c.runner.transport_commit
+ check(not ok and commit and commit.sent==false and commit.failed and c.runner.fault,'normal failure fixture did not retain unknown commit: '..tostring(c.runner.status)..' / '..tostring(commit and commit.sent)..' / '..tostring(commit and commit.failed))
+ local m=mental_ready();combat_v2_set_mode('FULL_AUTO');tick()
+ check(not m.eq_pending and sends_of('mind blackout',first)==0 and c.runner.transport_commit==commit,'FULL_AUTO escaped retained failed normal transport')
+ -- Native recovery still ingests while the shared hold prevents new mental casts.
+ m.eq_pending=clock;m.eq_snapshot=s.recoveries.equilibrium or 0
+ text('You have recovered equilibrium.');tick()
+ check(not m.eq_pending and c.runner.transport_commit==commit and sends_of('mind blackout',first)==0,'interlock blocked mental EQ bookkeeping or allowed dispatch')
+ combat_v2_stop();check(c.runner.transport_commit==commit and not c.runner.fault and not c.runner.waiting,'STOP lost unknown transport or failed to expose defup bypass fixture')
+ local history=class_sends();combat_v2_buffs('start');tick()
+ check(sends_of('toughness',first)==0 and not s.buffs.pending and class_sends()==history,'STOP + defup escaped transport barrier or invented buff commit')
+ combat_v2_buffs('stop');combat_v2_buffs('keep','regeneration off');tick()
+ check(s.buffs.cancel.regeneration and sends_of('regeneration off',first)==0 and not s.buffs.pending and class_sends()==history,'explicit defense OFF bypassed transport barrier')
+ combat_v2_buffs('stop');local audit=#sent
+ check(combat_v2_buffs('audit'),'held transport blocked read-only audit')
+ check(#sent==audit+4 and sent[audit+1]=='ab kaido'and sent[audit+2]=='defences'and sent[audit+3]=='firstaid'and sent[audit+4]=='firstaid priority defence list','held audit changed native/read-only requests')
+ def('Add',{name='regeneration'});priorities({[3]='speed'})
+ check(s.buffs.have.regeneration and M.native_priority(s,'speed')==3 and c.runner.transport_commit==commit and class_sends()==history,'held audit ingestion altered barrier or dispatched class action')
+ combat_v2_set_curing(true);check(sent[#sent]=='firstaid curing on' and c.runner.transport_commit==commit,'transport hold disabled native curing')
+ -- Automatic read-only discovery also remains possible: the interlock lives
+ -- after queries, not at the service entry or native ingestion boundary.
+ s.buffs.known_ready=false;s.buffs.known={};local queries=#sent
+ combat_v2_buffs('start')
+ check(#sent==queries+1 and sent[#sent]=='ab kaido' and not s.buffs.pending,'held upkeep blocked read-only skill discovery or invented commit')
+ skills('List',{group='Kaido',list={'Toughness','Regeneration'}})
+ s.buffs.defs_known=false;queries=#sent;tick()
+ check(#sent==queries+1 and sent[#sent]=='defences' and not s.buffs.pending,'held upkeep blocked read-only defense discovery or invented commit')
+ def('List',{});tick()
+ check(not s.buffs.query and not s.buffs.pending and sends_of('toughness',first)==0 and c.runner.transport_commit==commit,'snapshot response bypassed transport hold')
+ combat_v2_buffs('stop')
+ combat_v2_reset_wait();check(not c.runner.transport_commit,'explicit reviewed reset did not clear shared barrier')
+ combat_v2_buffs('start');check(sent[#sent]=='toughness' and s.buffs.pending,'reviewed reset did not restore public defup')
+end
+-- Sender callbacks may re-enter both public controllers before the outer transport
+-- returns. Neither STOP nor fresh READY nor recovery proves that send's outcome.
+for _,outcome in ipairs({'true','false','throw'})do
+ transport_fixture();local first=#sent;local retained;local m;local callback_complete=false
+ c.runner.sender=function(command)
+  send(command);retained=c.runner.transport_commit
+  check(retained and retained.sent==nil and not retained.failed,'reentry did not occur inside unfinished transport')
+  m=mental_ready();combat_v2_set_mode('FULL_AUTO')
+  check(not m.eq_pending and sends_of('mind blackout',first)==0,'unfinished sender reentry dispatched mental action')
+  combat_v2_stop();local history=class_sends();combat_v2_buffs('start');tick()
+  combat_v2_buffs('keep','regeneration off')
+  check(not s.buffs.pending and sends_of('toughness',first)==0 and sends_of('regeneration off',first)==0 and class_sends()==history,'unfinished sender reentry dispatched class activation/OFF')
+  check(c.runner.transport_commit==retained,'reentrant STOP/mode/tick erased unfinished transport')
+  combat_v2_buffs('stop');callback_complete=true
+  if outcome=='throw'then error('offline reentrant send failure')end
+  return outcome=='true'
+ end
+ local ok=c.runner_module.tick(c.runner)
+ check(callback_complete,'runner swallowed a failing reentrant callback assertion: '..tostring(c.runner.status))
+ if outcome=='true'then
+  check(ok and not c.runner.transport_commit and retained.sent and not retained.failed,'successful finished transport remained held')
+  check(not M.transport_held({transport_commit=retained}),'successful finished commit record falsely blocks controllers')
+  -- Real recovery gates are retained: only now, after sender completion, allow
+  -- mental dispatch with current readiness and the confirmed selected lock.
+  combat_v2_set_mode('FULL_AUTO')
+  check(sends_of('mind blackout',first)==1 and m.eq_pending,'successful transport prevented ordinary eligible mental cast')
+ else
+  check(not ok and c.runner.transport_commit==retained and retained.failed,'failed reentrant transport released without review')
+  combat_v2_set_mode('FULL_AUTO');combat_v2_stop();combat_v2_buffs('start');tick()
+  check(sends_of('mind blackout',first)==0 and sends_of('toughness',first)==0 and not s.buffs.pending,'failed reentry escaped after sender returned')
+  combat_v2_buffs('stop');combat_v2_reset_wait();mental_ready();combat_v2_set_mode('FULL_AUTO')
+  check(sends_of('mind blackout',first)==1,'reviewed reset did not restore eligible mental cast')
+ end
+end
+-- Lazy GLOBE attachment must multicast alongside the real core handlers.
+local globe_failure='You do not have the power to summon forth an elemental.'
+local globe_success='You concentrate on the raw elemental energy flowing about your body, coalescing some of its potential into a massive elemental.'
+local globe_drain='As you place a hand upon the globe, the energy within surges in response. Tendrils of energy quickly escape their prison, infusing your body with the element of water.'
+local function globe_resources(first)
+ return sends_of('drain globe',first)+sends_of('summon elemental',first)
+end
+local function globe_empty()
+ combat_v2_stop();c.runner.sender=send;c.state.set_target(s,'')
+ combat_v2_set_mode('BASH')
+ gmcp.Char.Items={List={location='room',items={}}};handlers['gmcp.Char.Items.List']()
+ s.hunting.ih={active=false,pending=false,responded=true,room_id=s.room.id,start_version=(s.room.item_version or 0)-1}
+ s.hunting.watch={room_id=s.room.id,checked_version=s.room.item_version}
+ check(c.policy.allowed(s) and c.runner_module.ready(c.runner) and not c.runner.waiting and not c.runner.fault,'GLOBE transport fixture has an unrelated hold')
+end
+local function globe_start()
+ check(combat_v2_globe('on'),'public GLOBE arm refused')
+ text(globe_failure);prompt()
+end
+local function globe_probe()
+ text('This globe is infused with water and can be drained another 2 times.');prompt()
+end
+local function globe_ack()
+ text(globe_drain);def('Add',{name='water_infused'});def('Add',{name='toughness'});prompt()
+end
+local function globe_finish()text(globe_success);prompt()end
+-- First prove that the same real hook path can consume resources when permitted.
+transport_fixture();globe_empty();local first=#sent
+check(not c.elementals.state(c).attached,'GLOBE attached before explicit opt-in')
+globe_start();globe_probe();globe_ack();globe_finish()
+check(sends_of('probe globe',first)==1 and globe_resources(first)==2 and not c.elementals.state(c).pending,'actual-bootstrap multicast GLOBE happy path was inert')
+check(s.buffs.have.toughness and s.room.item_version>0,'GLOBE replaced core defence/item ingestion')
+for _,outcome in ipairs({'false','throw'})do
+ transport_fixture();first=#sent
+ c.runner.sender=function(command)send(command);if outcome=='throw'then error('offline GLOBE physical failure')end;return false end
+ local ok=c.runner_module.tick(c.runner);local commit=c.runner.transport_commit
+ check(not ok and commit and commit.failed and commit.sent==false,'GLOBE failed physical fixture did not commit normal attack')
+ globe_empty();check(c.runner.transport_commit==commit,'public STOP/BASH lost failed physical transport')
+ globe_start();globe_probe();globe_ack();globe_finish()
+ check(globe_resources(first)==0 and c.runner.transport_commit==commit,'GLOBE bypassed failed physical transport after STOP/BASH '..outcome)
+ check(s.buffs.have.toughness,'held GLOBE prevented native defence ingestion')
+ combat_v2_set_curing(true);check(sent[#sent]=='firstaid curing on' and c.runner.transport_commit==commit,'held GLOBE prevented native curing')
+ combat_v2_globe('off');text(globe_failure);globe_probe();globe_ack();globe_finish();tick()
+ check(not c.elementals.state(c).armed and globe_resources(first)==0 and c.runner.transport_commit==commit,'late GLOBE/OFF events rearmed or cleared failed transport')
+end
+for _,outcome in ipairs({'true','false','throw'})do
+ transport_fixture();first=#sent;local complete=false;local retained
+ c.runner.sender=function(command)
+  send(command);retained=c.runner.transport_commit
+  check(retained and retained.sent==nil,'GLOBE reentry fixture missed unfinished sender')
+  globe_empty();globe_start();globe_probe();globe_ack();globe_finish()
+  check(globe_resources(first)==0 and c.runner.transport_commit==retained,'unfinished sender + STOP/BASH dispatched GLOBE resources '..outcome)
+  complete=true;if outcome=='throw'then error('offline unfinished GLOBE failure')end;return outcome=='true'
+ end
+ local ok=c.runner_module.tick(c.runner)
+ check(complete,'runner swallowed failing GLOBE reentry callback assertion: '..tostring(c.runner.status))
+ check(ok==(outcome=='true') and globe_resources(first)==0,'GLOBE reentry outcome or dispatch was wrong')
+ if outcome=='true'then
+  check(not c.runner.transport_commit and retained.sent,'successful GLOBE reentry remained transport-held')
+  prompt();globe_probe();globe_ack();globe_finish()
+  check(globe_resources(first)==2 and not c.elementals.state(c).pending,'successful finished sender did not restore ordinary GLOBE recovery')
+ else
+  check(c.runner.transport_commit==retained and retained.failed,'failed GLOBE reentry lost shared barrier')
+  globe_probe();globe_ack();globe_finish()
+  check(globe_resources(first)==0 and c.runner.transport_commit==retained,'finished failed sender allowed late GLOBE consumption')
+ end
+end
+for _,external in ipairs({false,true})do
+ transport_fixture();globe_empty();first=#sent;globe_start();globe_probe()
+ if external then text(globe_drain)else globe_ack()end
+ local pending=c.elementals.state(c).pending;local before=globe_resources(first)
+ -- Commit another real normal action while the helper is awaiting its ACK.
+ c.state.set_target(s,'123');s.room.items['123']={id='123',name='a fixture monster',attrib='m'}
+ s.hunting.verified_generation=s.target_generation;s.hunting.watch=nil
+ c.runner.sender=function(command)send(command);return false end
+ check(not c.runner_module.execute(c.runner,c.runner_module.propose(c.runner)),'completion fixture failed to retain physical transport')
+ local commit=c.runner.transport_commit
+ check(commit and commit.failed,'completion fixture had no shared transport barrier')
+ c.runner.sender=send;text(globe_success)
+ check(c.elementals.state(c).pending==pending,'completion settled without post-success prompt')
+ -- Next BASH offense can be busy; settlement is still bookkeeping, not dispatch.
+ c.runner.waiting=true;s.player.balance=false;prompt()
+ check(not c.elementals.state(c).pending and not c.elementals.state(c).committed and c.elementals.state(c).armed,'held physical transport prevented committed GLOBE settlement '..tostring(external))
+ check(globe_resources(first)==before and c.runner.transport_commit==commit,'GLOBE settlement sent or cleared physical transport')
+end
+print=realprint;print('PASS buffs integration '..n..' assertions: aliases, snapshots, prompt/EQ, native priorities, ownership, shared transport arbitration, actual-bootstrap reentry, GLOBE and reviewed reset')

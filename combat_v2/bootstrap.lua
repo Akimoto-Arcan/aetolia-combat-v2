@@ -12,6 +12,7 @@ c.events=dofile(root.."events.lua");c.events.bind(c.tracker)
 c.runner_module=dofile(root.."runner.lua");c.curing=dofile(root.."curing.lua");c.gui=dofile(root.."gui.lua")
 c.policy=dofile(root.."policy.lua");c.policy.init(c.current,gmcp or {});c.runner_module.bind_policy(c.policy.attack_allowed)
 c.runner=c.runner_module.new(c.current,c.monk);c.cure=(c.cure and c.cure.status) and c.cure or c.curing.new()
+c.walker_native_handlers=true;c.walker=dofile(root.."walker.lua");c.walker.stop(c.current,"reload; walking disabled");c.walker.state(c.current).ask_on_bash=false;if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end
 c.defense=dofile(root.."defense.lua");c.runner_module.bind_defense(c.defense.hold)
 c.mental=dofile(root.."mental.lua");c.mental.bind_defense(c.defense);c.current.mental=nil;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
 c.mode="OFF";c.current.mode="OFF";c.current.hunting.active=false;c.current.stop_reason=nil
@@ -163,22 +164,96 @@ local function cancel_ih()
  if c.ih_timer then killTimer(c.ih_timer);c.ih_timer=nil end
  local scan=c.current.hunting.ih;if scan then scan.active=false;scan.pending=false end
 end
-local function enter_room_watch()
+local function enter_room_watch(reason)
  local s=c.current;local scan=s.hunting.ih;cancel_ih()
  s.hunting.watch={room_id=s.room.id,checked_version=scan and scan.start_version or (s.room.item_version or 0)};s.hunting.verified_generation=nil
- c.runner.status="BASH armed: 3 IH checks exhausted; watching GMCP room updates"
- c.state.record(s,"ih_watch","3 checks exhausted; quiet GMCP watch");refresh();return false,c.runner.status
+ c.runner.status=reason or "BASH armed: 3 IH checks exhausted; watching GMCP room updates"
+ c.state.record(s,"ih_watch",reason or "3 checks exhausted; quiet GMCP watch");refresh();return false,c.runner.status
 end
+-- Mapper reads only: no gotoRoom/speedwalk, special exits, doors or area crossing.
+function combat_v2_walk_graph()
+ local s=c.current;local start=tonumber(s.room.id)
+ for _,name in ipairs({"getRoomArea","getAreaRooms","getRoomExits","roomLocked","getDoors","getRoomWeight"})do if type(_G[name])~="function" then return nil,"mapper API unavailable" end end
+ if not start then return nil,"current room is unknown" end
+ local ok,area=pcall(getRoomArea,start);if not ok or not area or area<0 then return nil,"current room is unmapped" end
+ local good,ids=pcall(getAreaRooms,area);if not good or type(ids)~="table" then return nil,"area map unavailable" end
+ local rooms={}
+ for _,raw in pairs(ids)do
+  local id=tonumber(raw)
+  if id then
+   local locked_ok,locked=pcall(roomLocked,id);local weight_ok,weight=pcall(getRoomWeight,id)
+   local exits_ok,exits=pcall(getRoomExits,id);local doors_ok,doors=pcall(getDoors,id)
+   if locked_ok and weight_ok and exits_ok and doors_ok and type(exits)=="table" and type(doors)=="table" then
+    rooms[tostring(id)]={area=area,exits=exits,doors=doors,blocked=locked==true or (tonumber(weight) or 999)>1}
+   end
+  end
+ end
+ return c.walker.build(start,area,rooms)
+end
+function combat_v2_walk_offer()
+ local s=c.current;local w=c.walker.state(s)
+ if c.mode~="BASH" or not w.ask_on_bash then return false end
+ w.ask_on_bash=false
+ local graph,why=combat_v2_walk_graph()
+ if not graph then w.status="Auto walk unavailable: "..tostring(why);return false,why end
+ local token,reason=c.walker.offer(s,graph);if not token then return false,reason end
+ if c.gui.show_walk_prompt then c.gui.show_walk_prompt(s.room.area,graph.room_count,token) end
+ return true
+end
+function combat_v2_walk_answer(token,yes)
+ local s=c.current;local ok,why=c.walker.accept(s,tonumber(token),yes==true)
+ if not ok then return false,why end
+ if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end
+ if yes then
+  -- Explicit Yes consents; always confirm the current room before any movement.
+  if (s.hunting.verified_generation~=s.target_generation or s.target.dead or not s.target.name) and not (s.hunting.ih and s.hunting.ih.active) then combat_v2_start_ih("auto walk current-room confirmation",true) end
+  combat_v2_tick()
+ end
+ refresh();return true
+end
+function combat_v2_walk(cmd)
+ cmd=cmd~="" and cmd or "status"
+ if cmd=="off" then c.walker.stop(c.current,"walking stopped; stationary BASH");c.walker.state(c.current).ask_on_bash=false;if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end;refresh();return true end
+ if cmd=="on" then if c.mode~="BASH" then return false,"enable BASH first; movement still requires popup Yes" end;c.walker.stop(c.current,"new walking consent requested");c.walker.state(c.current).ask_on_bash=true;return combat_v2_walk_offer() end
+ if cmd=="yes" or cmd=="no" then local o=c.walker.state(c.current).offer;return combat_v2_walk_answer(o and o.token,cmd=="yes") end
+ if cmd~="status" then return false,"cv2 walk on|off|status|yes|no" end
+ local w=c.walker.state(c.current);print("Auto walk: "..tostring(w.status or "disabled").." active="..tostring(w.active).." steps="..tostring(w.steps or 0));return true
+end
+local function walk_step()
+ local s=c.current;local w=c.walker.state(s)
+ if not w.active or not w.clear then return false end
+ if w.clear.version~=(s.room.item_version or 0) then w.clear=nil;s.hunting.watch=nil;combat_v2_start_ih("room changed; recheck before walking",true);return true end
+ if c.policy.attack_allowed(s) then w.clear=nil;s.hunting.watch=nil;return false end
+ local p=s.player;local aff=p.afflictions
+ local maximum=tonumber(p.maxhp) or 0
+ if maximum<=0 or 100*p.hp/maximum<(s.config.health_resume or 60) or 100*p.hp/maximum<(s.config.defense_health_resume or 65) then c.runner.status="WALK paused: recover health before moving";return true end
+ for k,v in pairs(aff)do if v and (k:match("^writhe_") or ({paralysis=true,paresis=true,asleep=true,stun=true,stunned=true,frozen=true,lameness=true,left_leg_crippled=true,right_leg_crippled=true,left_leg_broken=true,right_leg_broken=true})[k]) then c.runner.status="WALK paused: hindered";return true end end
+ if p.prone or c.runner.waiting or c.runner.fault or not c.runner_module.ready(c.runner) then c.runner.status="WALK waiting for real balance/equilibrium recovery";return true end
+ if c.current.training_battle_ended or not s.connected or p.dead then return true end
+ if getConnectionInfo then local _,_,tcp=getConnectionInfo();if not tcp then return true end end
+ local permitted,why=c.policy.allowed(s);if not permitted then c.runner.status=why;return true end
+ local step,reason=c.walker.next(s)
+ if not step then c.runner.status="Auto walk: "..tostring(reason or w.status);return false end
+ local info=gmcp and gmcp.Room and gmcp.Room.Info
+ if not info or tostring(info.num)~=tostring(s.room.id) or type(info.exits)~="table" or tostring(info.exits[step.direction])~=tostring(step.to) then c.walker.stop(s,"live exit does not match safe map route");w.fault="live exit mismatch";c.runner.status="WALK stopped: exit mismatch";return true end
+ local started,err=c.walker.begin_step(s,step);if not started then c.walker.stop(s,err or "step validation failed");w.fault=err or "step validation failed";return true end
+ local ok,failure=pcall(c.walk_sender or send,step.direction)
+ if not ok then c.walker.stop(s,"movement sender failure: "..tostring(failure));w.fault="movement sender failure";return true end
+ w.sent=(w.sent or 0)+1;c.state.record(s,"walk_send",step.direction.." "..step.from.." -> "..step.to);c.runner.status="WALK: "..step.direction.."; waiting for room acknowledgement";return true
+end
+
 -- Failed IH checks retry at most three times, then wait for real room updates.
 function combat_v2_ih_result()
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active or not scan.pending or not scan.responded then return false end
  local ok,why=c.bashing.ih_select(s)
+ if ok and c.monk.continue_flurry then c.monk.continue_flurry(s)end
  if ok then
   cancel_ih();s.hunting.verified_generation=s.target_generation
   c.runner.status="IH confirmed target "..tostring(s.target.name);c.state.record(s,"ih_found",s.target.name)
   return combat_v2_tick()
  end
+ if c.walker.state(s).active and c.walker.mark_clear(s,s.room.item_version or 0) then enter_room_watch("Auto walk: no targets confirmed by IH");return combat_v2_tick() end
  if scan.attempts>=3 then scan.last_failure=why;return enter_room_watch() end
  scan.last_failure=why;c.state.record(s,"ih_miss",scan.attempts.."/3: "..why)
  c.runner.status="BASH armed: no matching target; IH check "..scan.attempts..", retry in 2s";refresh();return false
@@ -221,7 +296,7 @@ function combat_v2_stop(reason)
  if c.elementals then c.elementals.arm(c,false)end
  c.buffs.stop(c.current,reason or "OFF; upkeep disarmed")
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"OFF")end
- cancel_ih();c.current.hunting.watch=nil
+ cancel_ih();c.current.hunting.watch=nil;c.walker.stop(c.current,reason or "OFF");c.walker.state(c.current).ask_on_bash=false;if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end
  if c.current.training_battle_ended then
   local m=c.current.mental
   if m then if m.target then pcall(send,"mind cease") end;m.status="stopped";m.target=nil;m.lock_target=nil;m.eq_pending=nil end
@@ -233,6 +308,7 @@ function combat_v2_stop(reason)
 end
 local function watchdog()
  c.watch_timer=nil
+ c.walker.expire(c.current)
  if c.mode=="BASH" or c.mode=="FULL_AUTO" then combat_v2_tick()
  elseif c.runner_module.watchdog(c.runner) then combat_v2_stop(c.runner.status);return end
  if c.mode~="OFF" and c.mode~="SHADOW" then c.watch_timer=tempTimer(1,watchdog) end
@@ -254,11 +330,12 @@ local function area_prompt()
  end
 end
 function combat_v2_tick()
- local s=c.current;buff_snapshot()
+ local s=c.current;c.walker.expire(s);buff_snapshot()
  if s.stop_reason then
   if s.stop_reason=="training battle ended" then combat_v2_stop(s.stop_reason);return false,"training battle ended" end
   if s.stop_reason=="target slain" and c.mode=="BASH" and s.hunting.active then
    s.stop_reason=nil;local ok=c.bashing.killed(s)
+   if c.monk.continue_flurry then c.monk.continue_flurry(s)end
    if not ok then s.hunting.active=true;s.stop_reason=nil end
    combat_v2_start_ih("target slain; refresh room");return false,"checking IH"
   elseif c.mode=="BASH" and (s.stop_reason=="target unavailable" or s.stop_reason=="target left room; confirmation required") then
@@ -274,6 +351,7 @@ function combat_v2_tick()
  local buffs=c.buffs.service(s,c.runner,buff_dispatch,defense.hold or flurry_hold);c.buff_status=buffs.status
  if buffs.busy then c.runner.status="DEFUP: "..tostring(buffs.status);refresh();return false,c.runner.status end
  if defense.hold and (c.mode=="FULL_AUTO" or c.mode=="BASH") then c.runner_module.update_balance(c.runner);c.runner.pending=nil;c.runner.status="DEFENSE: "..defense.phase;refresh();return false,c.runner.status end
+ if c.walker.state(s).pending then c.runner.pending=nil;c.runner.status="WALK location unresolved; await arrival or cv2 reset after review";refresh();return false,c.runner.status end
  if c.mode=="BASH" then
   c.runner_module.update_balance(c.runner);c.runner_module.watchdog(c.runner)
   if c.runner.fault then cancel_ih();c.runner.status=c.runner.fault;refresh();return false,c.runner.fault end
@@ -284,6 +362,7 @@ function combat_v2_tick()
    c.runner.status=not s.connected and "BASH paused: disconnected" or s.player.dead and "BASH paused: dead" or why
    area_prompt();refresh();return false,c.runner.status
   end
+  if c.walker.state(s).ask_on_bash then combat_v2_walk_offer() end
   if s.hunting.ih and s.hunting.ih.active then refresh();return false,"checking IH" end
   local watch=s.hunting.watch
   if watch then
@@ -292,14 +371,16 @@ function combat_v2_tick()
     local version=s.room.item_version or 0
     if version>(watch.checked_version or 0) then
      watch.checked_version=version
-     if c.bashing.watch_select(s) then s.hunting.verified_generation=s.target_generation;c.state.record(s,"gmcp_found",s.target.name) end
+     if c.bashing.watch_select(s) then if c.monk.continue_flurry then c.monk.continue_flurry(s)end;c.walker.state(s).clear=nil;s.hunting.verified_generation=s.target_generation;c.state.record(s,"gmcp_found",s.target.name) end
     end
-    if s.hunting.watch then c.runner.status="BASH armed: watching GMCP room updates (IH 3/3)";refresh();return false,c.runner.status end
+    if s.hunting.watch and walk_step() then refresh();return false,c.runner.status end
+    if s.hunting.watch then c.runner.status=c.walker.state(s).fault and ("BASH armed; WALK stopped: "..c.walker.state(s).fault) or c.walker.state(s).status=="complete" and "BASH armed: area walk complete; GMCP watch" or "BASH armed: watching GMCP room updates (IH 3/3)";refresh();return false,c.runner.status end
    end
   end
   if not s.target.name or s.target.dead or s.hunting.verified_generation~=s.target_generation then combat_v2_start_ih("verify bashing target");return false,"checking IH" end
  end
- if c.mental.tick(s,c.mental_sender or c.runner.sender or send,c.runner.paused_health) then c.runner_module.update_balance(c.runner);refresh();return false,"Telepathy equilibrium pending" end
+ -- Pause new mental casts on unknown physical transport, but still service EQ recovery.
+ if c.mental.tick(s,c.mental_sender or c.runner.sender or send,c.runner.paused_health or c.buffs.transport_held(c.runner)) then c.runner_module.update_balance(c.runner);refresh();return false,"Telepathy equilibrium pending" end
  local ok,why=c.runner_module.tick(c.runner);c.mode=c.runner.mode;s.mode=c.mode
  if why=="cooldown" and not c.retry_timer then c.retry_timer=tempTimer(.35,function() c.retry_timer=nil;combat_v2_tick() end) end
  refresh();return ok,why
@@ -310,7 +391,7 @@ function combat_v2_set_mode(mode)
  if c.monk.cancel_flurry and mode~=c.mode then c.monk.cancel_flurry(c.current,"mode changed")end
  if mode~="BASH"and c.elementals then c.elementals.arm(c,false)end
  if mode=="OFF" then return combat_v2_stop() end
- cancel_ih();c.current.hunting.watch=nil
+ cancel_ih();c.current.hunting.watch=nil;c.walker.stop(c.current,"mode changed");c.walker.state(c.current).ask_on_bash=mode=="BASH";if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end
  if c.current.training_battle_ended then c.current.training_battle_ended=nil;c.current.mental=nil end
  c.current.dismount_stance=nil
  if mode=="SHADOW"then c.buffs.stop(c.current,"SHADOW; upkeep disarmed")end
@@ -336,7 +417,7 @@ function combat_v2_set_target(name)
  if ok then
   c.runner.pending=nil
   if c.current.target_generation~=previous and c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual target changed")end
-  if c.current.target_generation~=previous then c.current.hunting.watch=nil;c.current.hunting.target_name=nil;c.current.hunting.killed_ids={};c.current.hunting.query=c.current.target.name end
+  if c.current.target_generation~=previous then c.walker.stop(c.current,"manual target changed; walking stopped");c.walker.state(c.current).ask_on_bash=false;if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end;c.current.hunting.watch=nil;c.current.hunting.target_name=nil;c.current.hunting.killed_ids={};c.current.hunting.query=c.current.target.name end
  end
  refresh();return ok,why
 end
@@ -356,8 +437,21 @@ end
 function combat_v2_set_curing(on) local ok,why=c.curing.set(c.cure,c.current,on==true);refresh();return ok,why end
 function combat_v2_reset_wait()
  -- Deliberate manual recovery; never release wait from a timer alone.
+ if c.walker.state(c.current).pending then
+  -- Operator has reviewed physical location. Stay OFF and discard stale room
+  -- evidence; reset neither sends a query nor claims the cached room is current.
+  cancel_ih();c.current.hunting.watch=nil
+  c.walker.stop(c.current,"manual movement recovery; fresh room evidence required");c.walker.state(c.current).ask_on_bash=false
+  if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end
+  c.runner_module.stop(c.runner,"manual movement recovery");c.mode="OFF";c.current.stop_reason=nil
+  for _,key in ipairs({"retry_timer","watch_timer","ih_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
+  c.walker.state(c.current).pending=nil;c.walker.state(c.current).fault=nil
+  c.current.room.id=nil;c.current.room.area=nil;c.current.room.items={}
+  c.current.policy.players_known=false;c.current.policy.players_room=nil
+  c.current.hunting.verified_generation=nil;c.current.training=nil
+ end
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"reviewed reset")end
- c.defense.reset(c.current);c.mental.reset(c.current);c.runner.fault=nil;c.runner.waiting=false;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
+ c.defense.reset(c.current);c.mental.reset(c.current);c.runner.fault=nil;c.runner.waiting=false;c.runner.transport_commit=nil;c.runner.pending=nil;c.runner.last_send=-100;c.runner.status="manually reset";c.state.record(c.current,"reset","manual waiting reset");refresh()
 end
 function combat_v2_propose() local a=c.runner_module.propose(c.runner);refresh();return a end
 function combat_v2_observe(e)
@@ -421,6 +515,7 @@ end
 handler("sysDisconnectionEvent",function()
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"disconnect")end
  c.buffs.stop(c.current,"disconnect; upkeep disarmed");buff_invalidate();local b=c.buffs.state(c.current);b.defs_known=false;b.defs_at=nil
+ c.walker.stop(c.current,"disconnected; walking disabled");c.walker.state(c.current).ask_on_bash=false;if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end
  c.current.defense=nil;c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
  c.current.policy.players_known=false;c.current.policy.web.at=nil;cancel_ih()
  if c.mode=="BASH" then if c.runner.waiting then c.runner.fault="Disconnected during attack; cv2 reset after review" end;c.runner.status="BASH paused: disconnected";refresh()
@@ -474,6 +569,7 @@ handler("gmcp.Room.Info",function()
  local s=c.current;local info=gmcp.Room.Info or {};local changed=c.policy.room(s,info)
  if changed and c.monk.cancel_flurry then c.monk.cancel_flurry(s,"room changed")end
  if changed then
+  local w=c.walker.state(s);if w.offer then c.walker.stop(s,"room changed before consent");if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end elseif w.active or w.pending then c.walker.arrive(s,info.num) end
   s.hunting.watch=nil;s.training=nil;s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
   if c.mode=="BASH" then c.state.set_target(s,"");c.runner.pending=nil end
  end
@@ -515,6 +611,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  if cmd=="target" then ok,why=combat_v2_set_target(rest)
  elseif cmd=="approve" then ok,why=combat_v2_approve()
  elseif cmd=="stop" or cmd=="off" then combat_v2_stop()
+ elseif cmd=="walk" then ok,why=combat_v2_walk(rest)
  elseif cmd=="enemy" then if rest=="reset" then ok,why=combat_v2_reset_enemy_afflictions() else ok,why=false,"cv2 enemy reset" end
  elseif cmd=="globe"then ok,why=combat_v2_globe(rest~=""and rest or"status")
  elseif cmd=="defup"then ok,why=combat_v2_buffs("defup",rest)
@@ -537,7 +634,12 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
   local sub,name=rest:match("^(%S+)%s*(.*)$");sub=sub or "list"
   if sub=="add" then ok,why=c.bashing.add(c.current,name)
   elseif sub=="clear" then c.current.hunting.queue={};print("Queue cleared")
-  elseif sub=="next" then if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual queue next")end; ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() elseif c.mode=="BASH" then c.current.hunting.active=true;c.current.stop_reason=nil;combat_v2_start_ih("queue empty") else combat_v2_stop(why) end
+  elseif sub=="next" then
+   if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual queue next")end
+   c.walker.stop(c.current,"manual queue next; walking stopped");c.walker.state(c.current).ask_on_bash=false
+   if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt() end
+   c.runner.pending=nil
+   ok,why=c.bashing.next(c.current,true);if ok then combat_v2_tick() elseif c.mode=="BASH" then c.current.hunting.active=true;c.current.stop_reason=nil;combat_v2_start_ih("queue empty") else combat_v2_stop(why) end
   elseif sub=="list" then print("Queued: "..table.concat(c.current.hunting.queue,", "))
   else ok,why=false,"cv2 queue add NAME | list | next | clear" end
  elseif cmd=="help" then if c.gui.show_help then c.gui.show_help() else print("Help GUI unavailable; see docs/backend.md") end

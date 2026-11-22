@@ -6,6 +6,61 @@ local function action(name,cmd,reason,limb,kick_only)
  requires={balance=true,equilibrium=true,left_arm_balance=not kick_only,right_arm_balance=not kick_only}}
 end
 local function wait(reason) return action("wait","",reason) end
+local function now() return getEpoch and getEpoch() or os.clock() end
+local function room(s) return s.room and s.room.id end
+-- Selection is read-only. Lifecycle callers must cancel before manual target changes;
+-- automatic vetted kill-chain changes may explicitly carry the self-buff scope forward.
+function M.cancel_flurry(s)
+ if s.hunting then s.hunting.flurry=nil;s.hunting.flurry_frame=nil end
+ if s.tekura_inflight then s.tekura_inflight.cancelled=true end
+end
+function M.flurry_active(s)
+ local f=s.hunting and s.hunting.flurry
+ local frame=s.hunting and s.hunting.flurry_frame
+ if not f and frame and now()-frame.created<=2 and frame.lines<=8 then f=frame end
+ return f~=nil and s.mode=="BASH" and s.connected and not s.player.dead and (tonumber(s.player.hp) or 0)>0
+  and f.room==room(s) and f.generation==s.target_generation
+end
+function M.continue_flurry(s)
+ -- Only bootstrap's vetted AUTOMATIC kill-chain path may use this, never a manual retarget.
+ local f=s.hunting and s.hunting.flurry
+ if f and f.room==room(s) then f.generation=s.target_generation end
+ local frame=s.hunting and s.hunting.flurry_frame
+ if frame and frame.room==room(s) then frame.generation=s.target_generation end
+end
+local function settle(s,c)
+ if c.cancelled or c.failed or c.rejected or not c.sent or not c.acknowledged or c.applied then return end
+ if s.mode~="BASH" or c.generation~=s.target_generation or c.room~=room(s) then return end
+ c.applied=true
+ if c.flurry then
+  local f=s.hunting and s.hunting.flurry
+  if f~=c.flurry or f.index~=c.index then return end
+  f.index=f.index+1
+  if f.index>#f.tokens then s.hunting.flurry=nil end
+ elseif c.variant then
+  s.hunting.bash_variant=c.variant==1 and 2 or 1
+ end
+end
+function M.begin_commit(s,a)
+ if a.name~="flurry_strike" and a.name~="bash_strike" then return nil end
+ local c={generation=s.target_generation,room=room(s),flurry=a.flurry,index=a.flurry_index,variant=a.bash_variant,
+  expected=a.expected_headers,position=1,created=now()}
+ s.tekura_inflight=c
+ c.on_header=function(attack)
+  if c~=s.tekura_inflight or c.cancelled or c.failed or c.rejected or c.acknowledged
+   or c.generation~=s.target_generation or c.room~=room(s) or s.mode~="BASH" then return end
+  if c.expected and attack==c.expected[c.position] then
+   c.position=c.position+1
+   -- The first own attack proves a normal combo executed, even on a miss/kill.
+   if c.variant or c.position>#c.expected then c.acknowledged=true;settle(s,c) end
+  end
+ end
+ return c
+end
+function M.finish_commit(s,c,ok)
+ if not c then return end
+ c.sent=ok;c.failed=not ok;settle(s,c)
+end
 local order={"left_leg","right_leg","left_arm","right_arm","torso","head"}
 local routes={legs={"left_leg","right_leg"},arms={"left_arm","right_arm"},head={"head"},torso={"torso"},balanced=order}
 local function parried(s,k)
@@ -23,6 +78,10 @@ function M.select_limb(s)
 end
 function M.choose(s)
  local t,p=s.target,s.player
+ local frame=s.hunting and s.hunting.flurry_frame
+ if s.mode=="BASH" and not s.hunting.flurry and frame and frame.generation==s.target_generation and frame.room==room(s) and now()-frame.created<=2 and frame.lines<=8 then
+  return wait("awaiting server Flurry Combo order")
+ end
  if not t.name or t.name=="" then return wait("no target") end
  if t.dead then return wait("target dead") end
  if p.mounted==true or (tonumber(p.mounted) or 0)>0 then
@@ -33,6 +92,11 @@ function M.choose(s)
  if s.dismount_stance and stance_codes[s.dismount_stance] and tostring(p.stance or ""):lower()~=s.dismount_stance then
   local a=action("stance",stance_codes[s.dismount_stance],"enter stance after confirmed dismount",nil,true);a.stance=s.dismount_stance;return a
  end
+ if s.mode=="BASH" and M.flurry_active(s) then
+  local f=s.hunting.flurry
+  if f.awaiting or f.fault then return wait(f.fault or "awaiting server Flurry Combo order") end
+  if t.shield or t.rebounding then return wait("Flurry target defence observed; do not substitute an out-of-order attack") end
+ end
  if t.shield then return action("shieldbreak","sck "..t.name,"scythekick removes observed magical shield",nil,true) end
  if t.rebounding then return wait("rebounding observed; clear or re-observe defence before attacking") end
  if s.mode=="BASH" then
@@ -40,7 +104,21 @@ function M.choose(s)
   if stance~="scorpion" and stance~="scs" then
    local a=action("stance","scs","enter Scorpion before SPK/UCP/UCP bashing",nil,true);a.stance="scorpion";return a
   end
-  return action("bash_strike","combo "..t.name.." spk ucp ucp","Spinkick and two Uppercuts; no PvP limb tracking")
+  local f=s.hunting and s.hunting.flurry
+  if f and M.flurry_active(s) then
+   if f.awaiting or f.fault then return wait(f.fault or "awaiting server Flurry Combo order") end
+   local token=f.tokens[f.index]
+   local names={hfp="hammerfist",spp="spear",hkp="hook",snk="snapkick",ucp="uppercut",sdk="sidekick",wwk="whirlwind",mnk="moonkick",jbp="jab",spk="spinkick"}
+   if not names[token] then return wait("invalid Flurry state; reviewed cancellation required") end
+   local a=action("flurry_strike",token.." "..t.name,"server-ordered One Thousand Blows; no PvP limb tracking")
+   a.flurry=f;a.flurry_index=f.index;a.expected_headers={names[token]};a.cooldown=0
+   return a
+  end
+  local variant=s.hunting and s.hunting.bash_variant==2 and 2 or 1
+  local punch=variant==1 and "spp" or "ucp";local kick=variant==1 and "spk" or "sdk"
+  local a=action("bash_strike","combo "..t.name.." "..kick.." "..punch.." "..punch,"Power Through: alternating disjoint kick/punch sets; no PvP limb tracking")
+  a.bash_variant=variant;a.expected_headers={variant==1 and "spinkick" or "sidekick",variant==1 and "spear" or "uppercut",variant==1 and "spear" or "uppercut"}
+  return a
  end
  local finish=t.prone and next(t.crippled)~=nil and not t.mangled.head
  local desired=finish and s.config.finish_stance or s.config.pvp_stance

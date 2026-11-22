@@ -31,6 +31,7 @@ function M.text(s,text)
 end
 function M.tick(s,sender,paused_health)
  if s.buffs and s.buffs.pending then return false end
+ if s.walker and s.walker.pending then return false end
  local m=M.state(s);local p=s.player;local t=now()
  if s.training_battle_ended then return false end
  -- Service an EQ cast even after a mode change; never invent readiness on a timeout.

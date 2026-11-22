@@ -8,7 +8,7 @@ import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parent
-MODULES = {'bootstrap.lua', 'state.lua', 'monk.lua', 'events.lua', 'runner.lua', 'curing.lua', 'gui.lua', 'tracker.lua', 'bashing.lua', 'policy.lua', 'mobs.lua', 'mental.lua', 'defense.lua', 'buffs.lua', 'elementals.lua'}
+MODULES = {'bootstrap.lua', 'state.lua', 'monk.lua', 'events.lua', 'runner.lua', 'curing.lua', 'gui.lua', 'tracker.lua', 'bashing.lua', 'policy.lua', 'mobs.lua', 'mental.lua', 'defense.lua', 'walker.lua', 'buffs.lua', 'elementals.lua'}
 
 BODY_ASSETS = {'crt_grid.png'} | {
     f'{part}_{color}.png'
@@ -35,7 +35,7 @@ def install(profile):
     if {source.name for source in assets} != BODY_ASSETS:
         raise ValueError('Body-scan asset manifest does not match; checkout is incomplete')
     sources += assets
-    backup = profile / 'combat-v2-backups' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    backup = profile / 'combat-v2-backups'  / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     existing = [target / s.relative_to(ROOT / 'combat_v2') for s in sources if (target / s.relative_to(ROOT / 'combat_v2')).exists()]
     if existing:
         backup.mkdir(parents=True)

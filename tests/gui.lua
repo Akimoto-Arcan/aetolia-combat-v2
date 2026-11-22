@@ -106,6 +106,14 @@ other.buttons.enemy_afflictions_reset.click();assert(reset_clicks==1 and other.c
 local er=other.buttons.enemy_afflictions_reset.p;local prev=other.buttons.enemy_afflictions_prev.p;local nxt=other.buttons.enemy_afflictions_next.p
 assert(er.x>=prev.x+prev.width and er.x+er.width<=nxt.x,'enemy RESET overlaps paging')
 
+local answers={};function combat_v2_walk_answer(token,yes)answers[#answers+1]={token,yes};other.hide_walk_prompt();return true end
+other.show_walk_prompt('<area>',3,17);local pop=combat_v2_ui.walk_popup
+assert(not pop.root.hidden and pop.label.html:find('&lt;area&gt;',1,true),'walking consent popup missing/unsafe HTML')
+assert(pop.root.p.x>=0 and pop.root.p.x+pop.root.p.width<=screenw and pop.root.p.y+pop.root.p.height<=screenh,'walking popup overflow')
+pop.no.click();assert(pop.root.hidden and answers[1][1]==17 and answers[1][2]==false,'No did not decline popup')
+local popup_count=created;other.show_walk_prompt('Area',4,18);assert(created==popup_count,'walking popup leaked widgets')
+pop.yes.click();assert(pop.root.hidden and answers[2][1]==18 and answers[2][2]==true,'Yes did not send scoped token')
+
 -- Paired limb cards and the read-only native body scanner.
 assert(other.cards.limbs.p.x+other.cards.limbs.p.width<other.cards.self_limbs.p.x,'self limbs not to the right of enemy limbs')
 assert(other.cards.self_limbs.html:find('YOUR LIMBS',1,true),'missing self limb panel')

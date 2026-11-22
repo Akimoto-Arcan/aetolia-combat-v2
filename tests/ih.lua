@@ -63,7 +63,7 @@ s=fresh('rat');combat_v2_set_mode('BASH');receive('There is nothing here.');adva
 items({{id=123,name='a rat',attrib='m'}})
 check(s.target.name=='123' and s.target.display_name=='a rat','IH did not resolve target to exact NPC ID')
 check(#ihs()==2 and #attacks()==1,'target found on second IH did not resume once')
-check(attacks()[1].command=='combo 123 spk ucp ucp','resumed attack did not use confirmed NPC ID')
+check(attacks()[1].command=='combo 123 spk spp spp','resumed attack did not use confirmed NPC ID')
 advance(2);check(#ihs()==2 and #attacks()==1,'found target left retry timer active or duplicated attack')
 s=fresh('rat');s.room.items['123']={name='a rat',attrib='m'};combat_v2_set_mode('BASH');combat_v2_ih_result()
 check(#attacks()==0,'cached room list bypassed fresh IH')
@@ -118,7 +118,7 @@ receive('You have slain a medium pulsating spider.')
 check(s.target.name=='1002' and s.hunting.kills==1,'first kill forgot selected NPC type instead of selecting next spider')
 check(#attacks()==1,'target switch bypassed previous attack recovery')
 receive('You have recovered balance on your left arm.');receive('You have recovered balance on your legs.');receive('You have recovered balance on your right arm.');advance(.4)
-check(#attacks()==2 and attacks()[2].command=='combo 1002 spk ucp ucp','second spider did not attack after real balance recovery')
+check(#attacks()==2 and attacks()[2].command=='combo 1002 spk spp spp','second spider did not attack after real balance recovery')
 auto_room_items={{id=1003,name='a medium pulsating spider',attrib='m'},{id=999,name='a medium pulsating spider',attrib='mx'}}
 receive('You have slain a medium pulsating spider.');check(s.target.name=='1003','second kill did not select third spider')
 receive('You have recovered balance on your left arm.');receive('You have recovered balance on your legs.');receive('You have recovered balance on your right arm.');advance(.4)
@@ -210,5 +210,148 @@ s=watched('rat');s.hunting.killed_ids['123']=true;gmcp.Char={Items={Add={locatio
 check(#attacks()==1 and not s.hunting.killed_ids['123'],'fresh living respawn retained a dead-ID blacklist')
 s=fresh('rat');combat_v2_set_mode('BASH');gmcp.Char={Items={Add={location='room',item={id=123,name='a rat',attrib='m'}}}};handlers['gmcp.Char.Items.Add']();advance(7)
 check(#ihs()==3 and #attacks()==1,'fresh Add during unanswered IH was forgotten when entering watch')
+
+-- Auto-walking is opt-in and all movement goes to a fake sender in these fixtures.
+local world={[1]={e=2},[2]={w=1,e=3},[3]={w=2}}
+function getRoomArea(id)return world[tonumber(id)] and 7 or -1 end
+function getAreaRooms()return {1,2,3}end
+function getRoomExits(id)return world[tonumber(id)]end
+function roomLocked()return false end
+function getDoors()return {}end
+function getRoomWeight()return 1 end
+local function walker_fixture()
+ local st=fresh('rat');local directions={}
+ gmcp.Room={Info={num=1,area='Fixture Hunt',exits={e=2}}}
+ combat_v2.walk_sender=function(dir)directions[#directions+1]=dir end
+ combat_v2_set_mode('BASH');return st,directions
+end
+local function accept_walk(st)
+ local offer=st.walker.offer;check(offer and not st.walker.active,'BASH did not offer opt-in walking')
+ local ok=combat_v2_walk_answer(offer.token,true);check(ok and st.walker.active,'valid popup Yes did not enable walking')
+end
+local function arrive(id)
+ gmcp.Room={Info={num=id,area='Fixture Hunt',exits=world[id]},Players={}};handlers['gmcp.Room.Info']();handlers['gmcp.Room.Players']()
+end
+local directions
+s,directions=walker_fixture();advance(7);check(#directions==0 and not s.walker.active,'BASH or failed IH enabled movement without consent')
+local token=s.walker.offer.token;combat_v2_walk_answer(token,false);check(#directions==0 and not s.walker.active and not s.walker.offer,'No did not leave stationary BASH')
+s,directions=walker_fixture();accept_walk(s);advance(7)
+check(#directions==0 and s.hunting.watch and s.walker.active,'unanswered IH authorized movement')
+s,directions=walker_fixture();accept_walk(s);receive('There is nothing here.')
+check(#directions==1 and directions[1]=='e' and s.walker.pending and #attacks()==0,'confirmed empty room did not issue one bounded move')
+combat_v2_tick();combat_v2_tick();check(#directions==1,'pending movement duplicated a direction')
+arrive(2);check(#directions==1 and not s.walker.pending and s.walker.active,'room arrival moved again without fresh room search')
+items({{id=123,name='a rat',attrib='m'}})
+check(#attacks()==1 and #directions==1,'walker did not stop and attack available NPC')
+receive('You have slain a rat.');items({});check(#directions==1,'walk moved before physical attack recovery')
+s.player.balance=false;s.player.equilibrium=false;s.player.left_arm_balance=false;s.player.right_arm_balance=false;combat_v2_tick()
+s.player.balance=true;s.player.equilibrium=true;s.player.left_arm_balance=true;s.player.right_arm_balance=true
+for _,key in ipairs({'balance','equilibrium','left_arm_balance','right_arm_balance'})do s.recoveries[key]=(s.recoveries[key] or 0)+1 end
+combat_v2_tick();check(#directions==2 and directions[2]=='e','fresh IH plus real recovery did not continue route')
+arrive(3);receive('There is nothing here.');check(#directions==2 and not s.walker.active and s.walker.status=='complete' and combat_v2.mode=='BASH','finite route did not complete as stationary armed BASH')
+s,directions=walker_fixture();accept_walk(s);s.player.hp=40;s.player.maxhp=100;receive('There is nothing here.')
+check(#directions==0,'walker moved through defensive low-health hold');s.player.hp=100;combat_v2_tick();check(#directions==1,'healed walker did not resume safely')
+s,directions=walker_fixture();accept_walk(s);s.player.balance=false;receive('There is nothing here.');check(#directions==0,'off-balance walker moved')
+items({{id=123,name='a rat',attrib='m'}});s.player.balance=true;combat_v2_tick();check(#directions==0 and #attacks()==1,'new target did not revoke room-clear evidence')
+s,directions=walker_fixture();accept_walk(s);gmcp.Room.Players={{name='Unknown'}};handlers['gmcp.Room.Players']();receive('There is nothing here.')
+check(#directions==0,'walker bypassed unknown-player gate');gmcp.Room.Players={};handlers['gmcp.Room.Players']();receive('There is nothing here.');check(#directions==1,'safe occupancy did not release pending clearance')
+s,directions=walker_fixture();accept_walk(s);gmcp.Room.Info.exits={e=99};receive('There is nothing here.');check(#directions==0 and not s.walker.active,'walker ignored live exit mismatch')
+s,directions=walker_fixture();accept_walk(s);receive('There is nothing here.');advance(7);check(#directions==1 and not s.walker.active,'movement timeout retried blindly')
+arrive(2);receive('There is nothing here.');check(#directions==1,'late movement acknowledgement rearmed walking')
+s,directions=walker_fixture();accept_walk(s);receive('There is nothing here.');arrive(3);receive('There is nothing here.');check(#directions==1 and not s.walker.active,'unexpected destination preserved consent')
+s,directions=walker_fixture();accept_walk(s);combat_v2_stop();receive('There is nothing here.');advance(10);check(#directions==0 and not s.walker.active and combat_v2.mode=='OFF','STOP did not revoke walking')
+s,directions=walker_fixture();accept_walk(s);handlers.sysDisconnectionEvent();advance(10);check(#directions==0 and not s.walker.active,'disconnect did not revoke walking')
+s,directions=walker_fixture();local stale=s.walker.offer.token;arrive(2);check(not combat_v2_walk_answer(stale,true) and #directions==0 and not s.walker.active,'stale room popup authorized movement')
+
+
+s,directions=walker_fixture();accept_walk(s);combat_v2.walk_sender=function()error('fake movement transport failure')end;receive('There is nothing here.');advance(10);check(not s.walker.active and s.walker.fault and #directions==0,'sender failure left a retrying route')
+s,directions=walker_fixture();accept_walk(s);combat_v2_walk('off');receive('There is nothing here.');advance(5);check(#directions==0 and combat_v2.mode=='BASH' and not s.walker.active,'walk off stopped BASH or retained movement')
+s,directions=walker_fixture();accept_walk(s);combat_v2_set_target('other rat');receive('There is nothing here.');check(#directions==0 and not s.walker.active,'manual target retained movement consent')
+s,directions=walker_fixture();accept_walk(s);s.player.afflictions.lameness=true;receive('There is nothing here.');check(#directions==0,'movement ignored leg hindrance');s.player.afflictions.lameness=nil;combat_v2_tick();check(#directions==1,'cleared hindrance did not resume')
+s,directions=walker_fixture();accept_walk(s);s.player.balance=false;receive('There is nothing here.');items({{id=900,name='a loyal roc',attrib='mx'}});s.player.balance=true;combat_v2_tick();check(#directions==0 and s.hunting.ih.active,'changed room cache reused stale IH clearance');receive('There is nothing here.');check(#directions==1,'fresh reconfirmation did not release cache-change hold')
+s,directions=walker_fixture();accept_walk(s);dofile(root..'bootstrap.lua');receive('There is nothing here.');check(combat_v2.mode=='OFF' and not s.walker.active and #directions==0,'reload retained walking consent')
+
+-- Issued movement is an execution barrier, independent of route consent.
+local function pending_hop()
+ local st,dirs=walker_fixture();accept_walk(st);receive('There is nothing here.')
+ check(#dirs==1 and st.walker.pending,'pending-hop fixture did not send exactly once')
+ return st,dirs,st.walker.pending
+end
+local function command(text) matches={'',text};aliases[combat_v2.alias]();matches=nil end
+local function add_rat()
+ gmcp.Char=gmcp.Char or {};gmcp.Char.Items={Add={location='room',item={id=123,name='a rat',attrib='m'}}}
+ handlers['gmcp.Char.Items.Add']()
+end
+s,directions=pending_hop();local hop=s.walker.pending
+check(not combat_v2_walk('on') and s.walker.pending==hop and not s.walker.offer,'walk on replaced active pending hop')
+combat_v2_walk('off');check(s.walker.pending==hop and not s.walker.active,'walk off forgot issued hop')
+check(not combat_v2_walk('on') and not s.walker.offer,'walk on offered consent over pending hop')
+check(not combat_v2_walk_answer(1,true),'pending hop accepted stale Yes')
+receive('There is nothing here.');add_rat();advance(2)
+check(#directions==1 and #attacks()==0 and s.walker.pending==hop,'off/on/empty IH/Add bypassed movement barrier')
+handlers['gmcp.Room.Info']();check(s.walker.pending==hop,'same-room Room.Info masqueraded as arrival')
+arrive(2);check(not s.walker.pending and not s.walker.active,'arrival after revoked consent failed to acknowledge')
+
+for _,mode in ipairs({'FULL_AUTO','ASSIST','OFF','SHADOW','BASH'}) do
+ s,directions,hop=pending_hop();combat_v2_set_mode(mode)
+ if mode=='OFF' or mode=='SHADOW' then combat_v2_set_mode('BASH') end
+ check(s.walker.pending==hop and not s.walker.active,'mode change erased hop: '..mode)
+ combat_v2_set_target('Opponent');s.policy.players={opponent=true};s.policy.players_known=true
+ local mental_sent=0;clock=clock+1
+ combat_v2.mental.tick(s,function()mental_sent=mental_sent+1 end,false)
+ check(mental_sent==0,'low-level mental bypassed hop: '..mode)
+ local r=combat_v2.runner;local a=combat_v2.runner_module.propose(r)
+ r.pending=a
+ check(not combat_v2.runner_module.execute(r,a,true),'low-level runner bypassed hop: '..mode)
+ check(not combat_v2_approve(),'ASSIST approval bypassed hop: '..mode)
+ add_rat();advance(7)
+ check(s.walker.pending==hop and hop.timed_out and not s.walker.active and #directions==1 and #attacks()==0,'mode/timeout permitted send: '..mode)
+ check(not combat_v2_walk('on'),'timeout allowed new offer: '..mode)
+ arrive(2);check(not s.walker.pending and not s.walker.active and #directions==1,'late arrival restored consent: '..mode)
+end
+
+for _,action in ipairs({'target','queue'}) do
+ for _,phase in ipairs({'offer','active','pending'}) do
+  s,directions=walker_fixture();local stale=s.walker.offer.token
+  if phase~='offer' then accept_walk(s) end
+  if phase=='pending' then receive('There is nothing here.') end
+  hop=s.walker.pending
+  if action=='target' then combat_v2_set_target('other rat')
+  else combat_v2.bashing.add(s,'456');command('queue next');check(s.target.name=='456','manual queue next did not select queued target') end
+  check(not s.walker.active and not s.walker.offer and not s.walker.ask_on_bash,'manual '..action..' retained '..phase..' consent')
+  check(s.walker.pending==hop,'manual '..action..' lost pending barrier')
+  check(not combat_v2_walk_answer(stale,true),'manual '..action..' retained stale popup')
+  if hop then add_rat();advance(7);check(#attacks()==0 and #directions==1 and s.walker.pending==hop,'manual '..action..' bypassed unresolved location') end
+ end
+end
+-- Automatic queue advancement must keep current walking consent.
+s,directions=walker_fixture();accept_walk(s);combat_v2.bashing.add(s,'456')
+s.target.display_name='a rat';combat_v2.bashing.killed(s)
+check(s.walker.active and s.target.name=='456','automatic kill-chain revoked walking consent')
+
+s,directions,hop=pending_hop();arrive(3);advance(7)
+check(s.walker.pending==hop and not s.walker.active and #directions==1,'unexpected arrival released barrier')
+local before,gmcp_before=#sent,#gmcp_sent
+command('reset')
+check(#sent==before and #gmcp_sent==gmcp_before and #directions==1,'reviewed reset sent a game command/request')
+check(combat_v2.mode=='OFF' and s.mode=='OFF' and not s.walker.pending and not s.walker.active and not s.walker.offer,'reviewed reset did not stop and clear barrier')
+check(not s.room.id and not s.room.area and not s.policy.players_known and next(s.room.items)==nil,'reviewed reset trusted stale location')
+advance(10);check(#sent==before and #directions==1,'reset watchdog resumed combat')
+combat_v2_set_mode('BASH');check(#attacks()==0 and #directions==1,'rearm without new room evidence sent offense')
+arrive(3);check(not s.walker.active,'fresh room evidence silently restored walking')
+
+s,directions,hop=pending_hop();dofile(root..'bootstrap.lua');combat_v2_set_mode('FULL_AUTO');advance(7)
+check(s.walker.pending==hop and #attacks()==0 and #directions==1,'reload erased movement barrier')
+arrive(2);check(not s.walker.pending and not s.walker.active,'reload prevented late arrival resolution')
+
+s,directions,hop=pending_hop();handlers.sysDisconnectionEvent();advance(7)
+check(s.walker.pending==hop and not s.walker.active and #directions==1,'disconnect forgot pending hop')
+arrive(2);check(not s.walker.pending and not s.walker.active,'disconnect prevented expected arrival acknowledgement')
+
+s,directions,hop=pending_hop();advance(7);handlers['gmcp.Room.Info']()
+check(s.walker.pending==hop and hop.timed_out and not combat_v2_walk('on'),'timeout/same-room cache released movement barrier')
+before,gmcp_before=#sent,#gmcp_sent
+command('reset');check(#sent==before and #gmcp_sent==gmcp_before and combat_v2.mode=='OFF' and not s.room.id and not s.walker.pending,'timeout reset failed zero-send recovery')
+
 print=realprint
-print('PASS IH '..count..' assertions: fresh presence gate, persistent two-second retries, recovery, actor filtering, stale callbacks and cancellation')
+print('PASS IH '..count..' assertions: bounded IH/GMCP watch, opt-in walker integration, room/combat/recovery/health/player gates, one-hop movement, revocation and cancellation')
