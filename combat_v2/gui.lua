@@ -115,6 +115,12 @@ local function buff_entry(key)
  local c=buff_core();if not c then return nil end
  for _,entry in ipairs(c.buffs.rows(c.current))do if entry.key==key then return entry end end
 end
+local function defense_toggleable(entry,revoking)
+ -- Revoking local intent needs no activation resources; it grants no foreign OFF command.
+ if revoking and entry.control=="class" and entry.relevant==true and entry.wanted==true and entry.tracking_only~=true then return true end
+ return entry.available~=false and entry.can_toggle~=false and entry.known~=false and entry.tracking_only~=true and entry.relevant~=false
+end
+local function defense_class(state)return tostring(state.player.class or ""):lower()end
 function M.defense_action(action,rest)
  local c,why=buff_core();if not c then return false,why end
  if action=="keep" or action=="native" then
@@ -123,6 +129,7 @@ function M.defense_action(action,rest)
    if not key and type(rest)=="string" then key=rest:match("^([%a][%w_]*) off$")end
    local entry=key and buff_entry(key)
    if not entry or (action=="keep" and entry.control~="class") or (action=="native" and entry.control~="native") then return false,"Unknown defense selection" end
+   if action=="keep" and not defense_toggleable(entry,type(rest)=="string" and rest:match(" off$")~=nil) then return false,entry.availability or "Read-only / unavailable defense" end
    if action=="native" and (type(entry.priority)~="number" or entry.priority<1 or entry.priority>26 or entry.priority%1~=0) then return false,"Native priority UNKNOWN; audit FIRSTAID first" end
   end
  elseif action~="start" and action~="stop" then return false,"Unsupported defense action" end
@@ -141,10 +148,13 @@ local function defense_click(action,rest)
 end
 local function defense_rows(c,state,filter)
  local rows={};local seen={}
+ local class=defense_class(state):upper()
  for _,e in ipairs(c.buffs.rows(state))do
   if type(e.key)=="string" and e.key:match("^[%a][%w_]*$") and not seen[e.key] then
    seen[e.key]=true
-   if filter=="ALL" or filter=="ACTIVE" and e.active==true or e.owner==filter then rows[#rows+1]=e end
+   local foreign=e.relevant==false or (e.owner=="MONK"or e.owner=="ARCHIVIST")and e.owner~=class
+   local client=e.owner==class or e.owner=="SKILL"or e.owner=="TATTOO"or e.owner=="CURATIVE MANUAL"or e.owner=="CURATIVE"
+   if not foreign and (filter=="ALL" or filter=="ACTIVE" and e.active==true or filter=="CLIENT" and client or e.owner==filter) then rows[#rows+1]=e end
   end
  end
  return rows
@@ -152,18 +162,20 @@ end
 function M.defense_page(delta,filter)
  local p=combat_v2_ui and combat_v2_ui.defenses;if not p then return false end
  if filter then
-  if filter~="ALL" and filter~="MONK" and filter~="FIRSTAID" and filter~="ACTIVE" then return false end
+  if filter~="ALL" and filter~="CLIENT" and filter~="FIRSTAID" and filter~="ACTIVE" then return false end
   p.filter=filter;p.page=1
  else p.page=(p.page or 1)+delta end
  return M.refresh_defenses()
 end
-function M.defense_slot(slot)
+function M.defense_slot(slot,expected)
  local p=combat_v2_ui and combat_v2_ui.defenses;local c=buff_core()
  local row=p and p.rows[slot];if not row or not c or not row.key then return false,"Unknown defense slot" end
+ if expected and expected~=row.token then return false,"Stale defense slot"end
  local entries=defense_rows(c,c.current,p.filter)
  local e=entries[(p.page-1)*14+slot]
- if not e or e.key~=row.key or e.control~=row.control or row.toggle.hidden then return false,"Stale defense slot" end
+ if not e or e.key~=row.key or e.control~=row.control or row.class~=defense_class(c.current) or row.toggle.hidden then return false,"Stale defense slot" end
  if e.control~="class" and e.control~="native" then return false,"Read-only observation" end
+ if e.control=="class" and not defense_toggleable(e,e.wanted==true) then return false,e.availability or "Read-only / unavailable defense" end
  return M.defense_action(e.control=="native" and "native" or "keep",e.key..(e.wanted==true and " off" or " on"))
 end
 function M.show_defenses()
@@ -190,7 +202,7 @@ function M.show_defenses()
    b:echo(html("<center>"..spec[2].."</center>"))
    b:setClickCallback(function()if action then defense_click(action,rest)else combat_v2.gui.refresh_defenses(combat_v2.current)end end)
   end
-  for i,filter in ipairs({"ALL","MONK","FIRSTAID","ACTIVE"})do
+  for i,filter in ipairs({"ALL","CLIENT","FIRSTAID","ACTIVE"})do
    local f=filter;local b=defense_label(p,"filter_"..f,12+(i-1)*120,134,110,26);p.buttons[f]=b
    b:echo(html("<center>"..f.."</center>"));b:setClickCallback(function()return combat_v2.gui.defense_page(0,f)end)
   end
@@ -221,19 +233,37 @@ function M.refresh_defenses(state)
   return false,why
  end
  state=state or c.current
+ -- Rebind an already-open paged manager without replacing its window or slots.
+ if p.buttons.MONK then
+  if p.buttons.CLIENT and p.buttons.CLIENT~=p.buttons.MONK then p.buttons.MONK:delete()
+  else p.buttons.CLIENT=p.buttons.MONK end
+  p.buttons.MONK=nil
+ end
+ if p.filter=="MONK"then p.filter="CLIENT"end
+ for _,f in ipairs({"ALL","CLIENT","FIRSTAID","ACTIVE"})do
+  local filter=f;local button=p.buttons[f]
+  button:echo(html("<center>"..filter.."</center>"))
+  button:setClickCallback(function()return combat_v2.gui.defense_page(0,filter)end)
+ end
  -- Do not initialize the service or infer upkeep observations from native defences.
  local b=state.buffs or {}
  local status=c.buff_status
  if type(status)=="table" then status=status.reason or status.status or status.phase end
  p.header:echo(html(heading("DEFENSE MANAGER · MASTER "..(b.master==true and "ON" or "OFF"))..(state.connected and "LIVE" or "OFFLINE / CACHED").." · Mana "..esc(state.player.mana).." / "..esc(state.player.maxmana).." · "..esc(status or (b.sequence and "DEFUP in progress" or "idle"))))
- p.warning:echo(html("<span style='color:"..C.warn..";'>Row ON arms its owner; drains are opt-in. MASTER / DEFUP / STOP: MONK only.<br>FIRSTAID is independent. UPKEEP OFF does NOT cancel active drains.</span>"))
+ p.warning:echo(html("<span style='color:"..C.warn..";'>Row ON arms its owner; drains are opt-in. MASTER / DEFUP / STOP: client skills only.<br>FIRSTAID is independent. UPKEEP OFF does NOT cancel active drains.</span>"))
  local entries=defense_rows(c,state,p.filter);local pages=math.max(1,math.ceil(#entries/14))
  p.page=math.max(1,math.min(p.page,pages))
  p.page_label:echo(html("Page "..p.page.." / "..pages.." · "..#entries.." rows"))
- for _,f in ipairs({"ALL","MONK","FIRSTAID","ACTIVE"})do p.buttons[f]:setStyleSheet("background-color:"..(p.filter==f and "#315b46" or "#233c51")..";color:"..C.text..";padding:3px;")end
+ for _,f in ipairs({"ALL","CLIENT","FIRSTAID","ACTIVE"})do p.buttons[f]:setStyleSheet("background-color:"..(p.filter==f and "#315b46" or "#233c51")..";color:"..C.text..";padding:3px;")end
  for slot,row in ipairs(p.rows)do
   local entry=entries[(p.page-1)*14+slot]
-  row.key=entry and entry.key;row.control=entry and entry.control
+  row.key=entry and entry.key;row.control=entry and entry.control;row.class=defense_class(state)
+  -- A queued click retains the painted identity even after a class/filter repaint.
+  local token={key=row.key,control=row.control,class=row.class};row.token=token
+  local index=slot
+  row.toggle:setClickCallback(function()
+   local ok,message=combat_v2.gui.defense_slot(index,token);if ok==false and message then print(message)end;return ok,message
+  end)
   if not entry then row.info:hide();row.toggle:hide()
   else
    row.info:show()
@@ -241,20 +271,25 @@ function M.refresh_defenses(state)
    local color=entry.active==true and C.good or entry.active==false and C.bad or C.warn
    local priority=type(entry.priority)=="number" and entry.priority>=1 and entry.priority<=26 and entry.priority%1==0 and entry.priority or nil
    local notes={entry.owner or "OBSERVED"}
+   if entry.required then notes[#notes+1]="REQUIRED" end
+   if entry.availability then notes[#notes+1]=entry.availability end
+   if entry.owner=="CURATIVE"and c.buff_sensory_source and c.buff_sensory_source.blocked_reason then notes[#notes+1]=c.buff_sensory_source.blocked_reason end
+   if entry.passive then observed="PASSIVE" end
    if entry.control=="native" then notes[#notes+1]=priority==26 and "P26 OFF" or priority and "P"..priority or "PRIORITY UNKNOWN" end
    if entry.drain then notes[#notes+1]="DRAIN: "..(type(entry.drain)=="string" and entry.drain or "resources")end
    if entry.requires_full then notes[#notes+1]="full resources"end
    if entry.cooldown_loss then notes[#notes+1]="loss cooldown"end
+   if entry.cooldown_activation then notes[#notes+1]="activation cooldown "..entry.cooldown_activation.."s"end
    notes[#notes+1]=entry.off and "OFF: verified cancel" or "OFF: upkeep only"
    row.info:echo(html("<span style='font-size:12px;'><b>"..esc(entry.label or entry.key).."</b> · <span style='color:"..color..";'>"..observed.."</span> · "..esc(table.concat(notes," · ")).."</span>"))
-   if entry.control=="class" or entry.control=="native" then
+   if entry.control=="class" and defense_toggleable(entry,entry.wanted==true) or entry.control=="native" then
     row.toggle:show()
     row.toggle:setStyleSheet("background-color:"..(entry.wanted==true and "#315b46" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:4px;")
     row.toggle:echo(html("<center>WANTED "..(entry.wanted==true and "ON" or entry.wanted==false and "OFF" or "UNKNOWN").."</center>"))
    else row.toggle:hide()end
   end
  end
- p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE is observed, never inferred from wanted. OBSERVED rows are read-only.<br>FIRSTAID ON: saved priority or default P8 only after full priority snapshot; OFF = P26.<br>Fetch native priorities: defup audit (4 read-only queries). REFRESH only redraws.<br>OFF without verified cancellation only stops upkeep; MASTER controls MONK, not FIRSTAID.</span>"))
+ p.footer:echo(html("<span style='font-size:11px;color:"..C.muted..";'>ACTIVE is observed, never inferred from wanted. OBSERVED rows are read-only.<br>FIRSTAID ON: saved priority or default P8 only after full priority snapshot; OFF = P26.<br>defup audit: native DEF priorities.<br>Blindness/deafness are curable afflictions, not defenses. Mindseye provides one-time sensory protection.</span>"))
  return true
 end
 
@@ -318,6 +353,15 @@ function M.help_text()
   "  Guards, corpses and loyal/protected NPCs are excluded.",
   "  Unlisted areas ask permission; unverified players pause attacks.",
   "  cv2 ih                Recheck current-room targets (BASH only).",
+  "  BASH offers optional one-pass area walking; No stays stationary.",
+  "  cv2 walk on / off     Request fresh Yes/No consent / stop walking.",
+  "  cv2 walk status       Show area-walker progress or hold.",
+  "  Walking requires GLOBE OFF; unknown IH never clears a room.",
+  "  cv2 restock on|off|status  Independent opt-in BASH restocking (startup OFF).",
+  "  RESTOCK waits for a safe clear room; it never interrupts current NPC attacks.",
+  "  A trusted trip suspends WALK at the exact room and route position.",
+  "  Resume needs the exact return room/area, fresh IH, no other players and recovery.",
+  "  STOP, manual mode/target/queue, disconnect or fresh consent cancel automatic resume.",
   "  cv2 areas             Refresh the game's hunting-area list.",
   "  cv2 area yes / no     Answer the current area's approval prompt.",
   "  cv2 web               Refresh the current WEB MEMBERS roster.",
@@ -388,6 +432,33 @@ function M.help_text()
   "<white>Close with the window's X. Opening/closing help never changes modes.",
  },"\n").."<reset>\n"
 end
+function M.hide_walk_prompt()
+ local ui=combat_v2_ui;if ui and ui.walk_popup then ui.walk_popup.root:hide() end
+end
+function M.show_walk_prompt(area,count,token)
+ if not combat_v2_ui then M.create() end
+ local ui=combat_v2_ui;local w,h=getMainWindowSize()
+ if not ui.walk_popup then
+  local p={};ui.walk_popup=p
+  p.root=Geyser.Container:new({name="cv2_walk_prompt",x=0,y=80,width=340,height=150})
+  p.label=Geyser.Label:new({name="cv2_walk_prompt_text",x=0,y=0,width=340,height=150},p.root)
+  p.label:setStyleSheet("background-color:#192735;color:#d7e5f2;border:2px solid #507590;padding:10px;qproperty-alignment:'AlignTop | AlignLeft';")
+  p.yes=Geyser.Label:new({name="cv2_walk_yes",x=12,y=110,width=152,height=28},p.root)
+  p.no=Geyser.Label:new({name="cv2_walk_no",x=176,y=110,width=152,height=28},p.root)
+  for _,b in ipairs({p.yes,p.no})do b:setStyleSheet("background-color:#233c51;color:#d7e5f2;border:1px solid #507590;padding:4px;")end
+ end
+ local p=ui.walk_popup;local width=math.max(1,math.min(340,w));local height=math.max(1,math.min(150,h));local half=math.max(1,(width-36)/2)
+ p.root:resize(width,height);p.label:resize(width,height)
+ p.yes:move(12,math.max(0,height-40));p.no:move(24+half,math.max(0,height-40));p.yes:resize(half,28);p.no:resize(half,28)
+ p.root:move(math.max(0,(w-width)/2),math.max(0,math.min(100,h-height)))
+ p.label:echo(html("<b style='font-size:17px;color:"..C.accent..";'>Auto bash this area?</b><br>"..esc(area).." · "..esc(count).."<br>One pass; fight first, IH, then walk.<br>Stays inside this mapped area."))
+ p.yes:echo(html("<center>YES — WALK</center>"));p.no:echo(html("<center>NO — STAY HERE</center>"))
+ p.yes:setClickCallback(function()local ok,why=combat_v2_walk_answer(token,true);if not ok and why then print(why)end end)
+ p.no:setClickCallback(function()combat_v2_walk_answer(token,false)end)
+ p.root:show();if type(p.root.raise)=="function"then p.root:raise()end
+ return true
+end
+
 function M.show_help()
  if not openUserWindow then print("Combat V2 help: see docs/backend.md");return false end
  local ui=combat_v2_ui;local name="Combat V2 Help"
@@ -431,8 +502,8 @@ function M.layout()
  end
  local resetW=math.min(80,aw-100);place(ui.buttons.enemy_afflictions_reset,10+aw+10+(aw-resetW)/2,affY+affH-33,resetW,25)
  y=affY+affH+8;card("cure",52)
- local tw=(cw-24)/4
- for i,k in ipairs({"approve","curing","globe","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
+ local tw=(cw-32)/5
+ for i,k in ipairs({"approve","curing","globe","restock","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
  y=y+38;place(ui.cards.events,10,y,cw,rh-y)
  if ui.cards.help then ui.cards.help:hide() end
 end
@@ -465,16 +536,18 @@ function M.create()
   if not ui.buttons[mode] then button(ui,mode,mode=="FULL_AUTO" and "AUTO" or mode,function() combat_v2_set_mode(mode);combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end
  end
  local callbacks={approve=function()combat_v2_approve()end,curing=function()combat_v2_set_curing(not combat_v2.cure.enabled)end,stop=function()combat_v2_stop()end,globe=function()local b=combat_v2.elemental_recovery;local on=b and b.armed and combat_v2.mode=="BASH";if combat_v2_globe then local ok,why=combat_v2_globe(on and "off"or"on");if not ok and why then print(why)end end end}
- for _,k in ipairs({"approve","curing","globe","stop"}) do if not ui.buttons[k] then button(ui,k,k:upper(),function() callbacks[k]();combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end end
+ callbacks.restock=function()if combat_v2_restock then local d=combat_v2.restock_data or {};local ok,why=combat_v2_restock(d.enabled and "off"or"on");if not ok and why then print(why)end end end
+ for _,k in ipairs({"approve","curing","globe","restock","stop"}) do if not ui.buttons[k] then button(ui,k,k:upper(),function() callbacks[k]();combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end end
  for _,k in ipairs({"player_afflictions","enemy_afflictions"}) do
   for _,direction in ipairs({"prev","next"}) do
    local key=k.."_"..direction
-   if not ui.buttons[key] then button(ui,key,direction=="prev" and "‹" or "›",function()
+   local click=function()
     local entries=sorted(k=="player_afflictions" and combat_v2.current.player.afflictions or combat_v2.current.target.afflictions)
     local pages=math.max(1,math.ceil(#entries/(ui.per_page or 1)))
     ui.pages[k]=((ui.pages[k] or 1)-1+(direction=="next" and 1 or -1))%pages+1
     combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure)
-   end) end
+   end
+   if not ui.buttons[key] then button(ui,key,direction=="prev" and "‹" or "›",click)else ui.buttons[key]:setClickCallback(click)end
   end
  end
  if not ui.buttons.enemy_afflictions_reset then button(ui,"enemy_afflictions_reset","RESET",function()local ok,why=combat_v2_reset_enemy_afflictions();if not ok and why then print(why)end end) end
@@ -497,11 +570,34 @@ function M.event_feed(state)
  return html(heading("RECENT EVENTS").."<span style='font-size:11px;'>"..table.concat(rows,"<br>").."</span>")
 end
 
+function M.walker_progress(state)
+ local w=type(state)=='table'and state.walker
+ if type(w)~='table'or not(w.enabled or w.active or w.restock_checkpoint)then return nil end
+ if w.offer then return 'WALK: awaiting route confirmation' end
+ local cp=w.restock_checkpoint
+ if not w.active and not cp and not tostring(w.status or ''):lower():find('complete',1,true)then return 'WALK: ON - awaiting route' end
+ local graph=cp and cp.graph or w.graph
+ if type(graph)~='table'or type(graph.nodes)~='table'then return 'WALK: rooms left unknown' end
+ local seen,total,visited={},0,0;local history=cp and cp.visited or w.visited or {}
+ for id,node in pairs(graph.nodes)do
+  local key=tostring(id)
+  if key:match('^%d+$')and type(node)=='table'and not seen[key]then
+   seen[key]=true;total=total+1
+   if history[key]==true or history[tonumber(key)]==true then visited=visited+1 end
+  end
+ end
+ if total==0 then return 'WALK: rooms left unknown' end
+ return string.format('WALK%s: %d rooms left | %d/%d visited',cp and ' (restocking)'or '',total-visited,visited,total)
+end
 function M.refresh(state,runner,cure)
  if not M.cards then M.create() end
  local ui=combat_v2_ui;local p,t=state.player,state.target
  local globe=combat_v2 and combat_v2.elemental_recovery;local globe_on=runner.mode=="BASH"and globe and globe.armed and not globe.fault
  M.buttons.globe:echo(html("<center>GLOBE "..(globe_on and"ON"or"OFF").."</center>"))
+ local rs=combat_v2 and combat_v2.restock_data or {};local rsm=combat_v2 and combat_v2.restock_module
+ local rsbusy=rsm and rsm.busy and rsm.busy(combat_v2)
+ M.buttons.restock:echo(html("<center>RESTOCK "..(rs.enabled and "ON"or"OFF")..(rsbusy and " *"or"").."</center>"))
+ M.buttons.restock:setStyleSheet("background-color:"..(rs.enabled and "#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:1px;font-size:9px;")
  M.buttons.globe:setStyleSheet("background-color:"..(globe_on and"#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:3px;font-size:10px;")
  local mental=state.mental;local mind=mental and (mental.fault or mental.status) or "idle"
  M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; MONK / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>MIND: "..esc(mind).." &nbsp; · &nbsp; cv2 help</span>"))
@@ -512,7 +608,8 @@ function M.refresh(state,runner,cure)
  if state.defense and state.defense.hold and runner.mode~="OFF" then a={command="",reason="DEFENSE: "..state.defense.phase} end
  local restore=t.restoration;local restoration=""
  if restore and restore.active then local remaining=math.max(0,(restore.expected_end or 0)-(getEpoch and getEpoch() or os.clock()));restoration="<br><span style='font-size:11px;color:"..C.warn..";'>RESTORE: "..esc(restore.limb:gsub("_"," "))..(remaining>0 and string.format(" ~%.1fs",remaining) or " awaiting cure confirmation").."</span>" end
- M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"..restoration))
+ local wp=M.walker_progress(state);local walkline=wp and ("<br><span style='font-size:11px;color:"..C.accent..";'>"..esc(wp).."</span>")or ""
+ M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"..restoration..walkline))
  M.cards.limbs:echo(html(heading("ENEMY LIMBS")..limb_rows(state,"enemy").."<br><span style='font-size:11px;'>Prone: "..(t.prone and "yes" or "no").." · Parry: "..esc(t.parry_limb or "unknown").."</span>"))
  M.cards.self_limbs:echo(html(heading("YOUR LIMBS")..limb_rows(state,"self").."<br><span style='font-size:11px;'>Prone: "..(flag(p.prone) and "yes" or "no").." · — = unreported %</span>"))
  M.refresh_body(state,runner)
