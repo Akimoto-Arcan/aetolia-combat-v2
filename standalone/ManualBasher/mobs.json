@@ -1,0 +1,1607 @@
+{
+  "darkside-the-village-of-rahveir": {
+    "areas": [
+      "the village of rahveir"
+    ],
+    "mobs": [
+      "a corrupted spirit",
+      "a malevolent poltergeist"
+    ],
+    "label": "the village of Rahveir"
+  },
+  "ac2-the-barony-of-dun-valley": {
+    "areas": [
+      "the barony of dun valley"
+    ],
+    "mobs": [
+      "a bighorn sheep",
+      "a crab",
+      "a dangerous water snake",
+      "a greyish green crocodile",
+      "a large red crab",
+      "a muscular mountain lion",
+      "a poisonous snake",
+      "a raccoon",
+      "a tree frog"
+    ],
+    "label": "the Barony of Dun Valley"
+  },
+  "mor": {
+    "areas": [
+      "caverns of mor"
+    ],
+    "mobs": [
+      "a ravenous, shadowy ghast",
+      "a robed, skeletal lich",
+      "a skeletal warrior",
+      "a stench-ridden ghoul",
+      "a vampiric warrior",
+      "aclyr, the vampiric general"
+    ],
+    "label": "Caverns of Mor"
+  },
+  "salma": {
+    "areas": [
+      "salma settlement"
+    ],
+    "mobs": [
+      "a bemused artist",
+      "a busy mage",
+      "a common man",
+      "a dark-furred bear",
+      "a dark-haired woman",
+      "a hooded scholar",
+      "a robust blacksmith",
+      "a salmati guard",
+      "a salmati warrior",
+      "a wealthy merchant",
+      "a wild-eyed scientist",
+      "an energetic child",
+      "an engrossed scholar",
+      "an ordinary woman",
+      "an unclean miner",
+      "dima, captain of the salmati guard",
+      "kyros, the salmati leader",
+      "linette, the salmati architect"
+    ],
+    "label": "Salma Settlement"
+  },
+  "ac2-the-forgotten-depths-of-mount-helba": {
+    "areas": [
+      "the forgotten depths of mount helba"
+    ],
+    "mobs": [
+      "a towering fungal abomination",
+      "a withered fungal abomination"
+    ],
+    "label": "the forgotten depths of Mount Helba"
+  },
+  "iashal": {
+    "areas": [
+      "ia'shal barrow",
+      "the ia'shal barrow"
+    ],
+    "mobs": [
+      "a bulbous cave spider",
+      "a foul spiderling",
+      "a ravenous cave spider",
+      "an egg-laden spider"
+    ],
+    "label": "Ia'shal Barrow"
+  },
+  "ac2-the-holy-impire-of-sehal": {
+    "areas": [
+      "the holy impire of sehal"
+    ],
+    "mobs": [
+      "a fluffy white sheep",
+      "a fuzzy grey rabbit",
+      "a soulless pixie",
+      "a stern imp warrior"
+    ],
+    "label": "the Holy Impire of Sehal"
+  },
+  "darkside-the-village-of-bihrkaen": {
+    "areas": [
+      "the village of bihrkaen"
+    ],
+    "mobs": [
+      "a bihrkaen ambusher",
+      "a bihrkaen huntress",
+      "a bog hound",
+      "a grotesque snapping turtle",
+      "a horrifying bihrkaen",
+      "a mire hound",
+      "a mire pup",
+      "a mossy hound",
+      "a sickly carrion crow",
+      "a slender mud adder",
+      "a speckled, brown turtle",
+      "an alpha female hound",
+      "an alpha male hound"
+    ],
+    "label": "the village of Bihrkaen"
+  },
+  "teshen": {
+    "areas": [
+      "teshen caldera"
+    ],
+    "mobs": [
+      "a gargantuan teshen drone",
+      "a teshen raider",
+      "a teshen reaver",
+      "a teshen scout",
+      "a teshen worker"
+    ],
+    "label": "Teshen Caldera"
+  },
+  "festering": {
+    "areas": [
+      "festering wastes",
+      "the festering wastes"
+    ],
+    "mobs": [
+      "a darkly patterned sand viper",
+      "a small yellow rattlesnake",
+      "a tiny black scorpion"
+    ],
+    "label": "Festering Wastes"
+  },
+  "ac2-the-ruins-of-salma": {
+    "areas": [
+      "the ruins of salma"
+    ],
+    "mobs": [
+      "a salmati warrior"
+    ],
+    "label": "the ruins of Salma"
+  },
+  "alaqsii": {
+    "areas": [
+      "alaqsii inlet"
+    ],
+    "mobs": [
+      "an arctic wolf"
+    ],
+    "label": "Alaqsii Inlet"
+  },
+  "mamashi": {
+    "areas": [
+      "mamashi tunnels"
+    ],
+    "mobs": [
+      "a githani grappler",
+      "a githani inscriber",
+      "a githani master",
+      "a greater nalas",
+      "a mature nalas",
+      "a mit'olk axeman",
+      "a mit'olk bladesman",
+      "a mit'olk illusionist",
+      "a young nalas",
+      "garthun, the maw",
+      "timol, the head inscriber"
+    ],
+    "label": "Mamashi Tunnels"
+  },
+  "hlugnic": {
+    "areas": [
+      "hlugnic labyrinth",
+      "the hlugnic labyrinth"
+    ],
+    "mobs": [
+      "a boisterous hlugna man",
+      "a rune-covered lodestone golem",
+      "a warden of the hlugnic clans",
+      "an ancient multi-headed woderhund",
+      "an enormous spinelash fish"
+    ],
+    "label": "Hlugnic Labyrinth"
+  },
+  "kalydian": {
+    "areas": [
+      "kalydian forest"
+    ],
+    "mobs": [
+      "a gaunt elk",
+      "a rabid rabbit",
+      "a ravenous squirrel"
+    ],
+    "label": "Kalydian Forest"
+  },
+  "ac2-the-welto-trench": {
+    "areas": [
+      "the welto trench"
+    ],
+    "mobs": [
+      "a black bull shark",
+      "a black hunter shark",
+      "a black tiger shark",
+      "a black welto shark",
+      "a blacktip shark",
+      "a box jellyfish",
+      "a bronze bull shark",
+      "a bronze hunter shark",
+      "a bronze tiger shark",
+      "a bronze welto shark",
+      "a brown bull shark",
+      "a brown hunter shark",
+      "a brown tiger shark",
+      "a brown welto shark",
+      "a giant manta ray",
+      "a great white bull shark",
+      "a great white hunter shark",
+      "a great white tiger shark",
+      "a great white welto shark",
+      "a grey bull shark",
+      "a grey hunter shark",
+      "a grey tiger shark",
+      "a grey welto shark",
+      "a scarred bull shark",
+      "a scarred hunter shark",
+      "a scarred tiger shark",
+      "a scarred welto shark",
+      "a spotted bull shark",
+      "a spotted hunter shark",
+      "a spotted tiger shark",
+      "a spotted welto shark",
+      "a stone crab",
+      "a storm-wing harpy",
+      "a striped bull shark",
+      "a striped hunter shark",
+      "a striped tiger shark",
+      "a striped welto shark"
+    ],
+    "label": "the Welto Trench"
+  },
+  "ac2-the-maul": {
+    "areas": [
+      "the maul"
+    ],
+    "mobs": [
+      "a lithe aslinn houndmaster",
+      "a menacing aslinn gladiator",
+      "a ravenous vakmut warhound",
+      "a scarred aslinn gladiator",
+      "a snarling vakmut warhound",
+      "a wary aslinn slaver",
+      "a wretched aslinn slaver",
+      "an aslinn slave catcher"
+    ],
+    "label": "the Maul"
+  },
+  "darkside-the-lost-city-of-iviofiyiedu": {
+    "areas": [
+      "the lost city of iviofiyiedu"
+    ],
+    "mobs": [
+      "a ghost of a female mhun",
+      "a ghost of a male mhun",
+      "a ghost of a mhun soldier"
+    ],
+    "label": "the lost city of Iviofiyiedu"
+  },
+  "ac2-the-maghuir-fissure": {
+    "areas": [
+      "the maghuir fissure"
+    ],
+    "mobs": [
+      "an amorphous black umbra"
+    ],
+    "label": "the Maghuir Fissure"
+  },
+  "threerock": {
+    "areas": [
+      "threerock outpost"
+    ],
+    "mobs": [
+      "a banded scrubland racer",
+      "a beautiful wild horse",
+      "a huge, scarred wildcat",
+      "a long-haired buffalo",
+      "a mountain wildcat",
+      "a shifty bandit",
+      "a warbling hobgobbler",
+      "a wildcat kitten",
+      "an enormous troll bandit",
+      "ennioch, a scruffy bandit",
+      "the cave bear, white ghost",
+      "ugtar, a tall troll bandit",
+      "webb, a shifty bandit"
+    ],
+    "label": "Threerock Outpost"
+  },
+  "darkside-the-feral-caves": {
+    "areas": [
+      "the feral caves"
+    ],
+    "mobs": [
+      "a gigantic green blob",
+      "a massive green blob",
+      "a slimy green blob",
+      "a small green blob"
+    ],
+    "label": "the Feral Caves"
+  },
+  "ac2-the-nal-jin-depths": {
+    "areas": [
+      "the nal'jin depths"
+    ],
+    "mobs": [
+      "a lurking shadow",
+      "a serpentine jawsnapper",
+      "a shadow ray",
+      "a sinewy nal'jin eel",
+      "a voracious blind-fish",
+      "an enormous spinelash fish"
+    ],
+    "label": "the Nal'jin Depths"
+  },
+  "ac2-scidve": {
+    "areas": [
+      "scidve"
+    ],
+    "mobs": [
+      "a blood cultist",
+      "a large gray and black dugger",
+      "a soul cultist"
+    ],
+    "label": "Scidve"
+  },
+  "ollin": {
+    "areas": [
+      "isle of ollin"
+    ],
+    "mobs": [
+      "a blackened, ravenous shark",
+      "a dark-furred, rabid boar",
+      "a ferocious alpha syll",
+      "a fiendish, tainted syll",
+      "a giant, rabid syll",
+      "a massive black crab",
+      "a massive, verdant-furred syll",
+      "a nazetu comfort woman",
+      "a rotting nazetu ghoul",
+      "a young syll cub"
+    ],
+    "label": "Isle of Ollin"
+  },
+  "darkside-the-tarblack-marshes": {
+    "areas": [
+      "the tarblack marshes"
+    ],
+    "mobs": [
+      "a grotesque bloater",
+      "a lumbering stonefiend",
+      "a rock scorpion",
+      "a tarclaw caiman"
+    ],
+    "label": "the Tarblack Marshes"
+  },
+  "ac2-spiral-of-the-corrupt": {
+    "areas": [
+      "spiral of the corrupt"
+    ],
+    "mobs": [
+      "a five-tentacled octopus of jade",
+      "a miasma-wreathed electric eel",
+      "a rot-infested swordfish",
+      "a taint-infested shark",
+      "an ethereal, scarred jellyfish"
+    ],
+    "label": "Spiral of the Corrupt"
+  },
+  "ac2-the-bakal-chasm": {
+    "areas": [
+      "the bakal chasm"
+    ],
+    "mobs": [
+      "a basilisk hatchling",
+      "a blinded basilisk",
+      "a grey and brown basilisk",
+      "a juvenile basilisk",
+      "a spiked basilisk",
+      "an agitated basilisk",
+      "an armored, brown basilisk",
+      "an oversized, grey basilisk"
+    ],
+    "label": "the Bakal Chasm"
+  },
+  "tarean-ice": {
+    "areas": [
+      "tarean ice caverns",
+      "the tarean ice caverns"
+    ],
+    "mobs": [
+      "a gigantic mother icewyrm",
+      "a ravenous ice fly",
+      "a reanimated ice wolf",
+      "an ornery frost gremlin"
+    ],
+    "label": "Tarean Ice Caverns"
+  },
+  "spiral": {
+    "areas": [
+      "spiral of corruption"
+    ],
+    "mobs": [
+      "a five-tentacled octopus of jade",
+      "a miasma-wreathed electric eel",
+      "a rot-infested swordfish",
+      "a taint-infested shark",
+      "an ethereal, scarred jellyfish"
+    ],
+    "label": "Spiral of corruption"
+  },
+  "darkside-chapel-garden": {
+    "areas": [
+      "chapel garden"
+    ],
+    "mobs": [
+      "a diminutive necromancer",
+      "a foul-smelling zombie",
+      "a zombie cleric"
+    ],
+    "label": "Chapel Garden"
+  },
+  "darkside-mount-heylai": {
+    "areas": [
+      "mount heylai"
+    ],
+    "mobs": [
+      "a dwarf geared up for battle",
+      "a dwarven warrior",
+      "an armored dwarf"
+    ],
+    "label": "Mount Heylai"
+  },
+  "tiyen": {
+    "areas": [
+      "tiyen esityi"
+    ],
+    "mobs": [
+      "a ball of chitinous legs",
+      "a bound shade",
+      "a cancerous stallion",
+      "a crazed nazetu cutter",
+      "a deformed nazetu priest",
+      "a massive, sacred serpent",
+      "a mutated nazetu intercessor",
+      "a nazetu captain",
+      "a nazetu cook",
+      "a nazetu corrupter",
+      "a nazetu crossbowman",
+      "a nazetu halberdier",
+      "a nazetu necromancer",
+      "a nazetu provost",
+      "a supply officer",
+      "a tangible malevolence",
+      "a victimised intruder",
+      "commander marakhi",
+      "insubstantial whispers",
+      "lieutenant chiakhi",
+      "lieutenant gharvoi",
+      "quartermaster kuius",
+      "the creature beneath tiyen esityi",
+      "tirahl the necromancer"
+    ],
+    "label": "Tiyen Esityi"
+  },
+  "ac2-the-torturers-caverns": {
+    "areas": [
+      "the torturers' caverns"
+    ],
+    "mobs": [
+      "a blood construct",
+      "a flesh golem sentry",
+      "a maggot-ridden skeleton",
+      "a rank ghoul",
+      "a voracious blind-fish"
+    ],
+    "label": "the Torturers' Caverns"
+  },
+  "ac2-the-squal": {
+    "areas": [
+      "the squal"
+    ],
+    "mobs": [
+      "a camouflaged keeper guerrilla",
+      "a sly keeper tamer",
+      "a thuggish keeper brute"
+    ],
+    "label": "the Squal"
+  },
+  "ac2-raim-vale": {
+    "areas": [
+      "raim vale"
+    ],
+    "mobs": [
+      "a mutilated creature",
+      "a rabid dog"
+    ],
+    "label": "Raim Vale"
+  },
+  "farsai": {
+    "areas": [
+      "the ruins of farsai"
+    ],
+    "mobs": [
+      "a darkling",
+      "a shadow",
+      "a shadowdrop",
+      "an unctuous creepling"
+    ],
+    "label": "Ruins of Farsai"
+  },
+  "ac2-the-temple-of-sonn": {
+    "areas": [
+      "the temple of sonn"
+    ],
+    "mobs": [
+      "a choke creeper",
+      "a giant fly",
+      "a giant mosquito",
+      "a giant moth",
+      "a glossy black silk-spinner"
+    ],
+    "label": "the Temple of Sonn"
+  },
+  "darkside-the-dolbodi-campsite": {
+    "areas": [
+      "the dolbodi campsite"
+    ],
+    "mobs": [
+      "a great white stag",
+      "a lithe buckawn"
+    ],
+    "label": "the Dolbodi Campsite"
+  },
+  "ac2-the-mannaseh-swamp": {
+    "areas": [
+      "the mannaseh swamp"
+    ],
+    "mobs": [
+      "a hulking miscreation",
+      "a malformed stalker",
+      "a miscreated avian",
+      "a savage mutant pumpkin",
+      "a skittering miscreation",
+      "an amphibious malformation",
+      "an ichorous miscreation"
+    ],
+    "label": "the Mannaseh Swamp"
+  },
+  "drakuum": {
+    "areas": [
+      "drakuum"
+    ],
+    "mobs": [
+      "a blackened darkwalker",
+      "a gnarled spirit",
+      "a hideous lich",
+      "a misty apparition",
+      "a savage shade"
+    ],
+    "label": "Drakuum"
+  },
+  "darkside-the-siroccian-mountains": {
+    "areas": [
+      "the siroccian mountains"
+    ],
+    "mobs": [
+      "a powerful wolverine",
+      "a vicious wolverine"
+    ],
+    "label": "the Siroccian Mountains"
+  },
+  "darkside-the-ilhavon-forest": {
+    "areas": [
+      "the ilhavon forest"
+    ],
+    "mobs": [
+      "a bear cub",
+      "a blackbird",
+      "a burrowing owl",
+      "a catfish",
+      "a dull brown lamprey",
+      "a frazzled-looking possum",
+      "a gargantuan cicada",
+      "a giant pugnax crab",
+      "a golden scale rattlesnake",
+      "a harpoon scorpion",
+      "a lake trout",
+      "a large buck",
+      "a lumbering brown bear",
+      "a magpie",
+      "a moth",
+      "a plump duck",
+      "a school of fish",
+      "a white tailed doe",
+      "an eerily glowing jellyfish"
+    ],
+    "label": "the Ilhavon Forest"
+  },
+  "ac2-a-bandit-encampment-in-the-bonro-sands": {
+    "areas": [
+      "a bandit encampment in the bonro sands"
+    ],
+    "mobs": [
+      "a burly caentoi raider",
+      "a caentoi bushwhacker",
+      "a caentoi marauder",
+      "a grinning caentoi cutthroat",
+      "a grizzled caentoi highwayman",
+      "a lappet-faced vulture",
+      "a scarlet kestrel",
+      "a sly caentoi vagabond",
+      "a sun-scorched aurulent haatun",
+      "a sun-scorched crimson haatun",
+      "a sun-scorched sandy haatun",
+      "a thieving caentoi outlaw",
+      "a wiry caentoi bandit"
+    ],
+    "label": "a bandit encampment in the Bonro Sands"
+  },
+  "fengard": {
+    "areas": [
+      "fengard keep"
+    ],
+    "mobs": [
+      "a brawny glaive knight",
+      "a fiery phenkyre",
+      "a horrid basilwyrm",
+      "a massive argobole",
+      "a pious invoker",
+      "a pungent lichosphere",
+      "a radiant lumore",
+      "a shrieking grimshrill",
+      "a tall chempala",
+      "a vicious horned garwhol",
+      "an ethereal construct",
+      "an ogre berserker",
+      "cosmina, the confessor",
+      "derban, the ice mage",
+      "derryk, the guardian",
+      "gladius, the red knight",
+      "gloom, the construct",
+      "grothgar, the ogre warlord",
+      "hecuba, the grim witch",
+      "sylvos, squire of gladius",
+      "tara, the priestess",
+      "taskmaster grollum",
+      "the salacious sisters",
+      "tiber, a young telepath",
+      "tiber. a young telepath"
+    ],
+    "label": "Fengard Keep"
+  },
+  "ac2-riparium": {
+    "areas": [
+      "riparium"
+    ],
+    "mobs": [
+      "a fearsome tiger shark",
+      "a gelatinous polyp",
+      "a giant octopus",
+      "a large blackfish",
+      "a large red crab",
+      "a large, deepwater salmon",
+      "a mantaglow fish",
+      "a moray eel",
+      "a plated ixthean",
+      "a powerful-looking swordfish",
+      "an angler fish"
+    ],
+    "label": "Riparium"
+  },
+  "darkside-the-siroccian-tunnels": {
+    "areas": [
+      "the siroccian tunnels"
+    ],
+    "mobs": [
+      "a crystal-encrusted golem",
+      "a disembodied soul",
+      "a lurking shadow",
+      "a massive striped worm",
+      "a spatial anomaly",
+      "a voracious blind-fish"
+    ],
+    "label": "the Siroccian Tunnels"
+  },
+  "darkside-the-caverns-of-telfinne": {
+    "areas": [
+      "the caverns of telfinne"
+    ],
+    "mobs": [
+      "a cave-dwelling avisme",
+      "a draconic zogura",
+      "a fanged lugore",
+      "a slender synicant",
+      "a slimy aryeim",
+      "a tentacled morbol"
+    ],
+    "label": "the Caverns of Telfinne"
+  },
+  "darkside-the-undercity-of-djeir": {
+    "areas": [
+      "the undercity of djeir"
+    ],
+    "mobs": [
+      "a carnivorous weed",
+      "a fearsome suria serpent",
+      "a gargantuan spider",
+      "a giant squid",
+      "a monstrous coelacanth",
+      "a mutated crawler fish",
+      "a striped sea krait",
+      "a striped siriskal fish",
+      "an electric eel",
+      "an elusive black fish"
+    ],
+    "label": "the Undercity of Djeir"
+  },
+  "darkside-the-aureliana-forest": {
+    "areas": [
+      "the aureliana forest"
+    ],
+    "mobs": [
+      "a dark-furred, rabid boar",
+      "a wild boar"
+    ],
+    "label": "the Aureliana Forest"
+  },
+  "augerweald": {
+    "areas": [
+      "augerweald",
+      "the augerweald"
+    ],
+    "mobs": [
+      "a gargantuan augerweald rabbit",
+      "a large, snowy fox",
+      "a silvery pink salmon",
+      "a tall, white elk",
+      "an agitated direwolf"
+    ],
+    "label": "Augerweald"
+  },
+  "xaanhal": {
+    "areas": [
+      "xaanhal"
+    ],
+    "mobs": [
+      "a bejeweled xorani harem girl",
+      "a cautious xorani guard",
+      "a churning tidal spectre",
+      "a firewrought behemoth",
+      "a helpless xorani nestling",
+      "a merciless xorani warrior",
+      "a stoic bedrock colossus",
+      "a suspicious xorani patrol",
+      "a teshen raider",
+      "a willowy nest guardian",
+      "a wiry xorani guard",
+      "an arcane anomaly",
+      "an arrogant xorani master at arms",
+      "an electrified sparkwraith",
+      "caelakan, an arrogant prince",
+      "kithan, a young xorani girl"
+    ],
+    "label": "Xaanhal"
+  },
+  "dramedo": {
+    "areas": [
+      "the dramedo warrens"
+    ],
+    "mobs": [
+      "a cloud of fungal spores",
+      "a gigantic fungal strider",
+      "a shambling fungal abomination",
+      "a vast ochre ooze",
+      "a winged fungal horror"
+    ],
+    "label": "Dramedo Warrens"
+  },
+  "ac2-the-shattered-vortex": {
+    "areas": [
+      "the shattered vortex"
+    ],
+    "mobs": [
+      "a battle-worn ascendril",
+      "a bloodleech",
+      "a bubonis",
+      "a chaos hound",
+      "a chaos orb",
+      "a chaos storm",
+      "a chaos worm",
+      "a chimera",
+      "a dervish",
+      "a fetish-decorated shaman",
+      "a green slime",
+      "a humbug",
+      "a minion of chaos",
+      "a nimble sentinel",
+      "a petrified treant",
+      "a reinforcement warrior of the demonsbane",
+      "a sharp-toothed gremlin",
+      "a simpering sycophant",
+      "a soulmaster",
+      "a stalwart templar",
+      "a warped turtle",
+      "an agile sentaari monk",
+      "an ascendril mage",
+      "an ethereal firelord"
+    ],
+    "label": "the Shattered Vortex"
+  },
+  "morass": {
+    "areas": [
+      "itzatl morass",
+      "the itzatl morass"
+    ],
+    "mobs": [
+      "a capybara",
+      "a green slime toad",
+      "a long-toothed beaver",
+      "a poisonous water moccasin",
+      "a silent reed cat",
+      "a vicious snapping turtle",
+      "an oversized earthworm",
+      "an oversized fly"
+    ],
+    "label": "Itzatl Morass"
+  },
+  "ac2-the-offspring": {
+    "areas": [
+      "the offspring"
+    ],
+    "mobs": [
+      "a chromatic aquatic dragonfly",
+      "a flat-snouted scaled sheep",
+      "a long-tailed bullfrog",
+      "a muscular freshwater hound",
+      "a predatory river canine",
+      "a pudgy water badger",
+      "an amphibious, ebon-winged hawk"
+    ],
+    "label": "the Offspring"
+  },
+  "darkside-the-tarean-caverns": {
+    "areas": [
+      "the tarean caverns"
+    ],
+    "mobs": [
+      "a blood-spattered leopard",
+      "a frothing, manic buffalo",
+      "a gigantic cave bear",
+      "a rotting rattlesnake",
+      "a small, black bat",
+      "an irritable, rabid zebra",
+      "an unkempt trog"
+    ],
+    "label": "the Tarean Caverns"
+  },
+  "darkside-forsaken-evlasu": {
+    "areas": [
+      "forsaken evlasu"
+    ],
+    "mobs": [
+      "a corrupted cultist",
+      "a grotesque, warped aberration",
+      "a hideous winged aberration",
+      "an unnaturally lithe, shadowy aberration"
+    ],
+    "label": "Forsaken Evlasu"
+  },
+  "darkside-the-valley-of-lodi": {
+    "areas": [
+      "the valley of lodi"
+    ],
+    "mobs": [
+      "a cave bat",
+      "a juvenile wildcat",
+      "a sheep",
+      "a white hen",
+      "an adult wildcat"
+    ],
+    "label": "the Valley of Lodi"
+  },
+  "ac2-the-fractal-bloom": {
+    "areas": [
+      "the fractal bloom"
+    ],
+    "mobs": [
+      "a faceted crystalline entity",
+      "a fractured crystalline entity",
+      "a radiant crystalline entity",
+      "a slender crystalline entity",
+      "a squat crystalline entity",
+      "a towering crystalline entity"
+    ],
+    "label": "the Fractal Bloom"
+  },
+  "ac2-a-basilisk-lair": {
+    "areas": [
+      "a basilisk lair"
+    ],
+    "mobs": [
+      "a cave basilisk"
+    ],
+    "label": "a basilisk lair"
+  },
+  "darkside-the-valley-of-kalebb": {
+    "areas": [
+      "the valley of kalebb"
+    ],
+    "mobs": [
+      "a bald eagle",
+      "a large, speckled turtle",
+      "a long, thin grass snake",
+      "a plump wild rabbit",
+      "a small green water snake",
+      "a speckled, brown turtle"
+    ],
+    "label": "the Valley of Kalebb"
+  },
+  "ac2-dovan-hollow": {
+    "areas": [
+      "dovan hollow"
+    ],
+    "mobs": [
+      "a gaunt aslinn slaver",
+      "a grim aslinn slaver",
+      "a haughty caentoi slaver",
+      "a hulking ursal brute",
+      "a scarred aslinn slaver",
+      "a sinewy aslinn slaver"
+    ],
+    "label": "Dovan Hollow"
+  },
+  "darkside-the-crags": {
+    "areas": [
+      "the crags"
+    ],
+    "mobs": [
+      "a dark grey stone worm",
+      "a hulking snatcher",
+      "a light grey stone worm",
+      "a steady cragling",
+      "a vile snatcher"
+    ],
+    "label": "the Crags"
+  },
+  "ac2-siha-dylis": {
+    "areas": [
+      "siha dylis"
+    ],
+    "mobs": [
+      "a disoriented cave bat",
+      "a goblin batrider",
+      "a small red squirrel"
+    ],
+    "label": "Siha Dylis"
+  },
+  "darkside-the-village-of-gorshire": {
+    "areas": [
+      "the village of gorshire"
+    ],
+    "mobs": [
+      "a large gray goose",
+      "a large grey goose",
+      "a lithe weasel"
+    ],
+    "label": "the village of Gorshire"
+  },
+  "ac2-kkirrrr-shi-hive": {
+    "areas": [
+      "kkirrrr'shi hive"
+    ],
+    "mobs": [
+      "a feral hokkali soldier",
+      "a freshly spawned hokkali ambusher",
+      "a malformed horkval priest",
+      "a rabid hokkali drone",
+      "a twisted hokkali hunter"
+    ],
+    "label": "Kkirrrr'shi Hive"
+  },
+  "ac2-raugol-fissure": {
+    "areas": [
+      "raugol fissure"
+    ],
+    "mobs": [
+      "a scything skitterer",
+      "a splintering earthrager",
+      "a stonescale mephit",
+      "a stonescale ravager"
+    ],
+    "label": "Raugol Fissure"
+  },
+  "ac2-the-eresh-mines": {
+    "areas": [
+      "the eresh mines"
+    ],
+    "mobs": [
+      "a blind wolf spider",
+      "a slimy brown salamander",
+      "a swarm of black beetles",
+      "an angry vampire bat"
+    ],
+    "label": "the Eresh Mines"
+  },
+  "darkside-the-beaches-of-liris": {
+    "areas": [
+      "the beaches of liris"
+    ],
+    "mobs": [
+      "a blue-shelled snail",
+      "a gargantuan crab",
+      "a red hermit crab",
+      "a slimy red-shelled snail",
+      "a small, red crab",
+      "a yellow-finned bream fish",
+      "an orange-and-yellow stripped starfish"
+    ],
+    "label": "the beaches of Liris"
+  },
+  "azdun": {
+    "areas": [
+      "the azdun dungeon"
+    ],
+    "mobs": [
+      "a huge pulsating spider",
+      "a large pulsating spider",
+      "a medium pulsating spider"
+    ],
+    "label": "Azdun Dungeon"
+  },
+  "ac2-rebels-ridge": {
+    "areas": [
+      "rebels' ridge"
+    ],
+    "mobs": [
+      "a tenacious tough"
+    ],
+    "label": "Rebels' Ridge"
+  },
+  "ac2-the-morgun-forest": {
+    "areas": [
+      "the morgun forest"
+    ],
+    "mobs": [
+      "a poisonous hemlock bush",
+      "a prickly raspberry bush",
+      "a wild boar"
+    ],
+    "label": "the Morgun Forest"
+  },
+  "ac2-tak-re": {
+    "areas": [
+      "tak-re"
+    ],
+    "mobs": [
+      "a horrifically deformed woodpecker",
+      "a hundred-strings jellyfish",
+      "a mutated deer",
+      "a vicious, mutated shark",
+      "a warped squirrel"
+    ],
+    "label": "Tak-re"
+  },
+  "ac2-a-deep-underground-cavern": {
+    "areas": [
+      "a deep underground cavern"
+    ],
+    "mobs": [
+      "a chaos-warped egg-laying spider",
+      "a chaos-warped gargantuan carrier centipede",
+      "a demonic chaos-warped spider"
+    ],
+    "label": "a deep underground cavern"
+  },
+  "khauskin": {
+    "areas": [
+      "khauskin mines"
+    ],
+    "mobs": [
+      "a burly dwarven miner",
+      "a dwarven boy",
+      "a dwarven girl",
+      "a grotesque fangtooth",
+      "a powerful dwarven warrior",
+      "a soft-shelled klikkin",
+      "a statuesque dwarven guard",
+      "a stocky dwarven woman",
+      "a stout dwarven man"
+    ],
+    "label": "Khauskin Mines"
+  },
+  "darkside-the-den-of-shadows": {
+    "areas": [
+      "the den of shadows"
+    ],
+    "mobs": [
+      "a black adder",
+      "a black boa",
+      "a black cobra",
+      "a black krait",
+      "a black python",
+      "a black sidewinder",
+      "a brown adder",
+      "a brown boa",
+      "a brown cobra",
+      "a brown krait",
+      "a brown python",
+      "a brown sidewinder",
+      "a grey adder",
+      "a grey boa",
+      "a grey cobra",
+      "a grey krait",
+      "a grey python",
+      "a grey sidewinder",
+      "a horribly-mutated experiment",
+      "a tan adder",
+      "a tan boa",
+      "a tan cobra",
+      "a tan krait",
+      "a tan python",
+      "a tan sidewinder",
+      "a white adder",
+      "a white boa",
+      "a white krait",
+      "a white python",
+      "a white sidewinder"
+    ],
+    "label": "the Den of Shadows"
+  },
+  "ac2-clawhook-range": {
+    "areas": [
+      "clawhook range"
+    ],
+    "mobs": [
+      "a caentoi rogue",
+      "a fleet-footed caentoi scout",
+      "a golba brute",
+      "a prowling barbed abosvi",
+      "a sabre-toothed abosvi",
+      "a skulking golban scout",
+      "a spine-necked arrex",
+      "a tarpen bombardier",
+      "an ursal swordsman",
+      "an utari warrior"
+    ],
+    "label": "Clawhook Range"
+  },
+  "ac2-mount-humgurd": {
+    "areas": [
+      "mount humgurd"
+    ],
+    "mobs": [
+      "a black-spotted cow"
+    ],
+    "label": "Mount Humgurd"
+  },
+  "direant": {
+    "areas": [
+      "a direant hill"
+    ],
+    "mobs": [
+      "a bulbous direant bomber",
+      "a direant rattler",
+      "a direant soldier",
+      "a direant worker",
+      "a sand rattler",
+      "a sand rattler hatchling"
+    ],
+    "label": "a direant hill"
+  },
+  "ac2-the-forgotten-dome": {
+    "areas": [
+      "the forgotten dome"
+    ],
+    "mobs": [
+      "a deformed kelki ravener",
+      "a gibbering kelki reaver",
+      "a mutated kelki ravager",
+      "a vile kelki prowler"
+    ],
+    "label": "the Forgotten Dome"
+  },
+  "ac2-the-shastaan-warrens": {
+    "areas": [
+      "the shastaan warrens"
+    ],
+    "mobs": [
+      "a ragged kelki cultist",
+      "a wild-eyed kelki cultist",
+      "an aberrant, obscenely deformed kelki"
+    ],
+    "label": "the Shastaan Warrens"
+  },
+  "ac2-the-severed-grasp": {
+    "areas": [
+      "the severed grasp"
+    ],
+    "mobs": [
+      "a beguiler of the depths",
+      "a blood-rusted gearwork behemoth",
+      "a contorting shadowdancer",
+      "a crystalline entity of fractal phenomena",
+      "a demonic jann",
+      "a dissident cloud of celestial rage",
+      "a fossilized construct",
+      "a grotesque soldier of spear and shield",
+      "a kaleidoscopic lepidopteran of ever-becoming",
+      "a sanity-straining eldritch monstrosity",
+      "a scarred and barbed boar of dyadic hunger",
+      "a shadow-garbed chaos lady",
+      "a shadow-struck faceless chaos entity",
+      "a shatter-bright host",
+      "a smoke-snorting ashlander",
+      "a thaumaturgical construct",
+      "a tormented angel of myriad meridian",
+      "a twin-headed solar abomination",
+      "a violent riftbearer",
+      "a wavering resolution of discordant harmonies",
+      "an ethereal vulpine mystic",
+      "an evanescent golden knight",
+      "an oozing puddle of heliovoric crystal"
+    ],
+    "label": "the Severed Grasp"
+  },
+  "ayhesa": {
+    "areas": [
+      "ayhesa cliffs"
+    ],
+    "mobs": [
+      "a spellshaper adept",
+      "a spellshaper archon",
+      "a spellshaper master"
+    ],
+    "label": "Ayhesa Cliffs"
+  },
+  "ac2-the-village-of-torston": {
+    "areas": [
+      "the village of torston"
+    ],
+    "mobs": [
+      "a fierce crocodile",
+      "a mottled brown frog",
+      "a venomous water snake",
+      "an enormous blue-green crocodile"
+    ],
+    "label": "the village of Torston"
+  },
+  "darkside-a-memory-of-relovec-mansion": {
+    "areas": [
+      "a memory of relovec mansion"
+    ],
+    "mobs": [
+      "an enraged memory of a female servant",
+      "an enraged memory of a female villager",
+      "an enraged memory of a male servant",
+      "an enraged memory of a male villager"
+    ],
+    "label": "a memory of Relovec Mansion"
+  },
+  "top-xaanhal": {
+    "areas": [
+      "xaanhal"
+    ],
+    "mobs": [
+      "a bejeweled xorani harem girl",
+      "a cautious xorani guard",
+      "a churning tidal spectre",
+      "a firewrought behemoth",
+      "a helpless xorani nestling",
+      "a merciless xorani warrior",
+      "a stoic bedrock colossus",
+      "a suspicious xorani patrol",
+      "a teshen raider",
+      "a willowy nest guardian",
+      "a wiry xorani guard",
+      "an arcane anomaly",
+      "an arrogant xorani master at arms",
+      "an electrified sparkwraith",
+      "caelakan, an arrogant prince",
+      "kithan, a young xorani girl"
+    ],
+    "label": "Xaanhal"
+  },
+  "ylem": {
+    "areas": [
+      "ylem mines"
+    ],
+    "mobs": [],
+    "label": "Ylem Mines"
+  },
+  "redhands": {
+    "areas": [
+      "an abandoned hideout of the red hands"
+    ],
+    "mobs": [
+      "a bronze-hued scorpion",
+      "a golden scorpion",
+      "a small red scorpion"
+    ],
+    "label": "Red Hands hideout"
+  },
+  "ac2-halls-of-tornos": {
+    "areas": [
+      "halls of tornos"
+    ],
+    "mobs": [
+      "a botched phase-hound",
+      "a crazed blood-fiend",
+      "a malformed beast",
+      "a mutated blood-fiend",
+      "a rabid blood-fiend",
+      "a snowy armadilleon",
+      "a speckled tinyok"
+    ],
+    "label": "Halls of Tornos"
+  },
+  "ac2-sunwash-ascent": {
+    "areas": [
+      "sunwash ascent"
+    ],
+    "mobs": [
+      "a bald fledgling vrukh",
+      "a disgusting fledgling vrukh",
+      "a gnarled, decrepit vrukh",
+      "a grotesque, battle-torn vrukh",
+      "a menacing vrukh lurker",
+      "a vicious, maimed vrukh",
+      "a vrukh clutch-matron"
+    ],
+    "label": "Sunwash Ascent"
+  },
+  "lich": {
+    "areas": [
+      "lich gardens"
+    ],
+    "mobs": [
+      "a commanding lich scientist"
+    ],
+    "label": "Lich Gardens"
+  },
+  "ac2-yohanan-village": {
+    "areas": [
+      "yohanan village"
+    ],
+    "mobs": [
+      "a cave bat",
+      "a mangy rat"
+    ],
+    "label": "Yohanan Village"
+  },
+  "darkside-asper": {
+    "areas": [
+      "asper"
+    ],
+    "mobs": [
+      "a failed experiment",
+      "a fearsome icewyrm",
+      "a malevolent spectre",
+      "a snowshoe hare",
+      "a wild bobcat",
+      "an animated golem of flesh"
+    ],
+    "label": "Asper"
+  },
+  "bloodwood": {
+    "areas": [
+      "bloodwood"
+    ],
+    "mobs": [
+      "a distressed spirit",
+      "a lingering spirit",
+      "a wailing spirit"
+    ],
+    "label": "Bloodwood"
+  },
+  "darkside-court-of-the-consortium": {
+    "areas": [
+      "court of the consortium"
+    ],
+    "mobs": [
+      "a crystal-encrusted golem",
+      "a disembodied soul",
+      "a massive striped worm",
+      "a shambling skeleton",
+      "a spatial anomaly"
+    ],
+    "label": "Court of the Consortium"
+  },
+  "ac2-dun-fortress": {
+    "areas": [
+      "dun fortress"
+    ],
+    "mobs": [
+      "a dangerous water snake",
+      "a demonic screamer",
+      "a large catfish",
+      "a slime-encrusted spitter",
+      "an ogre bowman",
+      "an ogre captain",
+      "an ogre knight",
+      "an ogre sentry",
+      "an orc archer",
+      "an orc captain",
+      "an orc sergeant",
+      "an orc soldier"
+    ],
+    "label": "Dun Fortress"
+  },
+  "ac2-the-forgotten-mausoleum": {
+    "areas": [
+      "the forgotten mausoleum"
+    ],
+    "mobs": [
+      "a decomposing dwarf",
+      "a reanimated dwarf woman",
+      "a robed reanimated dwarf",
+      "a rotting dwarf archer"
+    ],
+    "label": "The Forgotten Mausoleum"
+  },
+  "ac2-the-centipede-cave": {
+    "areas": [
+      "the centipede cave"
+    ],
+    "mobs": [
+      "a chitinous centipede",
+      "a juvenile centipede",
+      "a large centipede",
+      "a massive centipede queen",
+      "a skittering centipede",
+      "a venomous centipede"
+    ],
+    "label": "the Centipede Cave"
+  },
+  "iernian": {
+    "areas": [
+      "iernian fracture",
+      "the iernian fracture"
+    ],
+    "mobs": [
+      "a cacophonous cluster of eld"
+    ],
+    "label": "Iernian Fracture"
+  },
+  "ac2-yuzurai-village": {
+    "areas": [
+      "yuzurai village"
+    ],
+    "mobs": [
+      "a massive rojalli matriarch",
+      "a savage rojalli",
+      "a sleek black rojalli"
+    ],
+    "label": "Yuzurai village"
+  },
+  "gloaming": {
+    "areas": [
+      "the cathedral of gloaming"
+    ],
+    "mobs": [
+      "a vengeful spirit"
+    ],
+    "label": "Cathedral of Gloaming"
+  },
+  "sparklight": {
+    "areas": [
+      "sparklight rift",
+      "the sparklight rift"
+    ],
+    "mobs": [
+      "a churning fire elemental",
+      "a colossal elemental",
+      "a fire elemental minion",
+      "a greater fire elemental",
+      "an oversized efreeti"
+    ],
+    "label": "Sparklight Rift"
+  },
+  "tcanna": {
+    "areas": [
+      "tcanna island"
+    ],
+    "mobs": [
+      "a bald eagle",
+      "a black and white badger",
+      "a black bear",
+      "a blue crab",
+      "a box jellyfish",
+      "a brown and tan python",
+      "a brown-furred bat",
+      "a dark green alligator",
+      "a diseased raccoon",
+      "a gray wolf",
+      "a great white stag",
+      "a howler monkey",
+      "a large capybara",
+      "a lithe cougar",
+      "a long-billed toucan",
+      "a nazetu officer",
+      "a ragged coyote",
+      "a scarlet macaw",
+      "a silverback gorilla",
+      "a small ocelot",
+      "a spotted jaguar",
+      "a spotted leopard",
+      "a striped tiger",
+      "a thick boa constrictor",
+      "a troll cook",
+      "a troll guard",
+      "a venomous bushmaster",
+      "a vicious copperhead snake",
+      "a water buffalo",
+      "a white goose",
+      "a white-tailed deer",
+      "an ebon crow",
+      "an enormous elephant",
+      "an oversized tortoise"
+    ],
+    "label": "Tcanna Island"
+  },
+  "darkside-catacombs-beneath-djeir": {
+    "areas": [
+      "catacombs beneath djeir"
+    ],
+    "mobs": [
+      "a djeirani ghost"
+    ],
+    "label": "Catacombs beneath Djeir"
+  },
+  "ac2-the-crimson-coast": {
+    "areas": [
+      "the crimson coast"
+    ],
+    "mobs": [
+      "a bare-chested nazetu pirate",
+      "a bespectacled orc pirate",
+      "a brawny, hook-handed kelki pirate",
+      "a broad-nosed crocodile",
+      "a brutish orc pirate",
+      "a djeirani smuggler",
+      "a dwarf smuggler",
+      "a gleaming arqeshi pirate",
+      "a grook smuggler",
+      "a human smuggler",
+      "a kelki smuggler",
+      "a large sand crab",
+      "a massive white gull",
+      "a minotaur smuggler",
+      "a nazetu smuggler",
+      "a peg-legged imp pirate",
+      "a predatory, prism-finned kelki pirate",
+      "a rajamala smuggler",
+      "a stout, sure-footed dwarf pirate",
+      "a terribly-tattooed kobold pirate",
+      "a tsol'aa smuggler",
+      "a wide-horned minotaur pirate",
+      "an arborean smuggler",
+      "an arqeshi smuggler",
+      "an atavian smuggler",
+      "an imp smuggler",
+      "an ogre smuggler"
+    ],
+    "label": "the Crimson Coast"
+  },
+  "snakepit": {
+    "areas": [
+      "a snake pit"
+    ],
+    "mobs": [
+      "a grassel snake",
+      "a large sertag snake",
+      "a muselon snake",
+      "a tiny hatchling",
+      "a venenigol snake",
+      "an andragil snake",
+      "namaqua, queen of serpents",
+      "nandqua, mate of namaqua"
+    ],
+    "label": "a snake pit"
+  }
+}

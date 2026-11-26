@@ -1,0 +1,30 @@
+{
+  "offline_only": true,
+  "tests": [
+    {
+      "runtime": "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_11-39-33_iasha-offline-causal-regression/lua-5.1.5/src/lua",
+      "test": "tests.lua",
+      "output": "PASS 73 core assertions (Lua 5.1)",
+      "exit": 0
+    },
+    {
+      "runtime": "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_11-39-33_iasha-offline-causal-regression/lua-5.1.5/src/lua",
+      "test": "tests-install.lua",
+      "output": "PASS 13 bundle/catalog assertions (Lua 5.1)",
+      "exit": 0
+    },
+    {
+      "runtime": "/bin/lua",
+      "test": "tests.lua",
+      "output": "PASS 73 core assertions (Lua 5.4)",
+      "exit": 0
+    },
+    {
+      "runtime": "/bin/lua",
+      "test": "tests-install.lua",
+      "output": "PASS 13 bundle/catalog assertions (Lua 5.4)",
+      "exit": 0
+    }
+  ],
+  "xml_sha256": "5460a54ea8a3864fef1098724d1dc457a8eb2e8e3695557ec702c98c2e2a4544"
+}
