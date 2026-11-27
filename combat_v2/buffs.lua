@@ -14,7 +14,7 @@ local function allowed_group(class,group)
  return false
 end
 local function in_class(b,e)
- return M.supported_class(b.class) and e and (e.tattoo or e.class=='shared' or e.class==b.class or allowed_group(b.class,e.group) or e.also_group and allowed_group(b.class,e.also_group))
+ return M.supported_class(b.class) and e and (e.tracking_only and e.metadata_classes and e.metadata_classes[b.class] or e.class_routes and e.class_routes[b.class] or e.tattoo or e.class=='shared' or e.class==b.class or allowed_group(b.class,e.group) or e.also_group and allowed_group(b.class,e.also_group))
 end
 M.catalog={
  {key='vitality',label='Vitality',command='vitality',default=true,requires_full=true,cooldown_loss=180},
@@ -107,6 +107,42 @@ local passive_tattoos={boar=true,moon=true,moss=true,owl=true,mountain=true}
 local function now() return getEpoch and getEpoch() or os.clock() end
 local function norm(x) return tostring(x or ''):lower():gsub('[%s_%-]','') end
 local index,aliases={},{}
+function M.bind_classes(router,modules,catalogs,s)
+ M.class_router=router;router.defense_routes={};router.catalog_counts={};for cl,rows in pairs(catalogs)do router.catalog_counts[cl]=#rows end
+ class_groups.wayfarer={'wayfaring','tenacity','fury','survival','vision','avoidance'}
+ class_groups.earthcaller={'subjugation','apocalyptia','tectonics','survival','vision','avoidance'}
+ class_groups.infiltrator={'assassination','subterfuge','hypnosis','survival','vision','avoidance'}
+ class_groups.shapeshifter={'survival','vision','avoidance'}
+ local function add(cl,row)
+  local k=row.key;local e=index[k]
+  if not e then e={key=k,label=k,class='metadata',default=false,tracking_only=true,reason='Canonical metadata only; no bounded producer'};M.catalog[#M.catalog+1]=e;index[k]=e;aliases[norm(k)]=k end
+  if row.id then assert(not e.canonical_id or e.canonical_id==row.id,'Canonical defense ID conflict: '..k);e.canonical_id=row.id end
+  e.metadata_classes=e.metadata_classes or {};e.metadata_classes[cl:lower()]=true
+  if row.command then
+   e.class_routes=e.class_routes or {};e.class_routes[cl:lower()]=true
+   router.defense_routes[k]=router.defense_routes[k]or {};router.defense_routes[k][cl]=row
+   e.routed_classes=e.routed_classes or {};e.routed_classes[cl:lower()]=true
+   if not e.command then e.command=row.command end
+   if e.class=='metadata'or e.class==cl:lower()then e.tracking_only=false end
+  end
+ end
+ for cl,rows in pairs(catalogs)do for _,row in ipairs(rows)do add(cl,row)end end
+ for _,row in pairs(modules.Earthcaller.defense_routes)do add('Earthcaller',row)end
+ for _,cl in ipairs({'Wayfarer','Infiltrator'})do for _,row in ipairs(modules[cl].defense_catalog)do if row.command and not row.tracking_only then add(cl,row)end end end
+ for k,row in pairs(modules.Archivist.defenses)do if row.command then local x={};for a,v in pairs(row)do x[a]=v end;x.key=k;add('Archivist',x)end end
+ for k,row in pairs(modules.Shapeshifter.catalog())do if row.kind=='defense'then add('Shapeshifter',{key=k,command=row.command})end end
+ if s then local b=M.state(s);for _,e in ipairs(M.catalog)do if e.routed_classes and not(e.class=='monk'and s.player.class=='Monk')then b.wanted[e.key]=false;b.cancel[e.key]=nil end end end
+end
+local function routed(s,e)return M.class_router and e and e.routed_classes and e.routed_classes[class_name(s.player.class)]end
+local function class_proposal(s,e,pending)
+ if pending and s.buffs and s.buffs.pending==pending then
+  local view={};for k,v in pairs(s)do view[k]=v end
+  view.buffs={};for k,v in pairs(s.buffs)do if k~='pending'then view.buffs[k]=v end end
+  return M.class_router.defense(view,e.key)
+ end
+ return M.class_router.defense(s,e.key)
+end
+
 for _,e in ipairs(M.catalog) do
  index[e.key]=e;aliases[norm(e.key)]=e.key;aliases[norm(e.label)]=e.key
  for _,id in ipairs(e.ids or {}) do aliases[norm(id)]=e.key end
@@ -135,6 +171,17 @@ metadata.insulation.reason='UNAVAILABLE: current producers Illumination Warmth /
 metadata.temperance.reason='UNAVAILABLE: not a current verified DEF ID'
 metadata.venom_resistance.reason='UNAVAILABLE: not a current verified DEF ID; antivenin is tracked separately'
 metadata.antivenin.reason='UNAVAILABLE: current DEF ID verified but no supplied producer; no guessed consumption'
+-- Promote the existing tracked row: one identity in metadata, index and catalog.
+local racial_safeguard=metadata.safeguard
+racial_safeguard.class='shared';racial_safeguard.owner='SKILL';racial_safeguard.racial=true
+racial_safeguard.group='racial';racial_safeguard.command='MIASMA';racial_safeguard.default=false
+racial_safeguard.minimum_mana=300 -- observed own MIASMA loss; no guessed drain/duration
+M.catalog[#M.catalog+1]=racial_safeguard;index.safeguard=racial_safeguard
+-- Current user-selected racial skill: no race-name guess, resource cost or timer.
+local racial_irongrip=metadata.irongrip
+racial_irongrip.class='shared';racial_irongrip.owner='SKILL';racial_irongrip.racial=true
+racial_irongrip.group='racial';racial_irongrip.command='IRONGRIP';racial_irongrip.default=true
+M.catalog[#M.catalog+1]=racial_irongrip;index.irongrip=racial_irongrip
 M.curative_catalog={}
 local curatives={
  {'courage','Herbalism','pluck','consumed'}, {'daydream','Herbalism','somnium','consumed'},
@@ -162,7 +209,8 @@ end
 local function yes(x) return x==true or tonumber(x)==1 end
 local function ready(s)
  local p=s.player or {};local a=p.afflictions or {}
- if not (yes(p.balance) and yes(p.equilibrium) and yes(p.left_arm_balance) and yes(p.right_arm_balance)) then return false end
+ if not (yes(p.balance) and yes(p.equilibrium)) then return false end
+ if (class_name(p.class)=='monk' or not M.supported_class(p.class)) and not(yes(p.left_arm_balance)and yes(p.right_arm_balance))then return false end
  if yes(p.prone) then return false end
  for _,k in ipairs({'prone','fallen','paralysis','paresis','asleep','unconsciousness','unconscious','stun','stunned','frozen','webbed','bound','transfixed','impaled','impalement','entangled','roped','left_arm_crippled','right_arm_crippled','left_arm_broken','right_arm_broken','left_arm_mangled','right_arm_mangled'}) do
   if yes(a[k]) then return false end
@@ -246,8 +294,9 @@ function M.rows(s)
   if e and e.passive and in_class(b,e) and b.known[k] then active=true end
   local pri=M.native_priority(s,k);local wanted
   if native then if pri then wanted=pri<26 end elseif class then wanted=b.wanted[k] end
-  rows[#rows+1]={key=k,label=e and e.label or k,active=active,wanted=wanted,
-   owner=e and e.curative and 'CURATIVE' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or e and e.owner or class and (e.class=='archivist' and 'ARCHIVIST' or e.class=='monk' and 'MONK' or 'SKILL') or tattoo and 'TATTOO' or 'UNAVAILABLE',
+  local routed_class=e and e.routed_classes and e.routed_classes[b.class]and b.class
+  rows[#rows+1]={key=k,label=e and e.label or k,active=active,wanted=wanted,canonical_id=e and e.canonical_id,producer=routed_class,
+   owner=e and e.curative and 'CURATIVE' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or routed_class and 'BUFFS' or e and e.owner or class and (e.class=='archivist' and 'ARCHIVIST' or e.class=='monk' and 'MONK' or 'SKILL') or tattoo and 'TATTOO' or 'UNAVAILABLE',
    control=native and 'native' or class and not e.passive and not e.tracking_only and 'class' or 'observed',priority=pri,drain=e and e.drain==true or false,
    available=available,availability=reason,group=e and e.group,passive=e and e.passive or e and e.login_auto and tattoo and tattoo.active,
    required=k=='mindseye',class=e and e.class or 'shared',relevant=not class or in_class(b,e),tracking_only=e and e.tracking_only or k=='daydream',
@@ -265,6 +314,7 @@ function M.rows(s)
 end
 function M.stop(s,reason)
  local b=M.state(s);b.master=false;b.sequence=false;b.todo=nil;b.cancel={};b.query=nil
+ if b.racial_stream and b.racial_stream.kind=='irongrip' then b.racial_stream.revoked=true end
  b.status=reason or 'disarmed' -- Never erase committed pending, fault, or runner recovery.
  return true,b.status
 end
@@ -280,6 +330,7 @@ function M.set_class(s,name)
  local b=M.state(s);local class=norm(name)
  if class~=b.class then
   M.stop(s,'class changed; disarmed');b.class=class;b.have={};b.defs_known=false;b.defs_at=nil
+  if M.class_router and class~='monk'then for _,e in ipairs(M.catalog)do if e.routed_classes and e.routed_classes[class]then b.wanted[e.key]=false;b.cancel[e.key]=nil end end end
   M.invalidate(s);b.listing=nil;b.ability_listing=nil
   if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false end
  end
@@ -297,6 +348,78 @@ local function each_name(payload,fn)
   elseif type(v)=='table' or type(v)=='string' then fn(v) end
  end
 end
+-- Bind permission to the genuine observer identity, character and scope. A
+-- shallow action-state view is fine; a replacement observer/session is not.
+local function irongrip_binding(s)
+ local o=s.class_observations;local p=s.player or {}
+ local name=o and o.character or p.name
+ local session=o and o.session or s.session_id
+ local life=o and o.life or s.life_generation
+ local epoch=o and o.epoch or s.class_generation
+ if type(name)~='string' or name=='' or session==nil or life==nil or epoch==nil then return nil end
+ return {owner=o or s,character=name,session=session,life=life,epoch=epoch,version=o and o.version}
+end
+local function same_irongrip(a,b)
+ return a and b and a.owner==b.owner and a.character==b.character and a.session==b.session and a.life==b.life and a.epoch==b.epoch and a.version==b.version
+end
+local function same_irongrip_transport(a,b)
+ return a and b and a.owner==b.owner and a.character==b.character and a.session==b.session and a.life==b.life
+end
+function M.race_status(s,race)
+ local b=M.state(s);race=type(race)=='string' and race:lower() or ''
+ local prior=b.racial_status
+ if not prior or prior.race~=race then
+  b.racial_epoch=(b.racial_epoch or 0)+1;b.racial_proof=nil;b.racial_listing=nil
+  if b.racial_stream then b.racial_stream.revoked=true end
+  if b.pending and b.pending.key=='safeguard' then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false end
+ end
+ b.racial_status={race=race,epoch=b.racial_epoch or 0,irongrip_binding=irongrip_binding(s)}
+ return race=='azudim'
+end
+function M.racial_text(s,line)
+ local b=M.state(s);local q=b.racial_stream
+ if not q then return false end
+ if q.kind=='irongrip' then
+  local value=line:match('^Irongrip %(Racial%)%s+Known:%s+(%a+)%s*$')
+  if value then
+   if q.header or (value~='Yes' and value~='No') then q.invalid=true end
+   q.header=true;q.known=value=='Yes';return true
+  end
+  local text=line:match('^%s*(.-)%s*$')
+  if q.header then
+   if text:match('^%-+$') then q.separator=true end
+   if text=='Syntax: IRONGRIP' then q.syntax=true end
+   if text=='RELAX IRONGRIP' then q.relax=true end
+   if text=='Syntax: IRONGRIP and RELAX IRONGRIP' then q.syntax=true;q.relax=true end
+   if text=='By gripping your weapons tightly, you can prevent others from disarming you of your precious weapons.' then q.description=true end
+   if text=='By gripping your weapons tightly, you can prevent others from disarming you of your precious' then q.description_prefix=true
+   elseif q.description_prefix and text=='weapons.' then q.description=true;q.description_prefix=nil
+   elseif q.description_prefix and text~='' then q.description_prefix=nil end
+  end
+  -- Entire solicited help frame is source text, never a live defense receipt.
+  return true
+ end
+ if line=='You possess the following abilities from your race:' then
+  if b.racial_listing then b.racial_listing.invalid=true;return true end
+  b.racial_listing={query=q,own=true,safeguard=false};return true
+ end
+ local frame=b.racial_listing
+ if line=='You possess the following racial abilities through other means:' then
+  if frame then frame.own=false;frame.other_seen=true end;return true
+ end
+ if line=='Type RACIAL HELP <skill> to learn more about a specific skill.' then
+  local status=b.racial_status
+  if not q.revoked and status and status.race=='azudim' and status.epoch==q.epoch then
+   if frame and frame.query==q and frame.other_seen and not frame.invalid then
+    b.racial_proof={race='azudim',epoch=q.epoch,known=frame.safeguard==true}
+   else fault(b,'Buff racial snapshot malformed; review/reset required') end
+  end
+  if b.query==q then b.query=nil end
+  b.racial_listing=nil;b.racial_stream=nil;return true
+ end
+ if frame and frame.own and line:match('^%s*Safeguard%s*$') then frame.safeguard=true;return true end
+ return false
+end
 function M.set_group_known(s,group,names,inferred)
  local b=M.state(s);group=norm(group)
  if not allowed_group(b.class,group) then return false end
@@ -309,7 +432,7 @@ function M.set_group_known(s,group,names,inferred)
   supplied[norm(name)]=true
  end)
  for _,e in ipairs(M.catalog) do
-  if in_class(b,e) and (e.group==group or e.also_group==group) and not e.tattoo and (supplied[norm(e.ability or e.key)] or supplied[norm(e.key)]) then known[e.key]=true end
+  if not e.racial and in_class(b,e) and (e.group==group or e.also_group==group) and not e.tattoo and (supplied[norm(e.ability or e.key)] or supplied[norm(e.key)]) then known[e.key]=true end
  end
  local precise=not inferred
  if inferred=='revoke' then precise=prior and prior.list or false end
@@ -317,7 +440,12 @@ function M.set_group_known(s,group,names,inferred)
  for group,g in pairs(b.groups) do if allowed_group(b.class,group) then for k in pairs(g.known) do if in_class(b,index[k]) then b.known[k]=true end end end end
  for k,t in pairs(b.tattoos) do if index[k] and (t.charges or 0)>0 then b.known[k]=true end end
  b.known_ready=true
- if b.query and b.query.kind=='skills' and b.query.group==group then b.query=nil end
+ if b.query and b.query.kind=='skills' then
+  if b.query.groups then
+   b.query.groups[group]=nil
+   if not next(b.query.groups) then b.query=nil end
+  elseif b.query.group==group then b.query=nil end
+ end
  return true
 end
 function M.set_known(s,names) return M.set_group_known(s,'kaido',names) end
@@ -336,12 +464,18 @@ function M.set_groups(s,groups)
  for _,g in ipairs(missing) do M.set_group_known(s,g,{},'revoke') end
 end
 function M.invalidate(s)
+ local prior=M.state(s);prior.racial_epoch=(prior.racial_epoch or 0)+1;prior.racial_status=nil;prior.racial_proof=nil;prior.racial_listing=nil;prior.irongrip_proof=nil
+ if prior.defence_text_enrolled then prior.defence_text_ready=false end
+ if prior.racial_stream then prior.racial_stream.revoked=true end
  local b=M.state(s);b.known={};b.groups={};b.tattoos={};b.tattoos_ready=false;b.tattoo_listing=nil;b.vitals_flags={};b.flag_sources={};b.known_ready=false
  b.sensory_context=nil;b.herb=nil;b.sensory_optin={};b.sensory_epoch=(b.sensory_epoch or 0)+1
  b.starburst_optin=nil;b.starburst_clock_known=nil
  b.observed={};b.have={};b.defs_known=false;b.ability_listing=nil;b.immunity_clock_known=false;b.bolstered_clock_known=false
  b.native_priorities={};b.native_full_required=true;b.native_listing=nil;b.native_version=(b.native_version or 0)+1
  if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false
+  if b.pending.key=='irongrip' then
+   b.pending.irongrip_own=nil;b.pending.irongrip_gain=nil;b.pending.irongrip_measured=nil;b.pending.irongrip_lost=nil;b.pending.irongrip_recovered=nil
+  end
   if b.pending.curative then b.pending.herb_lost=false;b.pending.herb_recovered=false end
  end
 end
@@ -411,6 +545,21 @@ function M.availability(s,k)
  if M.native_catalog[k] then return true,'NATIVE' end
  if e and not in_class(b,e) then return false,'CLASS-SPECIFIC: '..tostring(e.class)..' only' end
  if e and e.curative then return M.sensory_ready(s,k) end
+ if k=='irongrip' then
+  local status,proof=b.racial_status,b.irongrip_proof
+  if not status or status.race=='' or not same_irongrip(status.irongrip_binding,irongrip_binding(s)) then return false,'UNKNOWN: fresh character-bound Status race required' end
+  if not proof or proof.epoch~=status.epoch or proof.race~=status.race or not same_irongrip(proof.binding,status.irongrip_binding) then return false,'UNKNOWN: solicited RACIAL HELP IRONGRIP Known required' end
+  return proof.known==true,proof.known and 'AVAILABLE: current selected racial Irongrip' or 'NOT LEARNED: racial Irongrip Known: No'
+ end
+ if e and e.racial then
+  local status,proof=b.racial_status,b.racial_proof
+  if not status then return false,'UNKNOWN: fresh native Status race required' end
+  if status.race~='azudim' then return false,'RACE-SPECIFIC: Azudim MIASMA only' end
+  if proof and proof.race=='azudim' and proof.epoch==status.epoch and proof.known~=true then return false,'NOT LEARNED: own-race Safeguard absent' end
+  local ok=proof and proof.race=='azudim' and proof.epoch==status.epoch and proof.known==true
+  return ok==true,ok and 'AVAILABLE: verified Azudim Safeguard' or 'UNKNOWN: fresh own-race RACIAL SKILLS required'
+ end
+ if routed(s,e)then local a=class_proposal(s,e);return a.command~='',a.reason end
  if e and e.tracking_only then return false,e.reason end
  if e and e.passive then return false,b.known[k] and 'PASSIVE' or 'NOT LEARNED' end
  if e and e.bash_only and s.mode~='BASH' then return false,'BASH ONLY: activation and discovery disabled in this mode' end
@@ -508,8 +657,12 @@ local function observe(s,k,on)
  if not on and index[k] and index[k].cooldown_loss then b.cooldown[k]=now()+index[k].cooldown_loss end
  local pending=b.pending
  if pending and pending.curative and pending.key==k and not on then pending.confirmed=false;pending.prompt_ready=false end
+ if pending and pending.key=='irongrip' and k=='irongrip' then
+  pending.irongrip_gain=on==true;pending.confirmed=false;pending.prompt=nil;pending.prompt_ready=false
+  if on then pending.irongrip_witness_prompt=b.prompt end
+ end
  if pending and pending.key==k and pending.off==not on and (not pending.curative or pending.eat_started) then
-  pending.confirmed=true;pending.confirmed_prompt=b.prompt
+  pending.confirmed=pending.key~='irongrip' or pending.irongrip_own==true;pending.confirmed_prompt=b.prompt
   if pending.curative then pending.prompt=nil;pending.prompt_ready=false end
  end
 end
@@ -532,7 +685,7 @@ local function snapshot(s,have)
  end
  b.have=have;b.defs_known=true;b.defs_at=now()
  local p=b.pending
- if p and not p.curative then p.confirmed=(have[p.key]==true)~=p.off end
+ if p and not p.curative then p.confirmed=(have[p.key]==true)~=p.off and (p.key~='irongrip' or p.irongrip_own==true) end
  if b.query and b.query.kind=='defs' then b.query=nil end
 end
 function M.sync(s,kind,payload)
@@ -595,12 +748,13 @@ local up={
  skywatch={'You are aware of movement in the skies.'},tremorsense={'You are listening for underground movement.'},
  recognition={'You are recognizing masking afflictions.'},selfishness={'You are feeling quite selfish.'},
  alertness={'Your senses are attuned to nearby movement.'},telesense={'You are using your telesense.','You are attuned to local telepathic interference.'},
- bolstered={'You have prepared yourself for incoming attacks.'},safeguard={'You have the safeguard of an Idreth.','You are surrounded by a safeguard charm.'},
+ bolstered={'You have prepared yourself for incoming attacks.'},safeguard={'You have the safeguard of an Idreth.','You are surrounded by a safeguard charm.','You begin to exude a foul miasma, granting protection upon you and your allies.'},
  flame={'Your flame tattoo is glowing faintly.'},firefly={'Your firefly tattoo glows softly.'},
  mindseye={'Your senses are magically heightened.'},starburst={'You walk with the grace of the stars.'}
 }
 for k,lines in pairs(up) do for _,line in ipairs(lines) do confirmations[line]=k end end
 local losses={
+ ['The aura about you fades, leaving you somewhat more vulnerable again.']='safeguard',
  ['You call a halt to the regenerative process.']='regeneration',
  ['You feel yourself calm down as the stimulant wears off.']='instawake',
  ['Your aura of weapons rebounding disappears.']='rebounding',
@@ -748,7 +902,26 @@ end
 function M.text(s,line)
  if type(line)~='string' then return end
  local b=M.state(s)
+ -- DEFENCE help prints status/fade templates, not live effect observations.
+ if line:match('^Defence:%s+') then
+  b.defence_help_frame=true
+  if b.racial_stream then b.racial_stream.revoked=true;b.racial_listing=nil end
+  return
+ end
+ -- A revoked read-only stream may drain, but never grant capability.
+ if b.racial_stream and b.racial_stream.revoked and line=='Type RACIAL HELP <skill> to learn more about a specific skill.' then M.racial_text(s,line);return end
+ if b.defence_help_frame or b.defence_text_enrolled and b.defence_text_ready~=true then return end
+ if M.racial_text(s,line) then return end
  if priority_text(b,line) then return end
+ local ip=b.pending
+ if ip and ip.key=='irongrip' then
+  if line=='You use Racial Irongrip.' then
+   ip.irongrip_own=true;ip.prompt=nil;ip.prompt_ready=false;ip.irongrip_witness_prompt=b.prompt
+   ip.confirmed=ip.irongrip_gain==true
+  elseif line:match('^Balance Used: %d+%.?%d* seconds?%.?$') then
+   ip.irongrip_measured=true;ip.prompt=nil;ip.prompt_ready=false;ip.irongrip_witness_prompt=b.prompt
+  end
+ end
  if line=='You have the following tattoos:' then
   b.tattoo_listing={};b.tattoo_listing_version=b.tattoo_version or 0
   -- Even a post-dispatch header may describe the pre-consumption budget.
@@ -810,6 +983,15 @@ end
 -- Called only from a genuine fresh Vitals event, never a cached tick.
 function M.vitals(s,v)
  local b=M.state(s)
+ local ip=b.pending
+ if ip and ip.key=='irongrip' and v.balance~=nil then
+  local value=v.balance
+  if value==false or value==0 or value=='0' then
+   ip.irongrip_lost=true;ip.irongrip_recovered=nil;ip.prompt=nil;ip.prompt_ready=false;ip.irongrip_witness_prompt=b.prompt
+  elseif (value==true or value==1 or value=='1') and ip.irongrip_lost then
+   ip.irongrip_recovered=true;ip.prompt=nil;ip.prompt_ready=false;ip.irongrip_witness_prompt=b.prompt
+  end
+ end
  if v.herb~=nil then
   local h=v.herb
   if h==true or h==1 or h=='1' then b.herb=true
@@ -859,6 +1041,7 @@ function M.master(s,on)
  local b=M.state(s)
  if on~=true then
   b.master=false;b.status='maintenance paused; active defences retained'
+  if not b.sequence and b.racial_stream and b.racial_stream.kind=='irongrip' then b.racial_stream.revoked=true end
   return true,b.status -- Explicit off queue and one-shot intent are independent.
  end
  if not M.supported_class(b.class) then return false,'Supported class required (Monk/Archivist)' end
@@ -868,8 +1051,22 @@ end
 function M.toggle(s,name,on)
  local b=M.state(s);local k=key(name);local e=k and index[k]
  if sensory[k] then return M.select_sensory(s,k,on) end
+ if k=='irongrip' and type(on)=='boolean' then
+  -- Selection is not permission to arm every other selected defense.
+  b.wanted[k]=on;b.cancel[k]=nil
+  if not on and b.todo then b.todo[k]=nil end
+  if not on and b.racial_stream and b.racial_stream.kind=='irongrip' then b.racial_stream.revoked=true end
+  return true,on and 'Irongrip selected; master unchanged; capability still required' or 'Irongrip upkeep off; active defense retained'
+ end
  if not e then return false,k and metadata[k] and metadata[k].reason or 'Unknown defence' end
  if M.native_catalog[k] then return false,'Native FIRSTAID owns this defence' end
+ if on==false and e.class_routes then b.wanted[k]=false;b.cancel[k]=nil;if b.todo then b.todo[k]=nil end;return true,'local wanted OFF; no foreign cancellation' end
+ if on==true and routed(s,e)then
+  b.wanted[k]=true;b.master=true
+  local cl=s.player.class;local a=M.class_router.modules[cl];local ctx=s[cl:lower()]
+  if ctx then ctx.wanted=ctx.wanted or {};ctx.wanted[k]=true;if cl=='Wayfarer'then ctx.owners=ctx.owners or {};ctx.owners[k]='wayfarer';ctx.armed=true elseif cl=='Shapeshifter'then ctx.defense_armed=true elseif cl=='Infiltrator'then ctx.defense_owner=ctx.defense_owner or {};ctx.defense_owner[k]='buffs'end end
+  return true,'wanted ON; execution remains capability-gated'
+ end
  if not in_class(b,e) or e.tracking_only then return false,select(2,M.availability(s,k)) end
  if e.passive then return false,'Passive ability; no command' end
  if type(on)~='boolean' then return false,'Expected boolean' end
@@ -891,6 +1088,17 @@ function M.toggle(s,name,on)
 end
 function M.on_prompt(s)
  local b=M.state(s);b.prompt=b.prompt+1
+ local q=b.racial_stream
+ if q and q.kind=='irongrip' then
+  local status=b.racial_status
+  if not q.revoked and not q.invalid and q.header and q.separator and q.syntax and q.relax and q.description and status and status.epoch==q.epoch and status.race==q.race and same_irongrip(q.binding,irongrip_binding(s)) and same_irongrip(q.binding,status.irongrip_binding) then
+   b.irongrip_proof={known=q.known==true,epoch=q.epoch,race=q.race,binding=q.binding}
+  end
+  if b.query==q then b.query=nil end
+  b.racial_stream=nil
+ end
+ b.defence_help_frame=nil
+ if b.defence_text_enrolled then b.defence_text_ready=true end
  if b.tattoo_listing then
   if b.tattoo_listing_version==(b.tattoo_version or 0) and not b.tattoo_listing_uncertain and
    not (b.pending and b.pending.tattoo_debited) then
@@ -920,6 +1128,7 @@ local function percent(v,max)
  return 100*v/max
 end
 local function eligible(s,b,e)
+ if routed(s,e)then local a=class_proposal(s,e);if a.command==''then return false,a.reason end end
  if e.bash_only and s.mode~='BASH' then return false,'BASH only' end
  -- Public catalog tables are metadata, not authority to reintroduce a producer.
  if sensory[e.key] and index[e.key]~=e then return false,'Retired self-affliction producer' end
@@ -927,6 +1136,11 @@ local function eligible(s,b,e)
  if e.key=='starburst' and b.starburst_optin~=true then return false,'Explicit current-session Starburst opt-in required' end
  local p=s.player;local hp=percent(p.hp,p.maxhp);local mp=percent(p.mana,p.maxmana)
  if not hp or not mp or hp<65 or mp<50 then return false,'resources' end
+ if e.racial and (hp~=hp or mp~=mp or hp==math.huge or mp==math.huge or hp==-math.huge or mp==-math.huge) then return false,'finite resources required' end
+ if e.minimum_mana then
+  local mana,maxmana=tonumber(p.mana),tonumber(p.maxmana)
+  if not mana or mana~=mana or mana==math.huge or not maxmana or maxmana~=maxmana or maxmana==math.huge or mana<e.minimum_mana then return false,'verified mana cost unavailable' end
+ end
  if e.requires_full and (hp<100 or mp<100) then return false,'full HP and mana required' end
  if not e.command or e.passive or not M.availability(s,e.key) then return false,'unavailable' end
  if e.antipsychotic_block then
@@ -948,6 +1162,7 @@ local function send_checked(b,sender,command)
  return true
 end
 local function service(s,runner,sender,hold,policy)
+ if M.class_router then local blocked,why=M.class_router.barrier(s,true);if blocked then return {busy=true,status=why}end end
  local b=M.state(s);local t=now()
  if not M.supported_class(b.class) or not connected(s) or s.training_battle_ended then
   M.stop(s,'disconnected/dead/class/training stop');M.invalidate(s)
@@ -958,25 +1173,33 @@ local function service(s,runner,sender,hold,policy)
  -- Recovery is processed even while intent is disarmed or survival holds.
  local p=b.pending
  if p then
-  if not p.send_failed and not p.rejected and p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and p.prompt_ready and ready(s) and (not p.curative or p.herb_recovered and b.herb==true) then
+  if not p.send_failed and not p.rejected and (not(p.shape_reservation or p.earth_reservation)or M.class_router and M.class_router.defense_settled(s,p)) and (not(s.class_observations and s.class_observations.defense_issued and s.class_observations.defense_issued.pending==p)or s.class_observations.defense_issued.native_ready_seq) and (p.key~='irongrip' or same_irongrip_transport(p.irongrip_binding,irongrip_binding(s)) and p.irongrip_own and p.irongrip_gain and p.irongrip_measured and p.irongrip_lost and p.irongrip_recovered and p.prompt and p.prompt>(p.irongrip_witness_prompt or p.prompt)) and p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and (not (index[p.key] and index[p.key].racial) or p.confirmed_prompt and p.prompt>p.confirmed_prompt) and p.prompt_ready and ready(s) and (not p.curative or p.herb_recovered and b.herb==true) then
+   if p.earth_reservation and not M.class_router.earth_retire(s,p)then return {busy=true,status='Earthcaller ledger settlement held'}end
    b.pending=nil
    if b.fault==p.timeout_fault then b.fault=nil end
+   if s.class_observations and s.class_observations.defense_issued and s.class_observations.defense_issued.pending==p then s.class_observations.defense_issued=nil;if M.class_router then M.class_router.sync_transport(s)end end
    b.retry[p.key]=t+2;b.status='confirmed: '..p.key
-   return {busy=false,status=b.status}
+   -- Curative resource evidence has a separate lifetime; leave its historical
+   -- settlement cadence untouched. Routine skill/tattoo DEFUP can advance.
+   if p.curative then return {busy=false,status=b.status} end
+   -- Continue through every current policy/readiness gate; one new action
+   -- may use this genuinely ready prompt without a settlement-only idle tick.
+  else
+   if t-p.at>=12 and not b.fault then
+    p.timeout_fault='Buff acknowledgement timed out; review/reset required';fault(b,p.timeout_fault)
+   end
+   -- One reconciliation only, after a real prompt, never activation retry.
+   if not p.curative and not b.fault and not p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and not p.queried then
+    p.queried=true
+    if not send_checked(b,sender,'defences') then p.send_failed=true end
+   end
+   return {busy=true,status=b.fault or 'awaiting buff confirmation and ready prompt'}
   end
-  if t-p.at>=12 and not b.fault then
-   p.timeout_fault='Buff acknowledgement timed out; review/reset required';fault(b,p.timeout_fault)
-  end
-  -- One reconciliation only, after a real prompt, never activation retry.
-  if not p.curative and not b.fault and not p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and not p.queried then
-   p.queried=true
-   if not send_checked(b,sender,'defences') then p.send_failed=true end
-  end
-  return {busy=true,status=b.fault or 'awaiting buff confirmation and ready prompt'}
  end
  -- Suppression survives state/reentrant settlement: no discovery, OFF or TOUCH.
  if policy then return {busy=false,status='convenience action unresolved'} end
  if b.fault then return {busy=false,status=b.fault} end
+ if b.defence_help_frame or b.defence_text_enrolled and b.defence_text_ready~=true then return {busy=false,status='awaiting native DEFENCE text boundary prompt'} end
  if not b.master and not b.sequence and not next(b.cancel) then return {busy=false,status=b.status} end
  -- Mode constrains new discovery, never settlement of an issued TOUCH above.
  local permitted,mode_blocked=false,false
@@ -1003,23 +1226,49 @@ local function service(s,runner,sender,hold,policy)
  end
  sensory_only=sensory_only and sensory_selected
  if sensory_only and not sensory_available then return {busy=false,status='Sensory goals awaiting explicit opt-in and fresh evidence'} end
+ -- An issued racial read stream survives cancellation/scope invalidation until
+ -- its footer drains. Never retag an old response as a new race/session query.
+ if b.racial_stream then
+  local q=b.racial_stream
+  if t-q.at>=12 then q.revoked=true;if not b.fault then fault(b,'Buff racial snapshot timed out; review/reset required') end end
+  return {busy=false,status=b.fault or 'awaiting scoped racial skills snapshot'}
+ end
  -- Unknown authoritative snapshots are solicited once, with a bounded wait.
  if b.query then
   if t-b.query.at>=12 then fault(b,'Buff '..b.query.kind..' snapshot timed out; review/reset required') end
   return {busy=false,status=b.fault or 'awaiting '..b.query.kind..' snapshot'}
  end
- -- Discover only selected class-appropriate skill routes, once per group.
- -- A completed Kaido List never stands in for Vision/Survival/etc.
+ local racial_selected=b.wanted.safeguard and (b.master or b.sequence and b.todo.safeguard)
+ local racial_status,racial_proof=b.racial_status,b.racial_proof
+ local racial_complete=racial_status and racial_proof and racial_proof.race==racial_status.race and racial_proof.epoch==racial_status.epoch
+ local racial_query=racial_selected and racial_status and racial_status.race=='azudim' and not racial_complete
+ local irongrip_selected=b.wanted.irongrip and (b.master or b.sequence and b.todo.irongrip) and not b.have.irongrip and not canonical_have(s,'irongrip')
+ local irongrip_status=racial_status and racial_status.race~='' and same_irongrip(racial_status.irongrip_binding,irongrip_binding(s))
+ local irongrip_complete=b.irongrip_proof and irongrip_status and b.irongrip_proof.epoch==racial_status.epoch and b.irongrip_proof.race==racial_status.race and same_irongrip(b.irongrip_proof.binding,racial_status.irongrip_binding)
+ local irongrip_query=irongrip_selected and irongrip_status and not irongrip_complete
+ local irongrip_wait=irongrip_selected and not irongrip_status
+ local racial_wait=racial_selected and not racial_status and not b.have.safeguard and not canonical_have(s,'safeguard')
+ -- Batch only missing selected skill routes, once each. This is read-only;
+ -- activation still waits for every requested snapshot and the defence List.
+ local groups,ordered={},{}
  for _,e in ipairs(M.catalog) do
   local selected=b.cancel[e.key] or b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
-  if selected and (not e.bash_only or s.mode=='BASH') and in_class(b,e) and not e.curative and not e.tattoo and not e.passive and not e.tracking_only and not M.native_catalog[e.key] then
-   local group=allowed_group(b.class,e.group) and e.group or e.also_group
-   local complete=b.groups[group] or e.also_group and allowed_group(b.class,e.also_group) and b.groups[e.also_group]
-   if not complete then
-    b.query={kind='skills',group=group,at=t};send_checked(b,sender,'ab '..group)
-    return {busy=false,status=b.fault or 'requested '..group..' abilities'}
+  if selected and (not e.bash_only or s.mode=='BASH') and in_class(b,e) and not e.racial and not e.curative and not e.tattoo and not e.passive and not e.tracking_only and not M.native_catalog[e.key] and not routed(s,e) and not b.known[e.key] then
+   for _,group in ipairs({e.group,e.also_group}) do
+    if allowed_group(b.class,group) and not b.groups[group] and not groups[group] then
+     groups[group]=true;ordered[#ordered+1]=group
+    end
    end
   end
+ end
+ if #ordered>0 then
+  local query={kind='skills',group=ordered[1],groups=groups,at=t};b.query=query
+  for _,group in ipairs(ordered) do
+   -- A synchronous death/class/intent change may revoke the unsent remainder.
+   if b.query~=query or b.fault or not connected(s) then break end
+   if not send_checked(b,sender,'ab '..group) then break end
+  end
+  return {busy=false,status=b.fault or 'requested selected ability snapshots'}
  end
  if not b.defs_known and not sensory_only then
   b.query={kind='defs',at=t};send_checked(b,sender,'defences')
@@ -1037,20 +1286,39 @@ local function service(s,runner,sender,hold,policy)
   for _,e in ipairs(M.catalog) do
    local selected=b.sequence and b.todo[e.key] or b.master and b.wanted[e.key]
    if selected and b.wanted[e.key] and not M.native_catalog[e.key] then
-    if b.todo then b.todo[e.key]=nil end -- one-shot skips once, never pins offense
+    -- An unproven racial goal stays wanted, but must not delay learned core DEFUP.
+    if b.todo and not(e.racial and(racial_query or racial_wait or e.key=='irongrip' and(irongrip_query or irongrip_wait)))then b.todo[e.key]=nil end
     local ok=eligible(s,b,e)
-    if not b.have[e.key] and not canonical_have(s,e.key) and (e.curative or b.known[e.key]) and ok then chosen=e;break end
+    if not b.have[e.key] and not canonical_have(s,e.key) and (routed(s,e) or e.racial or e.curative or b.known[e.key]) and ok then chosen=e;break end
    end
   end
  end
  if not chosen then
+  if irongrip_query then
+   local q={kind='irongrip',epoch=racial_status.epoch,race=racial_status.race,binding=irongrip_binding(s),at=t};b.query=q;b.racial_stream=q
+   if not send_checked(b,sender,'racial help irongrip')then q.revoked=true end
+   return {busy=false,status=b.fault or 'requested current racial Irongrip help'}
+  end
+  if irongrip_wait then return {busy=false,status='awaiting fresh character-bound Status race evidence'}end
+  if racial_query then
+   local q={kind='racial',epoch=racial_status.epoch,at=t};b.query=q;b.racial_stream=q
+   if not send_checked(b,sender,'racial skills')then q.revoked=true end
+   return {busy=false,status=b.fault or 'requested own-race racial skills'}
+  end
+  if racial_wait then return {busy=false,status='awaiting fresh native Status race evidence'}end
   b.sequence=false;b.todo=nil;b.status=b.master and 'maintenance monitoring' or 'defup complete'
   return {busy=false,status=b.status}
  end
  if off then b.cancel[chosen.key]=nil end
  local command=off and chosen.off or chosen.command
+ if routed(s,chosen)then
+  if off then return {busy=false,status='No foreign class cancellation'}end
+  local a=class_proposal(s,chosen);if a.command==''then return {busy=false,status=a.reason}end
+  command=a.command
+ end
  p={key=chosen.key,off=off==true,at=t,dispatched_prompt=b.prompt,confirmed=false,previous_cooldown=b.cooldown[chosen.key]}
  b.pending=p -- Before calling the sender: synchronous fake callbacks cannot double-send.
+ if chosen.key=='irongrip' then p.irongrip_binding=irongrip_binding(s);b.irongrip_proof=nil end -- one activation per current selected Known proof
  if chosen.curative then
   p.curative=true
   -- Static pair only; never a separator, cache alias, or caller-supplied command.
@@ -1069,6 +1337,18 @@ local function service(s,runner,sender,hold,policy)
   p.tattoo_debited=true;b.tattoo_version=(b.tattoo_version or 0)+1
  end
  if not off and chosen.cooldown_activation then b.cooldown[chosen.key]=t+chosen.cooldown_activation end
+ if routed(s,chosen)then
+  -- Existing Buffs pending is the sole defense lifecycle owner. No adapter commit.
+  local a=class_proposal(s,chosen,p)
+  local o=s.class_observations
+  if a.command~=command or not M.class_router.reserve_defense then b.pending=nil;return {busy=false,status='Class shared-ledger reservation unavailable'}end
+  local mirrored,mirror_reason=M.class_router.sync_transport(s)
+  if not mirrored then b.pending=nil;return {busy=false,status=mirror_reason}end
+  local reserved=M.class_router.reserve_defense(s,chosen.key,a,p)
+  if reserved~=true then b.pending=nil;return {busy=false,status='Class shared-ledger reservation denied'}end
+  o.defense_issued={class=s.player.class,key=chosen.key,pending=p,scope=o.class and o.class.scope,seq=o.sequence,at=t}
+  M.class_router.sync_transport(s)
+ end
  local ok=send_checked(b,sender,command)
  if not ok then p.send_failed=true end
  b.status=b.fault or 'sent: '..command

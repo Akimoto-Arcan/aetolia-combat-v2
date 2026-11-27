@@ -8,14 +8,25 @@ function M.state(s)
  local m=s.mental
  if m.generation~=s.target_generation then
   if m.target or m.lock_target then m.needs_cease=true end
-  m.status='idle';m.target=nil;m.lock_target=nil;m.eq_pending=nil;m.fault=nil;m.generation=s.target_generation;m.retry_at=now()+.3
+  -- Scope revokes lock permission, never a possibly committed EQ transaction.
+  m.status='idle';m.target=nil;m.lock_target=nil;m.generation=s.target_generation;m.retry_at=now()+.3
  end
  return m
 end
 function M.reset(s)local m=M.state(s);m.eq_pending=nil;m.fault=nil end
 function M.text(s,text)
  if type(text)~='string' then return end
- local m=M.state(s);local who=text:match('^You focus your mind, and begin to concentrate on forming a mind lock with (.+)%.$')
+ local m=M.state(s)
+ -- A named loss revokes this target's lock, not an unresolved cast/transport.
+ -- Keep eq_pending/fault and the physical runner's commitment intact.
+ local lost=text:match('^Your mind lock with (.+) has been broken%.$')
+  or text:match('^(.+) has moved out of range of your telepathy, breaking your mindlock attempt%.$')
+  or text:match('^(.+) is out of range of your telepathy, and the mental cords between you snap instantly%.$')
+  or text:match('^You dissolve the mindlock, severing all telepathic connections between you and (.+)%.$')
+ if lost and norm(lost)==norm(s.target.name) and norm(lost)==norm(m.lock_target or m.target) then
+  m.status='idle';m.lock_target=nil;m.target=nil;m.retry_at=now()+3;return
+ end
+ local who=text:match('^You focus your mind, and begin to concentrate on forming a mind lock with (.+)%.$')
  if who and norm(who)==norm(s.target.name) then m.target=who;m.status='acquiring';m.started=now();m.progress=now();return end
  who=text:match('^You continue to delve deeper and deeper into the mind of (.+)%.$')
  if who and norm(who)==norm(m.target) then m.progress=now();return end

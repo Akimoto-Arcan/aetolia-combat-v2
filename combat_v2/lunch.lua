@@ -368,7 +368,7 @@ function M.adapter(c,api)
   local room=s.room or {};local h=s.hunting or {};local ih=h.ih
   local known=ih and same(ih.room_id,room.id) and not ih.active and not ih.pending and (ih.responded==true or (room.item_version or 0)>(ih.start_version or math.huge))
   local empty=known==true
-  for _,it in pairs(room.items or {}) do local f=tostring(it.attrib or '');if (f:find('m',1,true) or it.icon=='monster') and not f:find('d',1,true) and not f:find('x',1,true) then empty=false end end
+  for _,it in pairs(room.items or {}) do if not c.areas or type(c.areas.navigation_blocked)~='function' or c.areas.navigation_blocked(s,it) then empty=false end end
   local pol=s.policy or {}
   return {class=p.class,globe_armed=g.armed==true,upkeep_master=b.master==true,globe_pool_ready=not (c.elementals and c.elementals.pool_enable) or (q.enabled==true and q.known==true and not q.query),mode=c.mode,room=room.id,connected=connected() and yes(s.connected),dead=yes(p.dead) or (tonumber(p.hp) or 0)<=0,ready=rd,blocked=blocked,empty=empty,room_known=known==true,mounted=p.mounted~=false and tonumber(p.mounted)~=0,hp_percent=(tonumber(p.maxhp) or 0)>0 and p.hp/p.maxhp*100 or nil,players_known=pol.players_known==true,players_room=pol.players_room,players=pol.players,self_name=pol.self_name,
    supplies_busy=c.supplies_data and c.supplies_data.pending,globes_exhausted=exhausted,globe_fault=g.fault,travel_fault=tr.fault or tr.follow_fault,travel_idle=tr.phase=='idle' and not (tr.pending or tr.dispatching or tr.intent or tr.route or tr.follow_pending or tr.follow_due or tr.recall_due),globe_idle=not g.pending and not g.committed and not g.fault and (g.phase==nil or g.phase=='idle')}

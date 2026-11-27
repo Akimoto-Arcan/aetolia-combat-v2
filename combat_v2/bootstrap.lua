@@ -1,29 +1,71 @@
+local reset_support=dofile(getMudletHomeDir()..'/combat_v2/operator_reset.lua')
+local operator_reset_off=reset_support.intent(getMudletHomeDir()..'/combat_v2/')
+local survival_reload_token
+if combat_v2 and combat_v2.current and not combat_v2.survival_arbiter then
+ local path=getMudletHomeDir().."/combat_v2/"
+ local a=dofile(path.."survival.lua");local e=dofile(path.."bash_escape.lua");local b=dofile(path.."survival_boot.lua")
+ local ok,why=a.preflight_initial(combat_v2,{passive_restock=e.passive_restock,terminal_globe=e.terminal_globe,readonly_supplies=b.readonly_supplies})
+ if not ok then print("Reload refused: "..tostring(why));return end
+end
+if combat_v2 and combat_v2.survival_arbiter then
+ local a=combat_v2.survival_arbiter
+ if type(a.prepare_reload)~="function"then print("Reload refused: unknown survival authority");return end
+ local token,why=a.prepare_reload(combat_v2)
+ if not token then print("Reload refused: "..tostring(why));return end
+ survival_reload_token=token
+end
 local root=getMudletHomeDir().."/combat_v2/"
+if combat_v2 and combat_v2.emergency_numb and(combat_v2.emergency_numb.pending or combat_v2.emergency_numb.fault)then print("Reload refused: emergency commitment retained");return end
 local convenience=dofile(root.."travel_boot.lua")
 if combat_v2 and convenience.busy(combat_v2)then print("Reload refused: unresolved travel/inking retained");return end
 combat_v2=combat_v2 or {};local c=combat_v2
+if operator_reset_off then c.containers_refill_enabled=false;c.operator_abandoned_jobs=true end
+-- Refresh only after the existing settled reload preflight/token above.
+-- A retained survival-v1 table is not proof its raw-command policy is current.
+local next_survival=dofile(root.."survival.lua")
+if c.survival_module then
+ local ok,why=next_survival.upgrade(c.survival_module,c,survival_reload_token)
+ if not ok then print("Reload refused: "..tostring(why));return end
+end
+c.survival_module=next_survival
+if c.tour_picker_boot then local ok,why=c.tour_picker_boot.detach(c);if not ok then print('Reload refused: '..tostring(why));return end end
+if c.tour_boot then c.tour_boot.detach(c)end
 for _,key in ipairs({"gmcp_handler","text_handler"}) do if c[key] then killAnonymousEventHandler(c[key]);c[key]=nil end end
 for _,id in ipairs(c.handlers or {}) do killAnonymousEventHandler(id) end
 for _,key in ipairs({"line_trigger","prompt_trigger","buff_prompt_trigger"}) do if c[key] then killTrigger(c[key]) end end
 for _,key in ipairs({"alias","target_alias"}) do if c[key] then killAlias(c[key]) end end
 for _,key in ipairs({"retry_timer","watch_timer","ih_timer","buff_timer"}) do if c[key] then killTimer(c[key]);c[key]=nil end end
 c.state=dofile(root.."state.lua");c.current=c.state.upgrade(c.current)
+if operator_reset_off then c.current.config.defense_enabled=false end
 c.tracker=dofile(root.."tracker.lua");c.bashing=dofile(root.."bashing.lua");c.bashing.bind(c.state);c.mobs=dofile(root.."mobs.lua");c.bashing.bind_mobs(c.mobs)
-c.areas=dofile(root.."areas.lua");c.bashing.bind_areas(c.areas);c.areas.invalidate(c.current);c.current.hunting.preset=nil
+c.areas=dofile(root.."areas.lua");c.bashing.bind_areas(c.areas);c.areas.invalidate(c.current);c.current.hunting.defensive_refresh=nil;c.current.hunting.preset=nil;c.current.hunting.area_auto_intent=nil;c.current.hunting.area_auto=nil;c.current.hunting.auto_certificate=nil
 c.monk=dofile(root.."monk.lua");c.monk.bind(c.tracker)
+local class_modules={Monk=c.monk}
+for _,name in ipairs({"Wayfarer","Earthcaller","Infiltrator","Archivist","Shapeshifter"})do local k=name:lower();c[k]=dofile(root..k..".lua");class_modules[name]=c[k]end
+c.class_router=dofile(root.."class_router.lua").new(class_modules)
+c.class_observers=dofile(root.."class_observers.lua");c.class_observers.attach(c.current,class_modules)
+local function class_ingress(source,raw)
+ local accepted=c.class_observers.ingress(c.current,source,raw)
+ c.class_router.observe_defense(c.current,source)
+ if c.survival_arbiter and c.survival_arbiter.settle then c.survival_arbiter.settle(c)end
+ return accepted
+end
 c.events=dofile(root.."events.lua");c.events.bind(c.tracker)
 c.runner_module=dofile(root.."runner.lua");c.curing=dofile(root.."curing.lua");c.gui=dofile(root.."gui.lua")
-c.policy=dofile(root.."policy.lua");c.policy.init(c.current,gmcp or {});c.runner_module.bind_policy(c.policy.attack_allowed)
-c.runner=c.runner_module.new(c.current,c.monk);c.cure=(c.cure and c.cure.status) and c.cure or c.curing.new()
-c.walker=dofile(root.."walker.lua");c.walker.stop(c.current,"reload; walking disabled");c.walker.state(c.current).ask_on_bash=false
+c.policy=dofile(root.."policy.lua");c.policy.init(c.current,gmcp or {});c.policy.bind_areas(c.areas);c.runner_module.bind_policy(c.policy.attack_allowed)
+c.runner=c.runner_module.new(c.current,c.monk);c.runner_module.bind_classes(c.runner,c.class_router);c.cure=(c.cure and c.cure.status) and c.cure or c.curing.new()
+c.walker=dofile(root.."walker.lua");c.walker.stop(c.current,"reload; walking disabled");c.walker.state(c.current).ask_on_bash=false;c.current.walker.enabled=false
+local special_exits=dofile(root.."special_exits.lua")
+c.special_exits=special_exits
 if c.gui.hide_walk_prompt then c.gui.hide_walk_prompt()end
 c.defense=dofile(root.."defense.lua");c.runner_module.bind_defense(c.defense.hold)
 if c.defense.attach then c.defense.attach(c)end
-c.mental=dofile(root.."mental.lua");c.mental.bind_defense(c.defense);c.current.mental=nil;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
+c.defense.numb_bind(c)
+c.mental=dofile(root.."mental.lua");c.mental.bind_defense(c.defense);local mental_disarmed=operator_reset_off or c.current.mental and c.current.mental.enabled==false;c.current.mental=nil;if mental_disarmed then c.mental.state(c.current).enabled=false end;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
 c.mode="OFF";c.current.mode="OFF";c.current.hunting.active=false;c.current.stop_reason=nil
 local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
 -- Buff preparation/upkeep is separate from FIRSTAID's survival governor.
-c.buffs=dofile(root.."buffs.lua");c.buffs.stop(c.current,"reload; upkeep disarmed");c.buff_class_seen=nil;c.buff_skill_seen=nil
+c.buffs=dofile(root.."buffs.lua");c.buffs.bind_classes(c.class_router,class_modules,dofile(root.."class_catalog.lua"),c.current);c.buffs.stop(c.current,"reload; upkeep disarmed");c.buff_class_seen=nil;c.buff_skill_seen=nil
 -- Native affliction-priority framing must be validated by the native capture
 -- owner. Defence priorities/DEF IDs are NEVER sensory policy evidence.
 local function buff_now()return type(getEpoch)=="function"and getEpoch()or os.time()end
@@ -194,7 +236,8 @@ end
 buff_invalidate() -- cached pre-reload skill payloads are not fresh ownership
 local function buff_snapshot(source)
  local g=gmcp or {};local v=g.Char and g.Char.Vitals or {};local status=g.Char and g.Char.Status or {}
- local name=tostring(status.class or "")
+ local observed=c.current.class_observations
+ local name=tostring(observed and observed.class and observed.class.value or c.current.player.class or status.class or "")
  if name~=c.buff_class_seen then
   if c.buff_class_seen~=nil then buff_invalidate();if c.walker_boot then c.walker_boot.revoke(c,"class scope changed")end end
   c.buff_class_seen=name;c.buffs.set_class(c.current,name);c.current.player.class=name
@@ -243,7 +286,7 @@ local function buff_timer()
  end
 end
 local function buff_dispatch(command)
- local audit=command=="defences"or command=="tattoos"or command=="firstaid"or command=="firstaid priority defence list"or command=="firstaid priority list"or command=="ic"
+ local audit=command=="racial help irongrip"or command=="racial skills"or command=="defences"or command=="tattoos"or command=="firstaid"or command=="firstaid priority defence list"or command=="firstaid priority list"or command=="ic"
  for _,group in ipairs(c.buffs.audit_groups(c.current.player.class)or{})do if command=="ab "..group then audit=true end end
  local allowed=audit;local curative=false;local prepare=false
  for _,e in ipairs(c.buffs.catalog)do
@@ -278,7 +321,7 @@ function combat_v2_supplies(action)
  action=tostring(action or"status"):lower()
  if not c.supplies then return false,"Supply monitor unavailable"end
  if action=="check"or action=="audit"then
-  return c.supplies.audit(c,function(command)assert(command=="fluidcache"or command=="ic"or command=="fc missing"or command=="ic missing","Read-only supply command rejected");return send(command)end)
+  return c.supplies.audit(c)
  elseif action=="usage"then for _,line in ipairs(c.supplies.report(c))do print(line)end;return true
  elseif action~="status"then return false,"cv2 supplies status | usage | check"end
  local s=c.supplies.state(c);print("FLUIDCACHE",s.level,s.status,"health",s.stocks.health and s.stocks.health.count or"unknown","mana",s.stocks.mana and s.stocks.mana.count or"unknown");return true
@@ -366,6 +409,14 @@ end
 
 function combat_v2_priority_held()
  local r=c.runner or {};local root=r.root or c.root or {};local s=c.current
+ -- Retargeting is not settlement authority. Check distinct roots as well as
+ -- controller/runner transport slots without clearing any owner's state.
+ for _,owner in ipairs({c,r,r.root or {},c.root or {}})do
+  for _,field in ipairs({'transport_unknown','transportUnknown','transport_commit','transportCommit','transport_barrier','transportBarrier','transport_barriers','transportBarriers','dispatching','action_dispatching','actionDispatching'})do
+   local v=owner[field]
+   if type(v)=='table'and next(v)~=nil or type(v)~='table'and v~=nil and v~=false then return true end
+  end
+ end
  local m=s.mental or {};local b=s.buffs or {};local g=c.elemental_recovery or {};local co=c.containers_data or {}
  return r.waiting or r.dispatching or r.transport_commit or r.transport_barrier or r.transport_unknown or c.transport_unknown or root.transport_unknown or root.dispatching or root.action_dispatching or m.pending or m.eq_pending or m.dispatching or b.pending or b.dispatching or g.committed or g.dispatching or co.barrier or co.action_dispatching or c.monk.flurry_active and c.monk.flurry_active(s)
 end
@@ -375,17 +426,26 @@ local function cancel_ih()
 end
 local function enter_room_watch()
  local s=c.current;local scan=s.hunting.ih;cancel_ih()
- s.hunting.watch={room_id=s.room.id,checked_version=scan and scan.start_version or (s.room.item_version or 0)};s.hunting.verified_generation=nil
- c.runner.status="BASH armed: 3 IH checks exhausted; watching GMCP room updates"
- c.state.record(s,"ih_watch","3 checks exhausted; quiet GMCP watch");refresh();return false,c.runner.status
+ s.hunting.watch={room_id=s.room.id,checked_version=s.hunting.area_auto and (s.room.item_version or 0)or scan and scan.start_version or (s.room.item_version or 0)};s.hunting.verified_generation=nil
+ local why=scan and scan.last_failure or (scan and scan.entry_full and "native FULL inspected; no matching target"or "3 IH checks exhausted")
+ c.runner.status="BASH armed: "..why.."; watching GMCP room updates"
+ s.hunting.watch.reason=why;c.state.record(s,"ih_watch",why.."; quiet GMCP watch");refresh();return false,c.runner.status
 end
 -- Failed IH checks retry at most three times, then wait for real room updates.
 function combat_v2_ih_result()
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active or not scan.pending or not scan.responded then return false end
- if scan.invalidated or scan.recovery_prompt and not scan.prompt_ready then return false,"awaiting fresh solicited list and prompt"end
+ if scan.invalidated or (scan.recovery_prompt or s.hunting.area_auto)and not scan.prompt_ready then return false,"awaiting fresh solicited list and prompt"end
+ if scan.entry_full and not c.policy.allowed(s)and not(c.walker_boot and c.walker_boot.occupied(c))then return false,'entry waits for current player/area proof'end
  if s.hunting.preset and combat_v2_priority_held()then return false,"priority waits for action settlement"end
  if c.walker_boot then c.walker_boot.inspected(c,scan)end
+ if c.walker_boot and c.walker_boot.occupied(c)then
+  if c.walker_boot.skip(c)then cancel_ih();return combat_v2_tick()end
+  return false,'occupied room needs fresh departure evidence'
+ end
+ if s.hunting.area_auto and c.areas.fresh(s)and scan.items==s.room.items then
+  s.hunting.auto_certificate={room=s.room.id,area=s.room.area,items=s.room.items,version=s.room.item_version}
+ end
  local ok,why=c.bashing.ih_select(s)
  if ok then
   cancel_ih();s.hunting.verified_generation=s.target_generation
@@ -393,7 +453,9 @@ function combat_v2_ih_result()
   return combat_v2_tick()
  end
  if c.walker_boot and c.walker_boot.clear(c,scan)then enter_room_watch();return combat_v2_tick()end
- if scan.attempts>=3 then scan.last_failure=why;return enter_room_watch() end
+ -- Native entry was already a complete inspection, not attempt zero of an
+ -- unsent retry chain. Settle unknown/no-target FULLs into the ordinary watch.
+ if s.hunting.area_auto or scan.entry_full or scan.attempts>=3 then scan.last_failure=why;return enter_room_watch() end
  scan.last_failure=why;c.state.record(s,"ih_miss",scan.attempts.."/3: "..why)
  c.runner.status="BASH armed: no matching target; IH check "..scan.attempts..", retry in 2s";refresh();return false
 end
@@ -402,7 +464,8 @@ function combat_v2_request_ih()
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active then return false end
  if not s.connected or (tonumber(s.player.hp) or 0)<=0 or s.player.dead then cancel_ih();c.runner.status="BASH paused: disconnected / dead";refresh();return false end
- local safe,reason=c.policy.allowed(s);if not safe then cancel_ih();c.runner.status=reason;refresh();return false end
+ if c.walker_boot and c.walker_boot.entry_wait(c)then return false,'awaiting native entry FULL/prompt'end
+ local safe,reason=c.policy.allowed(s);if not safe and not(c.walker_boot and c.walker_boot.occupied(c))then cancel_ih();c.runner.status=reason;refresh();return false end
  if scan.attempts>=3 then return enter_room_watch() end
  if not c.bashing.ih_request(s) then return false end
  c.runner.status="Checking IH "..scan.attempts;c.state.record(s,"ih_request",scan.attempts.."/3")
@@ -421,14 +484,29 @@ function combat_v2_request_ih()
  if not ok then cancel_ih();c.runner.fault="IH send failed: "..tostring(why);c.runner.status=c.runner.fault;refresh();return false end
  refresh();return true
 end
-function combat_v2_start_ih(reason,force)
+-- force=true retains the explicit request contract for external callers.
+-- Internal automatic refreshes pass defer_entry=true: entry deferral is false,
+-- never a promise of an IH that has neither query nor timer ownership.
+function combat_v2_start_ih(reason,force,defer_entry)
  if c.walker_boot and c.walker_boot.held(c)then return false,"movement unresolved"end
  if c.mode~="BASH" then return false end
+ local explicit=force==true and not defer_entry
+ if c.walker_boot and c.walker_boot.entry_wait(c,explicit)then return false,'awaiting native entry FULL/prompt'end
+ local entry=c.current.hunting.entry
+ if explicit and entry and not entry.done then
+  -- An explicit solicited inspection supersedes (rather than impersonates)
+  -- the unsolicited native-entry window; keep the established IH contract.
+  entry.done=true;entry.explicit=true
+  if entry.scan==c.current.hunting.ih then cancel_ih()end
+ end
+ if entry and entry.fallback and not entry.done and reason~='manual IH verification'and entry.fallback_scan
+  and entry.fallback_scan.attempts>=3 then return false,'entry fallback budget exhausted; held for genuine evidence'end
  if force then c.current.hunting.watch=nil end
  if c.current.hunting.watch then return false,"watching GMCP room updates" end
  local scan=c.current.hunting.ih
  if scan and scan.active then return false,"IH already pending" end
  cancel_ih();c.bashing.ih_begin(c.current);c.runner.pending=nil
+ if entry and entry.fallback and not entry.done then entry.fallback_scan=c.current.hunting.ih;entry.fallback_scan.recovery_prompt=true end
  if c.retry_timer then killTimer(c.retry_timer);c.retry_timer=nil end
  c.state.record(c.current,"ih_begin",reason or "target verification")
  return combat_v2_request_ih()
@@ -437,7 +515,7 @@ function combat_v2_stop(reason)
  if c.elementals then c.elementals.arm(c,false)end
  c.buffs.stop(c.current,reason or "OFF; upkeep disarmed")
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"OFF")end
- cancel_ih();c.current.hunting.watch=nil
+ cancel_ih();c.current.hunting.watch=nil;c.current.hunting.area_auto_intent=nil;c.current.hunting.area_auto=nil;c.current.hunting.auto_certificate=nil
  if c.current.training_battle_ended then
   local m=c.current.mental
   if m then if m.target then pcall(send,"mind cease") end;m.status="stopped";m.target=nil;m.lock_target=nil;m.eq_pending=nil end
@@ -567,6 +645,16 @@ function combat_v2_tick()
  if c.mode=="BASH" then
   c.runner_module.update_balance(c.runner);c.runner_module.watchdog(c.runner)
   if c.runner.fault then cancel_ih();c.runner.status=c.runner.fault;refresh();return false,c.runner.fault end
+  local automatic,auto_reason=c.areas.auto_scope(s)
+  if automatic then
+   if auto_reason then
+    cancel_ih();s.hunting.verified_generation=nil;c.runner.pending=nil
+    c.runner.status='BASH armed HOLD: '..auto_reason;refresh();return false,c.runner.status
+   end
+   -- New visit enrollment is an explicit consequence of this session's BASH
+   -- discovery intent, not replayed consent from a previous visit. Denial wins.
+   if not c.policy.area_allowed(s)and s.policy.denied~=s.policy.visit then c.policy.approve(s,s.policy.visit,true)end
+  end
   for _,command in ipairs(c.policy.services(s)) do send(command) end
   local safe,why=c.policy.allowed(s)
   if not safe or not s.connected or s.player.dead or (tonumber(s.player.hp) or 0)<=0 then
@@ -574,21 +662,60 @@ function combat_v2_tick()
    c.runner.status=not s.connected and "BASH paused: disconnected" or s.player.dead and "BASH paused: dead" or why
    area_prompt();refresh();return false,c.runner.status
   end
-  if s.hunting.preset and s.hunting.area_dirty then
+  -- Module support is distinct from per-action readiness. Target acquisition,
+  -- curing and genuine FULL refresh must run before an adapter can propose.
+  -- Runner validation remains the sole attack-authorization boundary.
+  if not c.class_router.supported(s.player.class)then
+   s.hunting.verified_generation=nil;c.runner.pending=nil
+   c.runner.status='BASH paused: current class has no approved offense adapter';refresh();return false,c.runner.status
+  end
+  if s.player.class~='Monk'then
+   local held,why=c.class_router.barrier(s)
+   if held then c.runner.status='BASH: '..tostring(why);refresh();return false,why end
+  end
+  if s.hunting.area_auto then
+   local scan=s.hunting.ih;local watch=s.hunting.watch
+   if watch and watch.room_id==s.room.id and watch.checked_version==s.room.item_version then
+    c.runner.status='BASH armed: '..tostring(watch.reason or 'no eligible area NPC; waiting for native room changes');refresh();return false,c.runner.status
+   end
+   if not c.areas.auto_certified(s)then
+    s.hunting.verified_generation=nil
+    if combat_v2_priority_held()then return false,'priority waits for action settlement'end
+    if scan and scan.active then
+     if scan.pending and scan.responded then return combat_v2_ih_result()end
+     return false,'checking IH'
+    end
+    combat_v2_start_ih('stationary native area refresh',true,true);return false,'checking IH'
+   end
+  end
+  c.areas.prune_defensive(s)
+  local obsolete=s.hunting.defensive_selected
+  if obsolete and not c.areas.defensive_eligible(s,obsolete)then
+   -- A tombstone must revoke the old generation before legacy IH can resume.
+   -- Retargeting is never an acknowledgement of an in-flight action.
+   if tostring(s.target.name)==obsolete then
+    s.hunting.verified_generation=nil
+    if combat_v2_priority_held()then return false,"priority waits for action settlement"end
+    c.state.set_target(s,"");s.hunting.query=nil;s.hunting.target_name=nil
+   end
+   s.hunting.defensive_selected=nil;s.hunting.area_dirty=true
+  end
+  if (s.hunting.preset or s.hunting.defensive or s.hunting.defensive_selected)and s.hunting.area_dirty then
    local r=c.runner
    if combat_v2_priority_held()then return false,"priority waits for action settlement"end
    local scan=s.hunting.ih
    if scan and scan.active and scan.pending and scan.responded then return combat_v2_ih_result()end
-   if c.areas.fresh(s)and not s.hunting.area_recovery and not (scan and scan.active)then
+   if c.areas.fresh(s)and not s.hunting.area_recovery and (not(scan and scan.active)or s.hunting.defensive and not(scan and scan.pending))then
     local id,reason=c.areas.pick(s,s.room.items)
     if id then
+     c.areas.certify_defensive(s,id)
      if tostring(s.target.name)~=id or s.target.dead then c.state.set_target(s,id);r.pending=nil end
      s.target.display_name=s.room.items[id].name;s.hunting.target_name=s.target.display_name
      s.hunting.verified_generation=s.target_generation;s.hunting.area_dirty=false;cancel_ih()
     else s.hunting.verified_generation=nil;r.pending=nil;c.runner.status=reason;refresh();return false,reason end
    else
     s.hunting.verified_generation=nil
-    combat_v2_start_ih("priority requires fresh room list",true);return false,"checking IH"
+    combat_v2_start_ih("priority requires fresh room list",true,true);return false,"checking IH"
    end
   end
   if s.hunting.ih and s.hunting.ih.active then refresh();return false,"checking IH" end
@@ -606,7 +733,7 @@ function combat_v2_tick()
   end
   if not s.target.name or s.target.dead or s.hunting.verified_generation~=s.target_generation then combat_v2_start_ih("verify bashing target");return false,"checking IH" end
  end
- if c.mental.tick(s,c.mental_sender or c.runner.sender or send,c.runner.paused_health) then c.runner_module.update_balance(c.runner);refresh();return false,"Telepathy equilibrium pending" end
+ if s.player.class=="Monk"and c.mental.tick(s,c.mental_sender or c.runner.sender or send,c.runner.paused_health) then c.runner_module.update_balance(c.runner);refresh();return false,"Telepathy equilibrium pending" end
  local ok,why=c.runner_module.tick(c.runner);c.mode=c.runner.mode;s.mode=c.mode
  if why=="cooldown" and not c.retry_timer then c.retry_timer=tempTimer(.35,function() c.retry_timer=nil;combat_v2_tick() end) end
  refresh();return ok,why
@@ -622,6 +749,7 @@ function combat_v2_set_mode(mode)
  c.current.dismount_stance=nil
  if mode=="SHADOW"then c.buffs.stop(c.current,"SHADOW; upkeep disarmed")end
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
+ c.current.hunting.area_auto_intent=mode=='BASH' or nil;c.current.hunting.area_auto_suspended=nil;c.current.hunting.area_auto=nil;c.current.hunting.area_auto_hold=nil;c.current.hunting.auto_certificate=nil
  if mode=="BASH" then
   if c.supplies and (c.supplies_quiet==false or not c.supplies_data or not c.supplies_data.requested) then combat_v2_supplies("check")end
   local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end
@@ -638,20 +766,54 @@ function combat_v2_reset_enemy_afflictions()
  c.state.record(c.current,"enemy_reset","cleared enemy afflictions/injury flags; preserved trauma and target")
  refresh();return true
 end
+-- Revalidate ONLY the current target generation against its original current
+-- FULL. This is Core verification, not a manual target/route-intent change.
+function combat_v2_reverify_current_target(id)
+ local s=c.current
+ if not tostring(id or''):match('^%d+$')then return false end
+ if c.mode~='BASH'or c.runner.mode~='BASH'or not s.hunting.active or s.target.dead
+  or tostring(s.target.name)~=tostring(id)or not c.areas.fresh(s)or s.hunting.area_recovery
+  or not c.policy.allowed(s)then return false end
+ local held=c.class_router.barrier(s);if held then return false end
+ local picked=c.areas.pick(s,s.room.items,id)
+ if tostring(picked)~=tostring(id)then return false end
+ s.hunting.verified_generation=s.target_generation
+ return true
+end
 function combat_v2_set_target(name)
- local previous=c.current.target_generation
- local ok,why=c.state.set_target(c.current,name)
+ local s=c.current;local resolved
+ if c.mode=="BASH" and s.hunting.preset and tostring(name or ""):match("%S")then
+  if s.hunting.area_recovery then return false,"awaiting solicited recovery list and later prompt"end
+  local why;resolved,why=c.areas.pick(s,s.room.items,name)
+  if not resolved then return false,why end
+  name=resolved
+ end
+ local previous=s.target_generation
+ local ok,why=c.state.set_target(s,name)
  if ok then
   c.runner.pending=nil
   if c.current.target_generation~=previous and c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual target changed")end
-  if c.current.target_generation~=previous then c.current.hunting.watch=nil;c.current.hunting.target_name=nil;c.current.hunting.killed_ids={};c.current.hunting.query=c.current.target.name end
+  if s.target_generation~=previous then
+   s.hunting.watch=nil;s.hunting.target_name=nil
+   if not s.hunting.preset then s.hunting.killed_ids={}end
+   s.hunting.query=s.target.name
+  end
+  s.hunting.manual_target=nil
+  if resolved then
+   s.hunting.manual_target={room=s.room.id,area=s.room.area,id=resolved}
+   s.target.display_name=s.room.items[resolved].name;s.hunting.target_name=s.target.display_name
+   s.hunting.verified_generation=s.target_generation;s.hunting.area_dirty=true
+   cancel_ih();s.hunting.watch=nil
+  end
  end
  refresh();return ok,why
 end
 function combat_v2_approve() local ok,why=c.runner_module.approve(c.runner);refresh();return ok,why end
 function combat_v2_defense(cmd)
  local s=c.current;cmd=cmd~="" and cmd or "status"
- if cmd=="audit" then return c.defense.audit(s,c.defense_sender or send)
+ if cmd=="numb on"or cmd=="numb off"then return c.defense.numb_optin(c,cmd=="numb on")
+ elseif cmd=="shift on"or cmd=="shift off"then return c.defense.shift_optin(c,cmd=="shift on")
+ elseif cmd=="audit" then return c.defense.audit(s,c.defense_sender or send)
  elseif cmd=="setup" then combat_v2_stop("Explicit defensive FIRSTAID setup");return c.defense.setup(s,c.defense_sender or send)
  elseif cmd=="on" or cmd=="off" then s.config.defense_enabled=cmd=="on";refresh();return true
  elseif cmd~="status" then return false,"cv2 defense status|audit|setup|on|off" end
@@ -720,19 +882,26 @@ function combat_v2_trace(n)
  for i=math.max(1,#h-n+1),#h do local e=h[i];print(tostring(e.time).." "..e.kind.." ["..tostring(e.target).."] "..tostring(e.detail)) end
 end
 c.handlers={}
-local function handler(event,fn) c.handlers[#c.handlers+1]=registerAnonymousEventHandler(event,fn) end
-handler("gmcp.Char.Status",function()buff_snapshot("gmcp.Char.Status");combat_v2_tick()end)
-handler("gmcp.Char.Vitals",function() buff_snapshot("gmcp.Char.Vitals");c.state.sync_gmcp(c.current,gmcp);c.buffs.vitals(c.current,gmcp.Char.Vitals or {});c.buff_sensory_vitals(gmcp.Char.Vitals or {});combat_v2_tick() end)
+local survival_events={}
+local function handler(event,fn)
+ local id=registerAnonymousEventHandler(event,fn);c.handlers[#c.handlers+1]=id
+ survival_events[#survival_events+1]={id=id,event=event,fn=fn}
+end
+handler("gmcp.Char.Status",function()class_ingress("Char.Status",gmcp.Char.Status);buff_snapshot("gmcp.Char.Status");c.buffs.race_status(c.current,(gmcp.Char.Status or {}).race);c.defense.numb_observe(c,"status",gmcp.Char.Status);combat_v2_tick()end)
+handler("gmcp.Char.Vitals",function() class_ingress("Char.Vitals",gmcp.Char.Vitals);buff_snapshot("gmcp.Char.Vitals");c.state.sync_gmcp(c.current,gmcp);if c.current.player.dead and c.current.hunting.area_auto_intent then c.current.hunting.area_auto_suspended='dead; fresh BASH intent required';c.current.hunting.auto_certificate=nil;c.current.hunting.verified_generation=nil end;c.buffs.vitals(c.current,gmcp.Char.Vitals or {});c.buff_sensory_vitals(gmcp.Char.Vitals or {});c.defense.numb_observe(c,"vitals",gmcp.Char.Vitals);combat_v2_tick() end)
 for _,kind in ipairs({"Groups","List"})do
  local event="gmcp.Char.Skills."..kind
- handler(event,function()buff_snapshot(event);combat_v2_tick()end)
+ handler(event,function()class_ingress("Char.Skills."..kind,gmcp.Char.Skills[kind]);buff_snapshot(event);c.defense.numb_observe(c,kind=="List"and"skills"or"groups",gmcp.Char.Skills[kind]);combat_v2_tick()end)
 end
 handler("sysDisconnectionEvent",function()
+ class_ingress("sysDisconnectionEvent")
+ c.defense.numb_observe(c,"disconnect")
  if c.walker_boot then c.walker_boot.revoke(c,"disconnected; walking disabled")end
- c.areas.invalidate(c.current)
+ c.areas.invalidate(c.current);c.current.hunting.defensive_refresh=nil
+ if c.current.hunting.area_auto_intent then c.current.hunting.area_auto_suspended='disconnected; fresh BASH intent required';c.current.hunting.auto_certificate=nil;c.current.hunting.verified_generation=nil end
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"disconnect")end
  c.buffs.stop(c.current,"disconnect; upkeep disarmed");buff_invalidate();local b=c.buffs.state(c.current);b.defs_known=false;b.defs_at=nil
- c.current.defense=nil;c.current.mental=nil;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
+ c.current.defense=nil;local mental_disarmed=c.current.mental and c.current.mental.enabled==false;c.current.mental=nil;if mental_disarmed then c.mental.state(c.current).enabled=false end;c.current.training=nil;c.current.connected=false;c.cure.enabled=false;c.cure.status="disconnected"
  c.current.policy.players_known=false;c.current.policy.web.at=nil;cancel_ih()
  if c.mode=="BASH" then if c.runner.waiting then c.runner.fault="Disconnected during attack; cv2 reset after review" end;c.runner.status="BASH paused: disconnected";refresh()
  else combat_v2_stop("disconnected") end
@@ -743,28 +912,34 @@ handler("gmcp.Room.AddPlayer",function() c.policy.player_add(c.current,gmcp.Room
 handler("gmcp.Room.RemovePlayer",function() c.policy.player_remove(c.current,gmcp.Room.RemovePlayer);combat_v2_tick() end)
 local function collection(kind)
  handler("gmcp.Char."..kind..".List",function()
+  class_ingress("Char."..kind..".List",gmcp.Char[kind].List)
   if kind=="Defences"then buff_snapshot();c.buffs.sync(c.current,"List",gmcp.Char[kind].List)end
   if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"List",gmcp.Char[kind].List);c.buff_sensory_source.afflictions_known=type(gmcp.Char[kind].List)=="table"end
   local dest=kind=="Afflictions" and "afflictions" or "defences";local t={}
   for _,a in ipairs(gmcp.Char[kind].List or {}) do local n=type(a)=="table" and a.name or a;if n then t[c.defense.key(n)]=true end end
   c.current.player[dest]=t
   if kind=="Afflictions" then c.current.player.prone=(t.prone or t.fallen) and true or false end
+  c.defense.numb_observe(c,kind=="Defences"and"defences_list"or"afflictions",gmcp.Char[kind].List)
   combat_v2_tick()
  end)
  handler("gmcp.Char."..kind..".Add",function()
+  class_ingress("Char."..kind..".Add",gmcp.Char[kind].Add)
   if kind=="Defences"then buff_snapshot();c.buffs.sync(c.current,"Add",gmcp.Char[kind].Add)end
   if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"Add",gmcp.Char[kind].Add)end
   local a=gmcp.Char[kind].Add;local n=type(a)=="table" and a.name or a
   if n then n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=true end
   if kind=="Afflictions" and (n=="prone" or n=="fallen") then c.current.player.prone=true end
+  c.defense.numb_observe(c,kind=="Defences"and"defences_add"or"afflictions_delta",gmcp.Char[kind].Add)
   combat_v2_tick()
  end)
  handler("gmcp.Char."..kind..".Remove",function()
+  class_ingress("Char."..kind..".Remove",gmcp.Char[kind].Remove)
   if kind=="Defences"then buff_snapshot();c.buffs.sync(c.current,"Remove",gmcp.Char[kind].Remove)end
   if kind=="Afflictions"then c.buffs.affliction_flags(c.current,"Remove",gmcp.Char[kind].Remove)end
   local a=gmcp.Char[kind].Remove;local values=type(a)=="table" and (a.name and {a.name} or a) or {a}
   for _,n in ipairs(values) do
    n=c.defense.key(n);c.current.player[kind=="Afflictions" and "afflictions" or "defences"][n]=nil
+   c.defense.numb_observe(c,kind=="Defences"and"defences_remove"or"afflictions_delta",n)
    if kind=="Afflictions" and (n=="prone" or n=="fallen") then local aff=c.current.player.afflictions;c.current.player.prone=(aff.prone or aff.fallen) and true or false end
   end
   combat_v2_tick()
@@ -772,6 +947,7 @@ local function collection(kind)
 end
 collection("Afflictions");collection("Defences")
 handler("gmcp.Char.Items.List",function()
+ class_ingress("Char.Items.List",gmcp.Char.Items.List)
  local changed=c.bashing.items(c.current,gmcp.Char.Items.List);if c.walker_boot then c.walker_boot.items(c,gmcp.Char.Items.List)end;combat_v2_ih_result()
  local s=c.current;local scan=s.hunting.ih
  if changed and c.mode=="BASH" and not (scan and scan.active) and s.hunting.verified_generation==s.target_generation and s.target.name and not s.room.items[tostring(s.target.name)] then
@@ -781,17 +957,23 @@ handler("gmcp.Char.Items.List",function()
 end)
 for _,kind in ipairs({"Add","Update"})do
  local item_kind=kind
- handler("gmcp.Char.Items."..item_kind,function()if c.bashing.item_changed(c.current,gmcp.Char.Items[item_kind],item_kind=="Add")then combat_v2_tick()end end)
+ handler("gmcp.Char.Items."..item_kind,function()class_ingress("Char.Items."..item_kind,gmcp.Char.Items[item_kind]);if c.bashing.item_changed(c.current,gmcp.Char.Items[item_kind],item_kind=="Add")then combat_v2_tick()end end)
 end
-handler("gmcp.Char.Items.Remove",function() c.bashing.item_removed(c.current,gmcp.Char.Items.Remove);combat_v2_tick() end)
+handler("gmcp.Char.Items.Remove",function() class_ingress("Char.Items.Remove",gmcp.Char.Items.Remove);c.bashing.item_removed(c.current,gmcp.Char.Items.Remove);combat_v2_tick() end)
 handler("gmcp.Room.Info",function()
- local s=c.current;local info=gmcp.Room.Info or {};local changed=c.policy.room(s,info)
+ class_ingress("Room.Info",gmcp.Room.Info)
+ local s=c.current;local info=gmcp.Room.Info or {};local old_area=s.room.area;local changed=c.policy.room(s,info);local scope_changed=changed or old_area~=s.room.area
+ local automatic,auto_reason=c.areas.auto_scope(s)
+ if automatic and not auto_reason and not c.policy.area_allowed(s)and s.policy.denied~=s.policy.visit then c.policy.approve(s,s.policy.visit,true)end
  local encounter=s.hunting.encounter
  c.areas.invalidate(s,encounter and (info.num==nil or tostring(encounter.room)==tostring(info.num))and (info.area==nil or encounter.area==info.area))
  if c.walker_boot then c.walker_boot.room(c,info,changed)end
+ if automatic and auto_reason and s.hunting.entry then s.hunting.entry.done=true;cancel_ih()end
  if changed and c.monk.cancel_flurry then c.monk.cancel_flurry(s,"room changed")end
- if changed then
-  s.hunting.watch=nil;s.training=nil;s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
+ if scope_changed then
+  s.hunting.auto_certificate=nil;s.hunting.watch=nil;s.hunting.manual_target=nil
+  if s.hunting.preset then s.hunting.query=nil;s.hunting.target_name=nil end
+  s.training=nil;s.room.items={};s.hunting.killed_ids={};s.hunting.verified_generation=nil;cancel_ih()
   if c.mode=="BASH" then c.state.set_target(s,"");c.runner.pending=nil end
  end
  combat_v2_tick()
@@ -805,35 +987,79 @@ handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
  else e.value=value end
  combat_v2_observe(e)
 end)
-c.line_trigger=tempRegexTrigger("^.*$",function()
+local survival_line=function()
  local text=line or matches[1]
+ if raiseEvent then raiseEvent("operator.reset.firstaid.text",text)end
+ class_ingress("native.text",text)
  c.buff_sensory_text(text)
  buff_snapshot()
  c.buffs.text(c.current,text)
+ c.defense.numb_observe(c,"text",text)
  c.defense.text(c.current,text)
  c.mental.text(c.current,text)
  c.areas.text(c.current,text)
+ local _,needs_full=c.areas.received_attack(c.current,text)
+ if needs_full then
+  local s=c.current;local w=s.walker or {};local scan=s.hunting.ih
+  local used=s.hunting.defensive_refresh
+  local safe=c.policy.allowed(s)
+  if safe and c.mode=='BASH'and not s.player.dead and (tonumber(s.player.hp)or 0)>0
+   -- Active consent and completed inspection metadata are not query owners.
+   -- A held living NPC may need fresh evidence before normal WALK can resume.
+   and not combat_v2_priority_held()and not(c.runner.pending or c.runner.fault)
+   and not(c.convenience and (c.convenience.busy(c)or c.convenience.hold(c)))
+   and not(c.restock_module and c.restock_module.movement_reserved(c))
+   and not(c.lunch_boot and c.lunch_boot.busy(c))
+   and not(w.offer or w.pending or w.dispatching or w.physical_dispatch or w.arrival_hold or w.restock_checkpoint or w.rescan or w.fault)
+   and not c.ih_timer and not(scan and (scan.active or scan.pending or scan.invalidated))
+   and not(used and used.room==s.room.id and used.area==s.room.area)then
+   -- One ordinary finite three-attempt IH budget per room/session. A FULL
+   -- response cannot recycle it; only scope/session invalidation resets it.
+   s.hunting.defensive_refresh={room=s.room.id,area=s.room.area}
+   combat_v2_start_ih("supported attacker requires fresh FULL",true,true)
+  end
+ end
  if c.policy.text(c.current,text) then combat_v2_tick();refresh();return end
  if c.bashing.ih_text(c.current,text) then combat_v2_ih_result();refresh();return end
- c.events.event(c.current,text);combat_v2_tick()
-end)
+ c.events.event(c.current,text);c.class_observers.text_lifecycle(c.current);combat_v2_tick()
+end
+c.line_trigger=tempRegexTrigger("^.*$",survival_line)
+local survival_prompt
 if type(tempPromptTrigger)=="function" then
- c.prompt_trigger=tempPromptTrigger(function()
+  survival_prompt=function()
+  if raiseEvent then raiseEvent("operator.reset.firstaid.prompt")end
+  class_ingress("native.prompt")
+
   buff_snapshot()
   c.buff_sensory_prompt()
+  c.defense.numb_observe(c,"prompt");if c.emergency_numb.pending then combat_v2_tick()end
   local scan=c.current.hunting.ih
   if scan and scan.active and scan.pending and scan.responded and not scan.invalidated and scan.items==c.current.room.items and (not c.current.hunting.preset or c.areas.fresh(c.current))then
    scan.prompt_ready=true;c.current.hunting.area_recovery=nil;combat_v2_ih_result()
   end
   c.buffs.on_prompt(c.current);if c.buffs.has_work(c.current)then combat_v2_tick()end
   if c.gui.render_prompt then c.gui.render_prompt(c.current,c.runner) end
- end)
+ end
+ c.prompt_trigger=tempPromptTrigger(survival_prompt)
 end
+c.defense.numb_observers(c,true)
 for _,id in ipairs(c.buff_aliases or {})do killAlias(id)end
 c.buff_aliases={
  tempAlias([[^defup(?:\s+(.*))?$]],function()local ok,why=combat_v2_buffs("defup",matches[2] or "");if not ok then print(why)end end),
  tempAlias([[^defkeep(?:\s+(.*))?$]],function()local arg=matches[2]or"status";local ok,why=combat_v2_buffs(arg=="status"and"status"or"keep",arg);if not ok then print(why)end end)
 }
+
+-- Explicit session-only permission; no tick, planner, cached replay or sender.
+function combat_v2_numb(action)
+ local action=tostring(action or 'status'):lower():match('^%s*(.-)%s*$')
+ if action==''then action='status'end
+ if action=='status'then local ok,why=c.defense.numb_status(c);if ok then print(why)end;return ok,why end
+ if action~='on'and action~='off'then return false,'cv2 numb on|off|status'end
+ local ok,why=c.defense.numb_optin(c,action=='on')
+ why=why or (action=='off'and 'NUMB disarmed; issued commitments retained'or 'NUMB armed for this session; no routine cast')
+ if ok then print(why)end
+ return ok,why
+end
 
 c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  local arg=(matches[2] or ""):match("^%s*(.-)%s*$");local cmd,rest=arg:match("^(%S+)%s*(.*)$");cmd=(cmd or "status"):lower();rest=rest or ""
@@ -849,11 +1075,15 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  elseif cmd=="defup"then ok,why=combat_v2_buffs("defup",rest)
  elseif cmd=="defkeep"then ok,why=combat_v2_buffs("keep",rest)
  elseif cmd=="defs"or cmd=="defences"then ok,why=combat_v2_buffs("show",rest)
+ elseif cmd=="class"then print(c.class_router.status(c.current))
+ elseif cmd=="numb"then ok,why=combat_v2_numb(rest)
  elseif cmd=="defense" then ok,why=combat_v2_defense(rest)
  elseif cmd=="curing" then if rest=="on" or rest=="off" then ok,why=combat_v2_set_curing(rest=="on") else ok,why=false,"cv2 curing on|off" end
  elseif cmd=="reload" then dofile(root.."bootstrap.lua")
  elseif cmd=="reset" then combat_v2_reset_wait()
  elseif cmd=="status" then combat_v2_status()
+ elseif cmd=="attackers"then
+  for _,e in ipairs(c.current.hunting.potential_attackers or {})do print(tostring(e.at).." "..tostring(e.name).." ["..tostring(e.room).." / "..tostring(e.area).."] "..e.reason)end
  elseif cmd=="trace" then combat_v2_trace(rest)
  elseif cmd=="ih" then ok,why=combat_v2_start_ih("manual IH verification",true)
  elseif cmd=="area" then if rest=="yes" or rest=="no" then ok,why=combat_v2_area_approve(c.current.policy.visit,rest=="yes") else ok,why=combat_v2_area_preset(rest) end
@@ -887,9 +1117,13 @@ c.containers_required=true
 c.containers=dofile(root.."containers.lua")
 c.ledger=dofile(root.."ledger.lua")
 c.supplies=dofile(root.."supplies.lua")
+-- Publish once per admitted bootstrap, before the survival IO census binds it.
+-- Every audit/late reply resolves the same canonical, subsequently guarded field.
+c.supplies_sender=function(command)assert(command=="fluidcache"or command=="ic"or command=="fc missing"or command=="ic missing","Read-only supply command rejected");return send(command)end
 c.supplies.bind_containers(c,function(command)return send(command)end)
 c.supplies.attach(c)
 local convenience_file=io.open(root.."convenience-settings.json","r");if convenience_file then convenience_file:close();local ok,why=convenience.attach(c);if not ok then print("Convenience: "..tostring(why))end end
+if operator_reset_off and c.travel then c.travel.reconcile_begin() end
 c.walker_boot=dofile(root.."walker_boot.lua");c.walker_boot.attach(c)
 -- Optional during composed development; shipped modules are manifest-required.
 local function optional_module(name)
@@ -898,5 +1132,28 @@ end
 c.restock_module=optional_module("restock")
 c.restock_boot=optional_module("restock_boot")
 if c.restock_module and c.restock_boot then c.restock_boot.attach(c)end
-local xp_cutoff=c.xp_globe_cutoff;if xp_cutoff and xp_cutoff.module and xp_cutoff.module.bind then xp_cutoff.module.bind(c)end
+c.operator_reset=reset_support
+c.release_lock=optional_module("release_lock")
+if c.release_lock then local ok,why=c.release_lock.attach(c);if not ok then print("UNLOCK: "..tostring(why))end end
+c.restock_retry=optional_module("restock_retry")
+if c.restock_retry then local ok,why=c.restock_retry.attach(c);if not ok then print("RESTOCK RETRY: "..tostring(why))end end
+
+c.tour_boot=dofile(root.."tour_boot.lua");c.tour_boot.attach(c)
+c.tour_picker_boot=dofile(root.."tour_picker_boot.lua");c.tour_picker_boot.attach(c)
+
+reset_support.attach_reset_lifecycle(c)
+do
+ local ok,why=pcall(function()
+  local binder=dofile(root.."survival_boot.lua")
+  local escape=dofile(root.."bash_escape.lua")
+  local api,report=binder.attach(c,c.survival_module,escape,survival_events,survival_line,survival_prompt,survival_reload_token)
+  c.survival_status="bound, passive; new WALK grant and fresh session facts required"
+  c.survival_binding_report=report
+ end)
+ if not ok then
+  c.survival_status="UNAVAILABLE: "..tostring(why)
+  print("Survival framework "..c.survival_status)
+ end
+end
 print("Combat V2 backend ready (OFF). t NAME; cv2 bash / pvp / assist; cv2 help; cv2 trace.")
+

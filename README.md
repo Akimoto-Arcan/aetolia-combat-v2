@@ -1,5 +1,38 @@
 # Aetolia Combat V2
 
+## Manual-walk area bashing (integrated update)
+
+Do NOT install the separate ManualBasher package alongside Combat V2.
+Update this existing profile outside combat: `git pull --ff-only`, `py install.py`
+(or `python3 install.py` on Linux), then `cv2 reload` in Mudlet. Reload stays OFF.
+The release ZIP is an alternative to Git: extract it, run its install.py for your
+existing profile, then reload. Keep your existing loader; do not import it twice.
+
+In Mudlet:
+
+    cv2 walk off
+    cv2 bash
+
+BASH identifies exact recognized native areas and selects their existing mob
+catalog. You walk manually; the existing Runner attacks the same eligible NPC
+until death, then selects the next. Empty rooms stay armed and wait for native
+room changes, without periodic IH polling. WALK ON retains its existing route
+and consent behavior. `cv2 off` stops automation. Unknown, ambiguous or restricted
+areas hold explicitly rather than guessing or using every area's mobs.
+
+Irongrip is a shared defense in the existing defense manager, selected by default
+unless your saved preference explicitly disables it. `defkeep irongrip on`
+selects it; `defup` activates selected defenses through their existing owner.
+Existing maintenance is controlled by `defkeep on` / `defkeep off`. Selecting
+Irongrip alone does not silently enable all maintenance or select racial slots.
+Current solicited racial help and genuine activation/BAL recovery are required.
+
+This release passed focused composed offline tests under Lua 5.1 and 5.4, including
+actual-bootstrap callbacks. It has NOT been qualified by live hunting on the home
+computer. Historical unrelated survival/sender and legacy-test failures are not
+claimed repaired. Stay at the keyboard; FIRSTAID remains its existing owner.
+
+
 Private, shared source for a clean Mudlet Monk combat GUI and basic executable routes. Both computers run local copies; GitHub is code storage, not a hosted Mudlet session.
 
 ## First install on another computer

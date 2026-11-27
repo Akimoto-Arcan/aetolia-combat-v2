@@ -67,7 +67,7 @@ function M.bind(c,api)
  local mod=c.restock_module
  if not mod or type(mod.user_stop)~='function' or type(api.combat_v2_set_mode)~='function' then return false,'Restock/mode API unavailable' end
  c.restock_api=api;c.restock_boot=M
- if not c.restock_controller then local t,why=mod.attach(c);if not t then return false,why end end
+ local attached,attach_why=mod.attach(c);if not attached then return false,attach_why end
  if api.combat_v2_set_mode~=c.restock_mode_guard then
   local previous=api.combat_v2_set_mode
   local wrapped=function(mode,...)

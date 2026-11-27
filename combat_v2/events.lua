@@ -49,6 +49,7 @@ function M.is_display_noise(text)
   or t:match("^[%d,]+h,%s*[%d,]+m")~=nil
   or t:match("^HP:%s*[%d,]+.-%sMP:%s*[%d,]+")~=nil
   or t:match("^%[STANCE:")~=nil
+  or t:match("^%[B:%s*%u+%s+E:%s*%u+%]")~=nil
 end
 function M.display_event(s,text,is_prompt)
  if is_prompt==nil and type(isPrompt)=="function" then local ok,v=pcall(isPrompt);is_prompt=ok and v==true end
@@ -82,10 +83,16 @@ function M.event(s,text,is_prompt)
  local absent=text:match("^You can find no such target as '(.*)'%.$")
  if absent and same(s,absent) or low=="you detect nothing here by that name." or low=="nothing can be seen here by that name." or low=="you cannot see that being here." or low=="you can find nothing here by that name." or low=="you cannot see that here." or low=="there is nothing here by that name." or low=="no such target." then s.stop_reason="target unavailable";s.hit_context=nil;return s end
  local slain=text:match("^You have slain (.+)%.$") or text:match("^Having slain (.+), you retrieve the corpse%.$")
+  or text:match("^The pain wracking (.+)'s body at last reaches a fatal rubicon as her skeleton crumbles beneath the subjugator's judgement%.$")
  local pending_numeric=slain and s.mode=="BASH" and s.hunting.active and tostring(s.target.name):match("^%d+$") and not s.target.display_name and s.target.attacked_generation==s.target_generation and now()-(s.target.last_attack_at or -100)<2
  if slain and (same(s,slain) or pending_numeric) then
   if pending_numeric then s.target.display_name=slain end
-  if not s.hunting.active or s.target.attacked_generation==s.target_generation then s.target.dead=true;s.stop_reason="target slain";s.combat_response="kill";s.hit_context=nil end
+  if not s.hunting.active or s.target.attacked_generation==s.target_generation then
+   s.target.dead=true;s.stop_reason="target slain";s.combat_response="kill";s.hit_context=nil
+   if s.earthcaller and s.earthcaller.physical then
+    s.earthcaller.physical.death_seen=true;s.stop_reason=nil -- death is not channel settlement
+   end
+  end
   return s
  end
  -- Explicitly scoped training-proxy reports; ordinary speech is never combat truth.

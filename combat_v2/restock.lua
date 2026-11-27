@@ -161,7 +161,8 @@ function M.new(io,settings,state,configuration_error)
   local ok,result=pcall(fn or io.send,command)
   d.dispatching=false
   if not ok or result==false then return fail('transport unknown: '..kind) end
-  p.transport_ok=true
+  if d.pending~=p then return false end
+  p.transport_ok=true;p.finalized_prompt=d.prompt
   return true
  end
  local function query(kind,command) return commit(kind,command) end
@@ -202,6 +203,7 @@ function M.new(io,settings,state,configuration_error)
  end
  -- Permission is independent of current mode, GLOBE and saved preferences.
  function t.start()
+  local context=view();if context.post_reset and (context.session==nil or context.scope_source_known~=true or type(context.class)~='string' or context.class=='' or context.room==nil or context.area==nil) then return false,'fresh native class/session/room source required after reset' end
   if d.configuration_error then return false,'configuration error: '..d.configuration_error end
   if d.dispatching then return false,'dispatch in progress' end
   if d.fault then return false,'unresolved fault requires reviewed recovery' end
@@ -353,7 +355,7 @@ function M.new(io,settings,state,configuration_error)
       d.phase='buy'
      elseif p.kind=='buy' then
       if d.kind=='health' then
-       if not p.receipt or p.receipt.cost~=d.purchase.cost or p.receipt.sips~=d.purchase.count*50 then return fail('health purchase receipt mismatch') end
+       if not view().post_reset and (not p.receipt or p.receipt.cost~=d.purchase.cost or p.receipt.sips~=d.purchase.count*50) then return fail('health purchase receipt mismatch') end
        return afterpurchase()
       end
       -- No invented anabiotic purchase ACK. A real subsequent prompt only schedules
@@ -362,6 +364,15 @@ function M.new(io,settings,state,configuration_error)
      elseif p.kind=='incall' then return afterpurchase()
      elseif p.kind=='inventory_after' then
       if p.gold==nil or p.gold~=d.purchase.gold_before-d.purchase.cost then return fail('wallet readback mismatch; transaction retained') end
+      if view().post_reset then
+       local purchase=d.purchase;purchase.outcome='CURRENT_POSTCONDITION_OBSERVED_UNATTRIBUTED';purchase.settled=false
+       d.postcondition_history=d.postcondition_history or{};d.postcondition_history[#d.postcondition_history+1]=purchase
+       d.last_postcondition=purchase;d.purchase=nil;d.enabled=false;d.active=false;d.resume_consent=false;d.resume_globe=false
+       if d.checkpoint and io.revoke_checkpoint then io.revoke_checkpoint(d.checkpoint,d,'post-reset objective observed; no old automation restore');d.checkpoint_revoked=true end
+       if io.release then io.release(d)end
+       d.busy=false;d.reserved=false;d.owned_pause=false;d.phase='idle';d.status='current stock/wallet postcondition observed; sent BUY remains UNSETTLED; no return/resume'
+       return true
+      end
       d.last_purchase=d.purchase;d.purchase=nil;return nextkind()
      end
     else return end
@@ -502,7 +513,28 @@ function M.new(io,settings,state,configuration_error)
   local p=d.pending;if not d.active or not p or type(line)~='string' or d.fault then return end
   if p.kind=='route' or p.kind=='initial summon' or p.kind=='haven_exit' or p.kind=='haven_return' then return end -- native owners enforce their own finite leases
   p.lines=p.lines+1
-  if p.lines>300 or #line>1000 then return fail('bounded response exceeded') end
+  local inventory=p.kind=='inventory_before' or p.kind=='inventory_after'
+  -- Mudlet receives logical inventory body lines, not the GUI's wrapped rows.
+  -- A genuine 116-item holding list exceeds the normal protocol-line bound.
+  -- Permit bounded opaque body text only after the native inventory headers;
+  -- never parse a large body as balance/receipt/cache evidence. Other protocols
+  -- retain their strict 1000-byte line limit, including BUY and shop listings.
+  if inventory then
+   p.bytes=(p.bytes or 0)+#line
+   if p.bytes>65536 then return fail('bounded response exceeded') end
+  end
+  if p.lines>300 then return fail('bounded response exceeded') end
+  if #line>1000 then
+   if not inventory or not p.inventory_body or #line>16384 then return fail('bounded response exceeded') end
+   p.large_body_lines=(p.large_body_lines or 0)+1
+   if p.large_body_lines>16 then return fail('bounded response exceeded') end
+   return -- opaque, ignored inventory contents; no authoritative observations
+  end
+  if inventory then
+   if line=='You are wielding:' then p.inventory_header=true;p.inventory_body=false
+   elseif p.inventory_header and (line=='You are holding:' or line=='You are wearing:') then p.inventory_body=true
+   elseif line=='Summary:' then p.inventory_body=false end
+  end
   if p.kind=='directory' then
    if line:match('^%s*VNum%s+Owner%s+Description%s+Price%s*$') then if p.header then p.bad=true end;p.header=true
    elseif p.header and line:match('^%s*[%-%=]+%s*$') then p.divider=true
@@ -529,9 +561,20 @@ function M.new(io,settings,state,configuration_error)
     end
    end
   elseif p.kind=='inventory_before' or p.kind=='inventory_after' then
+   if view().post_reset then
+    if not p.transport_ok or d.dispatching then return end
+    local stage=p.inventory_stage
+    if line=='You are wielding:' and not stage then p.inventory_stage='hands'
+    elseif line=='You are holding:' and stage=='hands' then p.inventory_stage='holding'
+    elseif line=='You are wearing:' and stage=='holding' then p.inventory_stage='wearing'
+    elseif line=='Summary:' and stage=='wearing' then p.inventory_stage='summary'
+    elseif stage=='summary' and line:match('^You have %d+ types of items in the cache%.$') then p.inventory_stage='cache'
+    elseif stage=='cache' and line:match('^You possess %d+ items%.$') then p.inventory_stage='items' end
+    if p.inventory_stage~='items' then return end
+   end
    local n=line:match('^You are carrying (%d+) gold sovereigns%.$')
    if n then n=integer(n);if p.gold~=nil then return fail('ambiguous inventory balance') end;p.gold=n;p.complete=n~=nil end
-  elseif p.kind=='buy' and d.kind=='health' then
+  elseif p.kind=='buy' and d.kind=='health' and not view().post_reset then
    local cost,sips=line:match('^You pay (%d+) gold sovereigns to add (%d+) sips of an elixir of health to your fluidcache%.$')
    if cost then if p.receipt then return fail('duplicate health receipt') end;p.receipt={cost=integer(cost),sips=integer(sips)};p.complete=true end
   end
@@ -539,7 +582,9 @@ function M.new(io,settings,state,configuration_error)
  function t.prompt()
   d.prompt=d.prompt+1
   local p=d.pending
-  if p and (p.kind=='incall' or (p.kind=='buy' and d.kind=='anabiotic')) then p.complete=true end
+  if p and view().post_reset and (p.kind=='buy' or p.kind=='incall') then
+   if p.transport_ok==true and not d.dispatching and d.prompt>(p.finalized_prompt or math.huge) then p.complete=true end
+  elseif p and (p.kind=='incall' or (p.kind=='buy' and d.kind=='anabiotic')) then p.complete=true end
   return t.tick()
  end
  return t
@@ -590,13 +635,13 @@ function M.adapter(c,api)
   if room.id==nil or room.area==nil or (c.restock_data or {}).scope_unknown then rd=false end
   local known=ih and same(ih.room_id,room.id) and not ih.pending and ih.responded==true and ih.items==room.items and (room.item_version or 0)>(ih.start_version or math.huge)
   local empty=known==true
-  for _,it in pairs(room.items or {}) do local f=tostring(it.attrib or '');if (f:find('m',1,true) or it.icon=='monster') and not f:find('d',1,true) and not f:find('x',1,true) then empty=false end end
+  for _,it in pairs(room.items or {}) do if not c.areas or type(c.areas.navigation_blocked)~='function' or c.areas.navigation_blocked(s,it) then empty=false end end
   local pol=s.policy or {}
   local xp=c.xp_globe_cutoff;local globe_allowed=not(xp and xp.enabled and xp.triggered)
   local desired=g.desiredOnCurrent;if desired==nil then desired=g.armed==true end
   -- A closed exhausted owner is not authority to restore stale GLOBE intent.
   if exhausted and desired==true and not (q.enabled==true and q.known==true and not q.query) then rd=false end
-  return {full_resources=(tonumber(p.maxhp) or 0)>0 and (tonumber(p.maxmana) or 0)>0 and (tonumber(p.hp) or 0)>=(tonumber(p.maxhp) or math.huge) and (tonumber(p.mana) or 0)>=(tonumber(p.maxmana) or math.huge),globe_desired=desired,globe_resume_allowed=globe_allowed,class=p.class,globe_armed=g.armed==true,upkeep_master=b.master==true,globe_pool_ready=not (c.elementals and c.elementals.pool_enable) or (q.enabled==true and q.known==true and not q.query),mode=c.mode,room=room.id,area=room.area,session=c.session_generation or s.session_generation or s.session_id,intent_epoch=c.restock_intent_epoch,ih_evidence=ih,item_version=room.item_version,connected=connected() and yes(s.connected),dead=yes(p.dead) or (tonumber(p.hp) or 0)<=0,ready=rd,blocked=blocked,empty=empty,room_known=known==true,mounted=p.mounted~=false and tonumber(p.mounted)~=0,hp_percent=(tonumber(p.maxhp) or 0)>0 and p.hp/p.maxhp*100 or nil,players_known=pol.players_known==true,players_room=pol.players_room,players=pol.players,self_name=pol.self_name,
+  return {post_reset=c.operator_abandoned_jobs==true,scope_source_known=s.class_observations and s.class_observations.class and s.class_observations.class.value==p.class and s.class_observations.cache and s.class_observations.cache['Char.Status'] and s.class_observations.cache['Char.Status'].source=='Char.Status',full_resources=(tonumber(p.maxhp) or 0)>0 and (tonumber(p.maxmana) or 0)>0 and (tonumber(p.hp) or 0)>=(tonumber(p.maxhp) or math.huge) and (tonumber(p.mana) or 0)>=(tonumber(p.maxmana) or math.huge),globe_desired=desired,globe_resume_allowed=globe_allowed,class=p.class,globe_armed=g.armed==true,upkeep_master=b.master==true,globe_pool_ready=not (c.elementals and c.elementals.pool_enable) or (q.enabled==true and q.known==true and not q.query),mode=c.mode,room=room.id,area=room.area,session=(c.operator_abandoned_jobs and c.haven_session_token) or c.session_generation or s.session_generation or s.session_id,intent_epoch=c.restock_intent_epoch,ih_evidence=ih,item_version=room.item_version,connected=connected() and yes(s.connected),dead=yes(p.dead) or (tonumber(p.hp) or 0)<=0,ready=rd,blocked=blocked,empty=empty,room_known=known==true,mounted=p.mounted~=false and tonumber(p.mounted)~=0,hp_percent=(tonumber(p.maxhp) or 0)>0 and p.hp/p.maxhp*100 or nil,players_known=pol.players_known==true,players_room=pol.players_room,players=pol.players,self_name=pol.self_name,
    supplies_busy=c.supplies_data and c.supplies_data.pending,globes_exhausted=exhausted,globe_fault=g.fault,travel_refusal=tr.refusal,travel_fault=tr.fault or tr.follow_fault,travel_idle=tr.phase=='idle' and not (tr.pending or tr.dispatching or tr.intent or tr.route or tr.follow_pending or tr.follow_due or tr.recall_due),globe_idle=not g.pending and not g.committed and not g.fault and (g.phase==nil or g.phase=='idle')}
  end
  return {now=api.getEpoch or api.clock or os.time,view=view,
@@ -701,8 +746,73 @@ function M.adapter(c,api)
    return not g.fault
   end}
 end
+
+-- Never-issued idle OFF disconnect is cancellation, not transaction failure.
+-- Strict schema/roots; do not call adapter.view (it plans defenses).
+function M.idle_disconnect_clear(c,d)
+ if type(c)~='table'or c.restock_data~=d or not c.restock_controller or c.restock_controller.state~=d then return false end
+ local s=c.current;local r=c.runner
+ if not s or not r or r.state~=s or c.mode~='OFF'or s.mode~='OFF'or r.mode~='OFF'then return false end
+ local allowed={enabled=true,active=true,busy=true,phase=true,prompt=true,serial=true,status=true,reserved=true,resume_consent=true,resume_globe=true,scope_unknown=true,last_room=true,last_area=true}
+ for k in pairs(d)do if not allowed[k]then return false end end
+ if d.serial~=0 or d.enabled~=false or d.active~=false or d.busy~=false or d.phase~='idle' or d.reserved~=nil and d.reserved~=false or d.resume_consent~=nil and d.resume_consent~=false or d.resume_globe~=nil and d.resume_globe~=false or d.scope_unknown~=nil and d.scope_unknown~=false then return false end
+ if type(d.prompt)~='number'or d.prompt<0 or d.prompt%1~=0 or type(d.status)~='string'then return false end
+ local fields={'pending','purchase','fault','query','waiting','busy','dispatching','action_dispatching','actionDispatching','physical_dispatch','physical_transport','transport_unknown','transportUnknown','transport_commit','transportCommit','unknown_commit','committed','transport_barrier','transportBarrier','barrier','txn','deposit','resource_pending','eq_pending','movement_pending','arrival','arrival_hold','route','intent','follow_pending','follow_due','recall_due','follow_fault','physical_commit','movement_commit','drain_pending','ink_pending','pumping','route_pausing','capturing_checkpoint','find_quarantine','haven_refresh','restock_checkpoint','checkpoint','reservation','lease','return_ih','resource','stopping','ability_listing','native_listing','ab','racial_frame','def_metadata','text_def_list'}
+ local function clear(o)
+  if o==nil then return true end;if type(o)~='table'then return false end
+  for _,k in ipairs(fields)do local v=rawget(o,k);if v~=nil and v~=false then return false end end
+  for _,k in ipairs({'transport_barriers','transportBarriers','native_pending'})do local v=rawget(o,k);if v~=nil and v~=false and(type(v)~='table'or next(v)~=nil)then return false end end
+  return true
+ end
+ local owners={controller=c,current=s,runner=r,travel=c.travel_owner,buffs=s.buffs,walker=s.walker,mental=s.mental,defense=s.defense,emergency=c.emergency_numb,globe=c.elemental_recovery,containers=c.containers_data,supplies=c.supplies_data,lunch=c.lunch_data,lunch_duty=c.lunch_duty,tattoo=c.tattoo_owner,tour=c.tour and c.tour.state,haven=c.haven_handoff,physical=c.physical,current_physical=s.physical,runner_physical=r.physical,fallback=c.fallback,runner_fallback=r.fallback,shared=c.shared,current_shared=s.shared,runner_shared=r.shared}
+ for _,o in pairs(owners)do if not clear(o)or not clear(o.root)then return false end end
+ return true
+end
+local function disconnect_wrapper(c,d,prior,stop)
+ return function(...)
+  if M.idle_disconnect_clear(c,d)then return stop('disconnected while never-issued idle OFF')end
+  return prior(...)
+ end
+end
+local function closure_value(fn,wanted)
+ for i=1,100 do local k,v=debug.getupvalue(fn,i);if not k then break end;if k==wanted then return v end end
+end
+local function normalized_dump(fn)
+ -- 5.4 strips source metadata; 5.1 has no strip flag, so remove only its
+ -- root prototype source string (not instructions, constants or upvalues).
+ local raw=string.dump(fn,true)
+ if raw:byte(5)==0x51 then
+  local size=raw:byte(9);local little=raw:byte(7)==1;local n=0
+  for i=1,size do local index=little and (12+size+1-i)or(12+i);n=n*256+raw:byte(index)end
+  raw=raw:sub(1,12)..string.rep(string.char(0),size)..raw:sub(13+size+n)
+ end
+ return raw
+end
+local function authentic_leaf(fn,expected,first,last)
+ if type(fn)~='function'or not debug or not debug.getinfo or not string.dump then return false end
+ local info=debug.getinfo(fn,'S');if info.what~='Lua'or info.linedefined~=first or info.lastlinedefined~=last then return false end
+ return normalized_dump(fn)==normalized_dump(expected)
+end
+function M.fix_idle_disconnect(c)
+ local t=c.restock_controller;local d=c.restock_data
+ if not t or t.state~=d then return false,'restock canonical owner required'end
+ local prior=t.disconnect;local stop=t.user_stop
+ local probe=disconnect_wrapper(c,d,prior,stop)
+ if type(prior)=='function'and debug.getinfo(prior,'S').what=='Lua'and string.dump(prior)==string.dump(probe)then
+  if closure_value(prior,'c')~=c or closure_value(prior,'d')~=d or closure_value(prior,'stop')~=stop then return false,'restock disconnect wrapper identity mismatch'end
+  prior=closure_value(prior,'prior')
+ end
+ -- Reference factory is pure: separate unpublished tables, no IO methods
+ -- invoked. Never replace or initialize the retained live owner/state/adapter.
+ local reference=M.new({}, {}, {})
+ if not authentic_leaf(prior,reference.disconnect,272,272)or not authentic_leaf(stop,reference.user_stop,225,233)or closure_value(prior,'fail')~=closure_value(stop,'fail')or closure_value(stop,'d')~=d then return false,'restock disconnect/user_stop prototype or captured owner mismatch'end
+ t.disconnect=disconnect_wrapper(c,d,prior,stop)
+ c.restock_disconnect_status='bound never-issued idle-OFF cancellation; real transactions retain original fail'
+ return true
+end
+
 function M.attach(c,settings)
- if c.restock_controller then return c.restock_controller end
+ if c.restock_controller then local ok,why=M.fix_idle_disconnect(c);if not ok then return nil,why end;return c.restock_controller end
  if c.restock_data and (c.restock_data.busy or c.restock_data.pending or c.restock_data.purchase) then return nil,'unfinished restock owner retained' end
  local old=c.restock_data;local api=c.restock_api or _G
  for _,k in ipairs({'tempRegexTrigger','tempPromptTrigger','tempTimer','registerAnonymousEventHandler','killTrigger','killTimer','killAnonymousEventHandler'}) do if type(api[k])~='function' then return nil,'Mudlet API unavailable: '..k end end
@@ -732,6 +842,7 @@ function M.attach(c,settings)
   local id=api.tempTimer(1,tick);assert(handle(id),'invalid timer registration ID');t.timer=id
  end)
  if not ok then t.state.active=false;M.detach(c);c.restock_data=old;return nil,tostring(why) end
+ local fixed,reason=M.fix_idle_disconnect(c);if not fixed then return nil,reason end
  -- No legacy owner is retired here. Parent migration must retire it only idle.
 
  return t

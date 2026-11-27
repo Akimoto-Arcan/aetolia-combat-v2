@@ -1,0 +1,109 @@
+{
+  "offline_only": true,
+  "focused_results": [
+    {
+      "test": "area_tests.lua",
+      "runtime": "lua",
+      "exit": 0,
+      "stdout": "PASS integrated-area actual-bootstrap assertions=45\n"
+    },
+    {
+      "test": "irongrip_unit.lua",
+      "runtime": "lua",
+      "exit": 0,
+      "stdout": "PASS Irongrip 115 assertions\n"
+    },
+    {
+      "test": "irongrip_bootstrap.lua",
+      "runtime": "lua",
+      "exit": 0,
+      "stdout": "PASS actual-bootstrap Irongrip 14 assertions\n"
+    },
+    {
+      "test": "shared_regression.lua",
+      "runtime": "lua",
+      "exit": 0,
+      "stdout": "PASS unchanged shared regressions 10 assertions\n"
+    },
+    {
+      "test": "area_tests.lua",
+      "runtime": "lua",
+      "exit": 0,
+      "stdout": "PASS integrated-area actual-bootstrap assertions=45\n"
+    },
+    {
+      "test": "irongrip_unit.lua",
+      "runtime": "lua",
+      "exit": 0,
+      "stdout": "PASS Irongrip 115 assertions\n"
+    },
+    {
+      "test": "irongrip_bootstrap.lua",
+      "runtime": "lua",
+      "exit": 0,
+      "stdout": "PASS actual-bootstrap Irongrip 14 assertions\n"
+    },
+    {
+      "test": "shared_regression.lua",
+      "runtime": "lua",
+      "exit": 0,
+      "stdout": "PASS unchanged shared regressions 10 assertions\n"
+    }
+  ],
+  "modules": {
+    "archivist.lua": "ae99ea5104f759501ea09f9df653e26b7e765bd0f84a0f7fb2a8bb5aac75629c",
+    "areas.lua": "1a364e96245ddd6e3fc14ac034be587423440cf4c30f23846314ccb82cf521d6",
+    "bashing.lua": "169d996521d68a783d55ca1544de884e61860916041f8148ef44365653394e33",
+    "bash_escape.lua": "90c6392237bb81af0a5d8ce2d8110c6223f5552e490ad3daf8ace57d5c425856",
+    "bootstrap.lua": "d6ebb3183d8ae87be267ffc4d6f4ca54015ec6705d5e5002feebde405d5d5562",
+    "buffs.lua": "b1aeb5e168c633bb7a032c3df5d0d7c276dda6afdb23c2b9d126e3bf65c8270a",
+    "class_catalog.lua": "41ab0161c8f55caf2dbb202a03a61c61467df38da8ef8d1b0c3fc2eda3494672",
+    "class_observers.lua": "65dc0884c220fd0d6a4c47698af51d22fc6d07b4d4286e20885c68f241181941",
+    "class_router.lua": "711157fd234fbce6d1955bb27a079c4546a9a2fb1b1db8c01bd0dacffccb2f84",
+    "containers.lua": "8d0dfa3a233f24fe2a276c42a0771571c673305be7e713c753425662e30d4925",
+    "curing.lua": "e81771e1de7fbb911358741dbcdc585c28f937d2831e5a6f8e18ed516d4d30b5",
+    "defense.lua": "1969dead4968022ffd51a46601636d2460cabeb54c63da499d1e09b54544ce24",
+    "earthcaller.lua": "b8ad29e812cf3cac5066b35fc56c2e8718d6895d0cbbdebff6ab8df7022c50b1",
+    "elementals.lua": "63dbb536d276758b3c925b222a57820c30126cfd79e2b2627c9409027fcf0143",
+    "events.lua": "38bc7288e0e52f07f03725a03046046e57b0d590616c903b3ec4e3629da2b197",
+    "gui.lua": "27b57f1e8ef46f7c5b4910904e0950d5b4190432e0d8fac2e8f6ba5d355a52c6",
+    "infiltrator.lua": "2010d698a8466e4ca7b9ba0fd2c2fad9d2bb4583b5cdd9777876294d98671add",
+    "ledger.lua": "e07d64a9a7665df656f12f0bdd45bf577cad3edef772973e1c10cd8e65d7fc85",
+    "lunch.lua": "63eb47ca28107539dfaaf61f5c8a3ac889e89243a2129a694871b9bff21d04e3",
+    "lunch_boot.lua": "0742d5279fee1738c7df9d3b9a78f300e2d68bec3f240fc68dcfcdebdb1b358d",
+    "mental.lua": "85b0df982d8dae6bf6f2d22225971604c0211a064fee89d5c4e888fd8a99155a",
+    "mobs.lua": "f44ccceedbe50eef627618f290ecf2726fdababa321c6304787735205b91ed20",
+    "monk.lua": "0de6225f896aa920ae627dbaafb59552efc043b026bd3ea5b0a733031dbe4e3f",
+    "operator_reset.lua": "4792e5ccd714765853094b239000d66e18c6f1e8e6bea8c5e5c6228057f1e7bc",
+    "policy.lua": "95ed9b6b71f99143157614de0f00fe3171d05e58a6c05f4b099a3d324963506a",
+    "release_lock.lua": "4aed3355c002459348853c3b5cabacb2274969c71590104a33a3a357d435ea73",
+    "restock.lua": "643b82d968ba7a1acd310c1cfc84bffe32338d07ab80b288ba427e97a19924b4",
+    "restock_boot.lua": "d13d6a447c9dc3a5f312d8f9bdf418ab30915b0fdd8dc18e4a78cd37d66764aa",
+    "restock_retry.lua": "08058ca0f22aeb9b2b20868f81db4fed4e8415f924e8d745c04022f9f81a0bcb",
+    "runner.lua": "20504c6992e2dc0576dbf145a375844c2c6584b5622563947b09a5c884256f1e",
+    "shapeshifter.lua": "8dce243fe4b024a486fdbc9a96a15f4ff75994110504555512bc94ebfe9fa597",
+    "special_exits.lua": "11494acde5e71e3c485748aefcaea3d3ec9ee01b7f6eb43fbf13c9829af04934",
+    "state.lua": "ec4fb82382a7e5266ecfeb49438af02e252161fe38e99917e5bcfa4707a4656d",
+    "supplies.lua": "3be61ef1abca5564cb155e80872f11cec7e97bc5ffdf5e170f1e6aac4b244441",
+    "survival.lua": "c829086cf8df582423f8e1093efe80d75cd087c40ed80bc56c6a8df693f5784e",
+    "survival_boot.lua": "5456a5c07f3277ca1690ff238666cb0e5533e670acb6bcd3ce0b07b21ef290f6",
+    "survival_native.lua": "c2bc73fcde8ba4792d1eb6cc0491881957d6dbdc8e4f26960339951e5c337cd8",
+    "tattoo.lua": "e711c50f31045c68adeb69ac98fb3a8dee2f55577dc47ec1327a162dd0626c83",
+    "tour.lua": "7b43c2be1b3b095db4311ab72acc8af48bee4d991e6d1835b144b386182585d5",
+    "tour_boot.lua": "e3058fe1fd5736e3365ee0f1635c354301c9453a1f6364cca5cc201969c62f14",
+    "tour_picker.lua": "37a04f5db0b8f9e90ea3fab1925b5e3a00f2e034abdf595bfb7979cad716f8a3",
+    "tour_picker_boot.lua": "1ea51cfb72afc2e575092cc2c73b878f54c2d89d048bc0d378d0fb7c50d5eebb",
+    "tour_picker_visual.lua": "52a0a2b5195bea42980fce4ce8e5982c84d748b743e979a4ef6713223109e634",
+    "tracker.lua": "e962bf3289b2a06ced1f0e4d8819d52ebb10dfc9f7f2727d160e5a3897adf15e",
+    "travel.lua": "8f1693b5003edc0ed43e553939ef34ec839a6ad1479955bcba5ade4ca7249211",
+    "travel_boot.lua": "3264521e34cfbcd77774df5e4e01caa3ef547861ec30a3a95e3d15dd439190cc",
+    "walker.lua": "e53741278ded3bac56ffdf8a3b6bf2cc594954a2f90a75d67f5d3a4a3cfdd6a8",
+    "walker_boot.lua": "2be136cc0aa9f25fb422cf9d77a257b5c06966a45490b3504f696973379a0ab9",
+    "wayfarer.lua": "892cfdceaa40a2adc04df211340956377e3d0439ab47af989567e4f6c1b069a3"
+  },
+  "limits": [
+    "Historical unrelated survival/sender failures unchanged",
+    "Legacy buffs.lua test has baseline Immunity default failure",
+    "No home native/live hunting acceptance"
+  ]
+}

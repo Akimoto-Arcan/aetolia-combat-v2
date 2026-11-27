@@ -305,13 +305,33 @@ function M.stance(state)
  if n=="scs" then n="scorpion" end
  return n:upper(),true
 end
+-- Display scope only: never alter cached class, stance, Kai or balances.
+function M.monk_display(state)
+ local class=state.player and state.player.class
+ return type(class)=="string" and class:lower()=="monk"
+end
+function M.player_status_text(state,runner)
+ local p=state.player;local prefix="";local balances="Balance %s &nbsp; Eq %s"
+ local values={ready(p.balance),ready(p.equilibrium)}
+ if M.monk_display(state) then
+  local stance,stanced=M.stance(state);local color=stanced==true and C.good or stanced==false and C.bad or C.warn
+  prefix="<b style='font-size:16px;color:"..color..";'>STANCE: "..esc(stance).."</b> &nbsp; Kai: "..esc(p.kai or "?").."<br>"
+  balances=balances.." &nbsp; Arms %s / %s";values[#values+1]=ready(p.left_arm_balance);values[#values+1]=ready(p.right_arm_balance)
+ end
+ return html(heading("PLAYER STATUS")..prefix..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana))..string.format(balances,(table.unpack or unpack)(values)).."<br>Executor: "..esc(runner.status or "idle"))
+end
 function M.prompt_text(state,runner)
- local p=state.player;local stance,stanced=M.stance(state)
- local color=stanced==true and "green" or stanced==false and "red" or "yellow"
+ local p=state.player;local prefix="";local monk=M.monk_display(state)
+ if monk then
+  local stance,stanced=M.stance(state);local color=stanced==true and "green" or stanced==false and "red" or "yellow"
+  prefix="<white>[<cyan>STANCE: <"..color..">"..stance.."<white>] [<cyan>Kai: <white>"..(tonumber(p.kai) or "?").."] "
+ end
  local function balance(key,tag) return "<white>"..tag..":<"..(flag(p[key]) and "green" or "yellow")..">"..(flag(p[key]) and "READY" or "WAIT") end
+ local balances=balance("balance","B").." "..balance("equilibrium","E")
+ if monk then balances=balances.." "..balance("left_arm_balance","L").." "..balance("right_arm_balance","R") end
  local posture=flag(p.prone) and "<red>PRONE" or "<green>STANDING"
  local mount=flag(p.mounted) and "MOUNTED" or "ON FOOT"
- return "<white>[<cyan>STANCE: <"..color..">"..stance.."<white>] [<cyan>Kai: <white>"..(tonumber(p.kai) or "?").."] ["..balance("balance","B").." "..balance("equilibrium","E").." "..balance("left_arm_balance","L").." "..balance("right_arm_balance","R").."<white>] ["..posture.."<white> / "..mount.."] [<cyan>"..tostring(runner.mode or "OFF"):gsub("[^%w_]", "").."<white>]"
+ return prefix.."<white>["..balances.."<white>] ["..posture.."<white> / "..mount.."] [<cyan>"..tostring(runner.mode or "OFF"):gsub("[^%w_]", "").."<white>]"
 end
 function M.vitals_text(state,g)
  local p=state.player;local v=g and g.Char and g.Char.Vitals or {}
@@ -502,8 +522,8 @@ function M.layout()
  end
  local resetW=math.min(80,aw-100);place(ui.buttons.enemy_afflictions_reset,10+aw+10+(aw-resetW)/2,affY+affH-33,resetW,25)
  y=affY+affH+8;card("cure",52)
- local tw=(cw-32)/5
- for i,k in ipairs({"approve","curing","globe","restock","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
+ local tw=(cw-48)/7
+ for i,k in ipairs({"approve","curing","globe","walk","restock","unlock","stop"}) do place(ui.buttons[k],10+(i-1)*(tw+8),y,tw,30) end
  y=y+38;place(ui.cards.events,10,y,cw,rh-y)
  if ui.cards.help then ui.cards.help:hide() end
 end
@@ -514,6 +534,16 @@ local function affpanel(ui,key,values,title,subtitle,color)
  if #rows==0 then rows[1]="<span style='color:"..C.muted..";'>none observed</span>" end
  ui.cards[key]:echo(html("<b style='color:"..color..";'>"..title.." &nbsp; ["..#entries.."]</b><br><span style='font-size:11px;color:"..C.muted..";'>"..subtitle.." · "..page.."/"..pages.."</span><br><br><span style='font-size:14px;'>"..table.concat(rows,"<br>").."</span>"))
  ui.buttons[key.."_prev"]:echo(html("<center>‹</center>"));ui.buttons[key.."_next"]:echo(html("<center>›</center>"))
+end
+function M.unlock()
+ local c=combat_v2
+ if not c or not c.release_lock or type(c.release_lock.release)~="function" then
+  local why="Recovery module unavailable; no locks changed";print("UNLOCK: "..why);return false,why
+ end
+ local ok,why=c.release_lock.release(c)
+ local message=type(why)=="table" and why.reason or why
+ print("UNLOCK: "..tostring(message or (ok and "Completed read-only lock released; automation remains OFF" or "No safe release available")))
+ return ok,why
 end
 function M.create()
  if combat_v2_ui_resize then killAnonymousEventHandler(combat_v2_ui_resize) end
@@ -536,8 +566,10 @@ function M.create()
   if not ui.buttons[mode] then button(ui,mode,mode=="FULL_AUTO" and "AUTO" or mode,function() combat_v2_set_mode(mode);combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end
  end
  local callbacks={approve=function()combat_v2_approve()end,curing=function()combat_v2_set_curing(not combat_v2.cure.enabled)end,stop=function()combat_v2_stop()end,globe=function()local b=combat_v2.elemental_recovery;local on=b and b.armed and combat_v2.mode=="BASH";if combat_v2_globe then local ok,why=combat_v2_globe(on and "off"or"on");if not ok and why then print(why)end end end}
+ callbacks.walk=function()if combat_v2_walk then local w=combat_v2.current.walker or {};local ok,why=combat_v2_walk(w.enabled and "off"or"on");if not ok and why then print(why)end end end
+ callbacks.unlock=function()return combat_v2.gui.unlock()end
  callbacks.restock=function()if combat_v2_restock then local d=combat_v2.restock_data or {};local ok,why=combat_v2_restock(d.enabled and "off"or"on");if not ok and why then print(why)end end end
- for _,k in ipairs({"approve","curing","globe","restock","stop"}) do if not ui.buttons[k] then button(ui,k,k:upper(),function() callbacks[k]();combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end end
+ for _,k in ipairs({"approve","curing","globe","walk","restock","unlock","stop"}) do if not ui.buttons[k] then button(ui,k,k:upper(),function() callbacks[k]();combat_v2.gui.refresh(combat_v2.current,combat_v2.runner,combat_v2.cure) end) end end
  for _,k in ipairs({"player_afflictions","enemy_afflictions"}) do
   for _,direction in ipairs({"prev","next"}) do
    local key=k.."_"..direction
@@ -570,26 +602,59 @@ function M.event_feed(state)
  return html(heading("RECENT EVENTS").."<span style='font-size:11px;'>"..table.concat(rows,"<br>").."</span>")
 end
 
+function M.walker_progress(state)
+ local w=type(state)=='table'and state.walker
+ if type(w)~='table'or not(w.enabled or w.active or w.restock_checkpoint)then return nil end
+ if w.offer then return 'WALK: awaiting route confirmation' end
+ local cp=w.restock_checkpoint
+ if not w.active and not cp and not tostring(w.status or ''):lower():find('complete',1,true)then return 'WALK: ON - awaiting route' end
+ local graph=cp and cp.graph or w.graph
+ if type(graph)~='table'or type(graph.nodes)~='table'then return 'WALK: rooms left unknown' end
+ local seen,total,visited={},0,0;local history=cp and cp.visited or w.visited or {}
+ for id,node in pairs(graph.nodes)do
+  local key=tostring(id)
+  if key:match('^%d+$')and type(node)=='table'and not seen[key]then
+   seen[key]=true;total=total+1
+   if history[key]==true or history[tonumber(key)]==true then visited=visited+1 end
+  end
+ end
+ if total==0 then return 'WALK: rooms left unknown' end
+ return string.format('WALK%s: %d rooms left | %d/%d visited',cp and ' (restocking)'or '',total-visited,visited,total)
+end
+-- Read-only presentation: permission is not proof of movement/combat.
+function M.range_controls(state,runner)
+ local c=combat_v2 or {};local a=c.tour_attachment;local st=c.tour and c.tour.state
+ local grant=st and st.grant
+ local phases={ratings=true,next=true,transfer=true,prepare=true,hunt=true,retiring=true,retired=true,finishing=true}
+ local intent=not not(a and a.attached and grant and grant.session==a.session
+  and grant.class==state.player.class and grant.generation==st.generation
+  and phases[st.phase] and state.connected and not state.player.dead)
+ local w=state.walker or {};local d=c.restock_data or {}
+ return {bash=runner.mode=='BASH'and 'ON'or intent and 'ARMED'or 'OFF',
+  walk=w.active and 'ON'or(w.enabled or intent)and 'ARMED'or 'OFF',
+  restock=d.enabled and(d.active and 'ON'or 'ARMED')or 'OFF',busy=d.busy==true}
+end
 function M.refresh(state,runner,cure)
  if not M.cards then M.create() end
  local ui=combat_v2_ui;local p,t=state.player,state.target
  local globe=combat_v2 and combat_v2.elemental_recovery;local globe_on=runner.mode=="BASH"and globe and globe.armed and not globe.fault
  M.buttons.globe:echo(html("<center>GLOBE "..(globe_on and"ON"or"OFF").."</center>"))
+ local ws=state.walker or {};M.buttons.walk:echo(html("<center>WALK "..(ws.enabled and "ON"or"OFF").."</center>"));M.buttons.walk:setStyleSheet("background-color:"..(ws.enabled and "#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:1px;font-size:10px;")
  local rs=combat_v2 and combat_v2.restock_data or {};local rsm=combat_v2 and combat_v2.restock_module
  local rsbusy=rsm and rsm.busy and rsm.busy(combat_v2)
  M.buttons.restock:echo(html("<center>RESTOCK "..(rs.enabled and "ON"or"OFF")..(rsbusy and " *"or"").."</center>"))
  M.buttons.restock:setStyleSheet("background-color:"..(rs.enabled and "#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:1px;font-size:9px;")
  M.buttons.globe:setStyleSheet("background-color:"..(globe_on and"#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:3px;font-size:10px;")
  local mental=state.mental;local mind=mental and (mental.fault or mental.status) or "idle"
- M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; MONK / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>MIND: "..esc(mind).." &nbsp; · &nbsp; cv2 help</span>"))
+ M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; "..esc(type(p.class)=="string"and p.class~=""and p.class:upper()or "UNKNOWN").." / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>MIND: "..esc(mind).." &nbsp; · &nbsp; cv2 help</span>"))
  for _,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do M.buttons[m]:setStyleSheet("background-color:"..(m==runner.mode and "#386386" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:5px;") end
- local stance,stanced=M.stance(state);local stance_color=stanced==true and C.good or stanced==false and C.bad or C.warn
- M.cards.status:echo(html(heading("PLAYER STATUS").."<b style='font-size:16px;color:"..stance_color..";'>STANCE: "..esc(stance).."</b> &nbsp; Kai: "..esc(p.kai or "?").."<br>"..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>Balance %s &nbsp; Eq %s &nbsp; Arms %s / %s<br>Executor: %s",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana),ready(p.balance),ready(p.equilibrium),ready(p.left_arm_balance),ready(p.right_arm_balance),esc(runner.status or "idle"))))
+ M.cards.status:echo(M.player_status_text(state,runner))
  local a=runner.pending or state.last_action or {}
  if state.defense and state.defense.hold and runner.mode~="OFF" then a={command="",reason="DEFENSE: "..state.defense.phase} end
  local restore=t.restoration;local restoration=""
  if restore and restore.active then local remaining=math.max(0,(restore.expected_end or 0)-(getEpoch and getEpoch() or os.clock()));restoration="<br><span style='font-size:11px;color:"..C.warn..";'>RESTORE: "..esc(restore.limb:gsub("_"," "))..(remaining>0 and string.format(" ~%.1fs",remaining) or " awaiting cure confirmation").."</span>" end
- M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"..restoration))
+ local wp=M.walker_progress(state);local walkline=wp and ("<br><span style='font-size:11px;color:"..C.accent..";'>"..esc(wp).."</span>")or ""
+ M.cards.target:echo(html(heading("TARGET / ACTION").."<b>"..esc(t.name).."</b> &nbsp; "..esc(a.command and a.command~="" and a.command or "WAIT").."<br><span style='color:"..C.muted..";'>"..esc(a.reason or "Set a target, then select BASH or AUTO").."</span>"..restoration..walkline))
  M.cards.limbs:echo(html(heading("ENEMY LIMBS")..limb_rows(state,"enemy").."<br><span style='font-size:11px;'>Prone: "..(t.prone and "yes" or "no").." · Parry: "..esc(t.parry_limb or "unknown").."</span>"))
  M.cards.self_limbs:echo(html(heading("YOUR LIMBS")..limb_rows(state,"self").."<br><span style='font-size:11px;'>Prone: "..(flag(p.prone) and "yes" or "no").." · — = unreported %</span>"))
  M.refresh_body(state,runner)
@@ -599,5 +664,15 @@ function M.refresh(state,runner,cure)
  local d=state.defense;local defense=not state.connected and "OFFLINE" or d and d.phase or "monitoring"
  M.cards.cure:echo(html(heading("DEFENSE / FIRSTAID").."<span style='color:"..(d and d.hold and C.bad or d and d.low_health and C.warn or C.good)..";'>"..esc(defense).."</span> · FA: "..(cure.enabled and "requested" or "unverified")))
  M.cards.events:echo(M.event_feed(state))
+ -- Render last: retain selected OFF during travel; never change GLOBE here.
+ local controls=M.range_controls(state,runner)
+ for _,key in ipairs({'bash','walk','restock'})do
+  local value=controls[key];local b=M.buttons[key=='bash'and 'BASH'or key]
+  local label=key=='bash'and(value=='OFF'and 'BASH'or 'BASH '..value)or key:upper()..' '..value
+  if key=='restock'and rsbusy then label=label..' *'end
+  b:echo(html("<center style='font-size:"..(key=='restock'and '8'or '10').."px;'>"..label..'</center>'))
+  local color=value=='ARMED'and '#79551f'or value=='ON'and(key=='bash'and '#386386'or '#22563e')or '#233c51'
+  b:setStyleSheet('background-color:'..color..';color:'..C.text..';border:1px solid #507590;padding:1px;font-size:'..(key=='restock'and '9'or '10')..'px;')
+ end
 end
 return M

@@ -1,5 +1,7 @@
 -- Fail-closed BASH permission: server AREAS, current room players, solicited web roster.
 local M={}
+local Areas
+function M.bind_areas(areas)Areas=areas end
 local function now()return getEpoch and getEpoch() or os.clock()end
 local function norm(v)return tostring(v or ''):lower():match('^%s*(.-)%s*$')end
 local function name(v)
@@ -58,15 +60,15 @@ function M.players(s,list)
  local p=s.policy;if type(list)~='table' then p.players_known=false;return false end
  local players={}
  for _,v in pairs(list)do local n=name(v);if not n then p.players_known=false;return false end;players[n]=true end
- p.players=players;p.players_known=true;p.players_room=s.room.id;return true
+ p.players=players;p.native_players=players;p.players_known=true;p.players_room=s.room.id;p.players_version=(p.players_version or 0)+1;return true
 end
 function M.player_add(s,v)
  local n=name(v);if not n then s.policy.players_known=false;return end
- s.policy.players[n]=true;s.policy.web.at=nil
+ s.policy.players[n]=true;s.policy.web.at=nil;s.policy.players_version=(s.policy.players_version or 0)+1
 end
 function M.player_remove(s,v)
  local n=name(v);if not n then s.policy.players_known=false;return end
- s.policy.players[n]=nil
+ s.policy.players[n]=nil;s.policy.players_version=(s.policy.players_version or 0)+1
 end
 function M.has_others(s)
  for n in pairs(s.policy.players)do if n~=s.policy.self_name then return true end end
@@ -96,9 +98,11 @@ function M.allowed(s)
  return true
 end
 function M.attack_allowed(s)
+ if s.walker and s.walker.active and s.policy.players_known and s.policy.players_room==s.room.id and M.has_others(s)then return false,'BASH paused: WALK skips occupied player rooms'end
  local ok,why=M.allowed(s);if not ok then return false,why end
  local item=s.room.items[tostring(s.target.name)]
  if s.hunting.verified_generation~=s.target_generation or not item then return false,'BASH paused: target not confirmed in current room' end
+ if s.hunting.defensive_selected==tostring(s.target.name)and(not Areas or not Areas.defensive_eligible(s,s.target.name))then return false,'BASH paused: defensive attack evidence expired or invalid'end
  local f=item.attrib or '';local n=tostring(item.name or ''):lower()
  if not (f:find('m',1,true) or item.icon=='monster') or f:find('d',1,true) or f:find('x',1,true) or n:find('guard',1,true) then return false,'BASH paused: protected, dead, guard or non-monster target' end
  return true

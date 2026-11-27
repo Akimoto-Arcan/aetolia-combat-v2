@@ -58,6 +58,55 @@ local function connected(c)
   local ok, _, _, online = pcall(getConnectionInfo)
   return ok and online == true
 end
+-- Pure shared click/install gate. Travel is an owner, NOT the shared root.
+-- Empty plural barrier maps are settled; every other non-nil/non-false shape
+-- (including malformed scalars) is uncertain. Physical tokens hold even if {}.
+local function alarm_ownership_pending(c)
+  local function held(v) return v~=nil and v~=false end
+  local function blocker(path,key,kind)
+    return path..(key and '.'..key or '')..' ('..kind..')'
+  end
+  local function owner(t,path,walker)
+    if t==nil then return false end
+    if type(t)~='table' then return blocker(path,nil,'malformed owner') end
+    for _,k in ipairs({'pending','fault','waiting','committed','transport_unknown','transportUnknown',
+      'transport_commit','transportCommit','transport_barrier','transportBarrier',
+      'dispatching','action_dispatching','actionDispatching','physical_dispatch','arrival_hold','eq_pending'}) do
+      -- A boolean walker arrival hold is hunting/readiness evidence, not an
+      -- issued command or response-stream owner. Read-only observations do not
+      -- consume that clearance or release it. Malformed tokens still fail closed.
+      if held(t[k]) and not (walker and k=='arrival_hold' and t[k]==true) then
+        return blocker(path,k,k=='fault' and 'unresolved diagnostic' or 'transport/resource ownership')
+      end
+    end
+    for _,k in ipairs({'transport_barriers','transportBarriers'}) do
+      local v=t[k]
+      if held(v) and (type(v)~='table' or next(v)~=nil) then
+        return blocker(path,k,'transport barrier map')
+      end
+    end
+    return false
+  end
+  local seen={}
+  local function inspect(t,path)
+    if t==nil then return false end
+    if type(t)~='table' then return blocker(path,nil,'malformed owner') end
+    if seen[t] then return false end
+    seen[t]=true
+    return owner(t,path) or owner(t.walker,path..'.walker',true)
+      or owner(t.mental,path..'.mental') or owner(t.buffs,path..'.buffs')
+  end
+  local why=inspect(c,'c');if why then return why end
+  for _,key in ipairs({'root','state','current','controller','runner','travel_owner','travel_state','travel','elemental_recovery','tattoo_owner'}) do
+    local t=c[key];local path='c.'..key
+    why=inspect(t,path);if why then return why end
+    if type(t)=='table' then
+      why=inspect(t.root,path..'.root') or inspect(t.state,path..'.state')
+      if why then return why end
+    end
+  end
+  return false
+end
 local function periodic_enabled(c)
   -- Standalone legacy consumers retain their original BASH-only policy.
   -- The installed carried-container integration monitors every connected mode.
@@ -225,6 +274,112 @@ function M.drag(c, phase, event)
  local d=ui.drag;c.supplies_position={x=d.x+gx-d.gx,y=d.y+gy-d.gy}
  M.render(c);return true
 end
+-- Explicit UI gesture only: reuse the native public audit, never refill/service.
+-- Inspect raw ownership state here: state() helpers may expire evidence.
+function M.check_all(c)
+  if not connected(c) then return false,'CHECK ALL unavailable: disconnected' end
+  local ui=c.supplies_ui
+  local d=c.supplies_data or {}
+  if (ui and ui.check_all_dispatching) or d.pending or d.dispatching or d.auditing then
+    return false,'CHECK ALL unavailable: audit already pending'
+  end
+  for _,s in pairs(d.sources or {}) do
+    if s.pending or s.frame then return false,'CHECK ALL unavailable: audit already pending' end
+  end
+  local cd=c.containers_data or {}
+  if cd.pending or cd.barrier or cd.refill or cd.dispatching or cd.servicing then
+    return false,'CHECK ALL unavailable: container query/action unresolved'
+  end
+  for _,s in pairs(cd.sources or {}) do
+    if s.pending or s.frame then return false,'CHECK ALL unavailable: container query pending' end
+  end
+  local ld=c.supply_ledger_data or {}
+  if next(ld.frames or {}) then return false,'CHECK ALL unavailable: container reply pending' end
+  -- The quarantined action helper deliberately owns no new pending query.
+  -- Keep a UI-only receipt fence until each passive list actually completes;
+  -- cache completion alone must not permit a duplicate three-list batch.
+  if ui and ui.check_all_receipts then
+    for kind,rows in pairs(ui.check_all_receipts) do
+      local observed=(ld.sources or {})[kind]
+      if not observed or not observed.rows or observed.rows==rows then
+        return false,'CHECK ALL unavailable: passive container queries pending / unresolved'
+      end
+    end
+  end
+  local ownership=alarm_ownership_pending(c)
+  if ownership then
+    return false,'CHECK ALL unavailable: unresolved transport/resource ownership: '..ownership
+  end
+  local rs=c.restock_controller and c.restock_controller.state or {}
+  -- An idle retained diagnostic is not an issued query or action. Never clear it.
+  if rs.busy or rs.dispatching or rs.reserved or rs.pending then
+    return false,'CHECK ALL unavailable: restock transaction pending'
+  end
+  if type(combat_v2_supplies)~='function' or type(send)~='function' then
+    return false,'CHECK ALL unavailable: native supply command API missing'
+  end
+  if not c.ledger or not c.containers or type(c.containers_query_sender)~='function' then
+    return false,'CHECK ALL unavailable: passive container query API missing'
+  end
+  if ui then
+    ui.check_all_dispatching=true
+    ui.check_all_receipts={}
+    for _,kind in ipairs({'vial','pipe','bandage'}) do
+      local observed=(ld.sources or {})[kind]
+      ui.check_all_receipts[kind]=observed and observed.rows or false
+    end
+  end
+  local ok,result,why=pcall(combat_v2_supplies,'check')
+  if ok and result==true then
+    -- Inventory has no action authority; the existing passive ledger does not
+    -- claim absolute pill counts from this human-readable native listing.
+    if connected(c) then
+      local sent,value=pcall(send,'inventory')
+      if not sent or value==false then result=false;why='inventory send failed' end
+    else result=false;why='disconnected during audit' end
+  end
+  if ui then ui.check_all_dispatching=nil end
+  if not ok then return false,'CHECK ALL failed: native audit error (not queued)' end
+  if result~=true then return false,'CHECK ALL unavailable: '..tostring(why or 'audit rejected') end
+  return true,'CHECK ALL requested: FC + IC, inventory, vials, pipes and bandages (read-only)'
+end
+
+-- Hot installation calls only this binder, not render/attach. Keep the exact
+-- retained left-click continuation, movement/release callbacks and geometry.
+function M.bind_alarm_controls(c)
+  local ui=c.supplies_ui
+  local label=ui and ui.label
+  if not label then return false end
+  if ui.check_all_bound then return true end
+  if type(label.setClickCallback)~='function' then return false end
+  local original
+  if ui.drag_bound then
+    original=label.clickCallback
+    if type(original)~='function' then return false end
+  else
+    if type(label.setMoveCallback)~='function' or type(label.setReleaseCallback)~='function' then return false end
+    original=function(event)
+      if type(label.raise)=='function' then label:raise() end
+      return M.drag(c,'press',event)
+    end
+    label:setMoveCallback(function(event)return M.drag(c,'move',event)end)
+    label:setReleaseCallback(function(event)return M.drag(c,'release',event)end)
+    ui.drag_bound=true
+  end
+  label:setClickCallback(function(event)
+    if type(event)=='table' and (event.button=='RightButton' or event.button=='Right') then
+      local ok,why=M.check_all(c)
+      print(why)
+      return ok,why
+    end
+    return original(event)
+  end)
+  if type(label.setToolTip)=='function' then
+    label:setToolTip('Right-click: CHECK ALL supplies (read-only; no refill). Left-click: raise / drag.')
+  end
+  ui.check_all_bound=true
+  return true
+end
 function M.render(c)
   local s = M.state(c)
   local function entry(k)
@@ -286,12 +441,7 @@ function M.render(c)
     local x=math.max(0,math.min(position and position.x or 350,math.max(0,w-width-10)))
     local y=math.max(0,math.min(position and position.y or 10,math.max(0,h-height)))
     local label = ui.label
-    if not ui.drag_bound and type(label.setClickCallback)=='function' and type(label.setMoveCallback)=='function' and type(label.setReleaseCallback)=='function' then
-      label:setClickCallback(function(event)if type(label.raise)=='function'then label:raise()end;M.drag(c,'press',event)end)
-      label:setMoveCallback(function(event)M.drag(c,'move',event)end)
-      label:setReleaseCallback(function(event)M.drag(c,'release',event)end)
-      ui.drag_bound=true
-    end
+    M.bind_alarm_controls(c)
     label:move(x,y)
     label:resize(width, math.min(height,h))
     local color = s.level=='critical' and '#a40000' or (s.level=='warning' and '#5e4100' or '#172832')
@@ -518,6 +668,9 @@ function M.prompt(c)
   M.render(c)
 end
 function M.audit(c,sender,cache_only,source)
+  -- Bound owners must never replace a census-owned capability. Standalone,
+  -- unbound consumers retain the explicit injected-sender API.
+  if c.survival_arbiter and sender~=nil and sender~=c.supplies_sender then return false,'bound read-only sender replacement refused' end
   if source~=nil and source~='fluidcache' and source~='ic' then return false,'unsupported source' end
   expire(c)
   local d=data(c)
@@ -527,7 +680,9 @@ function M.audit(c,sender,cache_only,source)
   sender=sender or c.supplies_sender
   if type(sender)~='function' then return false,'no injected read-only sender' end
   if not connected(c) then return false,'disconnected' end
-  d.requested=true;c.supplies_sender=sender;d.last_attempt=now(c)
+  d.requested=true
+  if sender~=c.supplies_sender then c.supplies_sender=sender end
+  d.last_attempt=now(c)
   if not cache_only then M.audit_containers(c) end
   d.audit_id=(d.audit_id or 0)+1
   d.auditing=true;d.missing_wanted={}
@@ -579,7 +734,7 @@ function M.attach(c,preserve)
       for _,id in ipairs(old.triggers or {})do if killTrigger then killTrigger(id)end end
       if old.timer and killTimer then killTimer(old.timer)end
     end
-    if c.supplies_ui then c.supplies_ui.drag_bound=false end
+    if c.supplies_ui then c.supplies_ui.drag_bound=false;c.supplies_ui.check_all_bound=nil end
   else
     M.detach(c) -- invoke the old module's cleanup for an actual lifecycle reset
     if c.containers and c.containers.invalidate then c.containers.invalidate(c) end

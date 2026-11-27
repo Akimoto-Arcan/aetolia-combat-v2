@@ -44,6 +44,7 @@ function M.items(s,payload)
   local w=s.walker;if w then w.clear=nil;w.inspection=nil end
   return false
  end
+ s.hunting.defensive=nil
  s.room.items={}
  for _,item in ipairs(payload.items or {}) do if item.id then s.room.items[tostring(item.id)]={name=tostring(item.name or item.id),attrib=tostring(item.attrib or ""),icon=item.icon} end end
  s.room.item_version=(s.room.item_version or 0)+1
@@ -58,6 +59,7 @@ function M.item_removed(s,payload)
  local raw=payload.item or payload.id;local id=type(raw)=="table" and raw.id or raw
  if not id then return end
  s.room.items[tostring(id)]=nil;s.room.item_version=(s.room.item_version or 0)+1
+ if s.walker and s.walker.active then s.walker.reinspect=true end -- actual Remove invalidates departure evidence, not traversal consent
  if M.areas then s.hunting.area_snapshot=nil;s.hunting.area_dirty=true end
  if s.mode=="BASH" and tostring(s.target.name)==tostring(id) and not s.target.dead then s.stop_reason="target left room; confirmation required" end
 end
@@ -112,13 +114,15 @@ function M.ih_select(s)
  if scan.room_id~=nil and scan.room_id~=s.room.id then return false,"IH room changed" end
  if scan.area~=nil and scan.area~=s.room.area then return false,"IH area changed"end
  if M.areas and s.hunting.preset and s.hunting.area_recovery then return false,"awaiting solicited recovery list and later prompt"end
- if scan.invalidated or scan.recovery_prompt and not scan.prompt_ready then return false,"awaiting solicited complete list and later prompt" end
+ if scan.invalidated or (scan.recovery_prompt or s.hunting.area_auto) and not scan.prompt_ready then return false,"awaiting solicited complete list and later prompt" end
  if M.areas and s.hunting.preset and (not M.areas.fresh(s)or scan.items~=s.room.items)then return false,"awaiting complete fresh room list" end
  scan.pending=false
- if M.areas and s.hunting.preset then
+ if M.areas and (s.hunting.area_auto or s.hunting.preset or s.hunting.defensive)then
+  if s.hunting.area_auto_hold then return false,s.hunting.area_auto_hold end
   local id,why=M.areas.pick(s,scan.items)
   if not id then s.hunting.verified_generation=nil;return false,why end
   local item=scan.items[id]
+  M.areas.certify_defensive(s,id)
   if tostring(s.target.name)~=id or s.target.dead then State.set_target(s,id)end
   s.target.display_name=item.name;s.hunting.target_name=item.name
   scan.active=false;scan.found=id;s.stop_reason=nil;s.hunting.area_dirty=false
