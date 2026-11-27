@@ -411,7 +411,11 @@ function M.new(io,settings,state)
      if s.present==false and s.presence_room==s.room and (s.full_item_version or -1)>(s.absence_after_version or -2) then return recall() end
      return
     end
-    return commit('mount','quickmount '..s.mount)
+    -- Native mounted="0" means unmounted, not "riding a different mount".
+    -- If our exact loyal is present, mount it before FIND. A genuine different
+    -- positive mount remains a hold and is never silently replaced.
+    if s.mounted=='0' then return commit('mount','quickmount '..s.mount) end
+    return
    end
    if s.intent=='qm' then s.intent=nil;s.status='own mount confirmed';return end
    if s.intent=='pt' then
