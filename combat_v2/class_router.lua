@@ -92,7 +92,8 @@ function M.new(modules)
   heatshield={ability='Heatshield',group='Tectonics',command='TECTONIC HEATSHIELD',resource='impurity',cost=300},
   smothering={ability='Smothering',group='Tectonics',command='TECTONIC SMOTHERING',resource='impurity',cost=30},
   insulation={ability='Insulation',group='Tectonics',command='TECTONIC INSULATION',resource='impurity',cost=20},
-  ribcage={ability='Ribcage',group='Subjugation',command='OSSO RIBCAGE',resource='fragments',cost=100,eq='4.00'}
+  ribcage={ability='Ribcage',group='Subjugation',command='OSSO RIBCAGE',resource='fragments',cost=100,eq='4.00'},
+  reinforce={ability='Reinforce',group='Apocalyptia',command='DIRGE REINFORCE',resource='fervour',cost=150,eq='3.00',willpower=50}
  }
  local function finite(v)return type(v)=='number'and v==v and math.abs(v)<math.huge end
  local function integer(v)return finite(v)and v>=0 and v%1==0 end
@@ -125,19 +126,32 @@ function M.new(modules)
   local x=api.resource_receipt(s,key)
   return x and x.units=='raw'and not x.unavailable and recent(s,x.record)and integer(x.value)and x or nil
  end
- local function dynamic(s,e)
+ local function dynamic(s,e,key)
   local v=e.vitals
   if not v or not recent(s,v)or type(v.raw)~='table'then return false end
-  for _,k in ipairs({'balance','equilibrium','left_arm','right_arm'})do if not flag(v.raw[k])then return false end end
-  for _,k in ipairs({'balance','equilibrium','left_arm_balance','right_arm_balance'})do if not flag(s.player[k])then return false end end
+  for _,k in ipairs({'balance','equilibrium'})do if not flag(v.raw[k])or not flag(s.player[k])then return false end end
+  if key=='reinforce'then
+   local aff=s.player.afflictions or {};local usable=false
+   for _,side in ipairs({'left','right'})do
+    if flag(v.raw[side..'_arm'])and flag(s.player[side..'_arm_balance'])and not aff[side..'_arm_crippled']and not aff[side..'_arm_broken']and not aff[side..'_arm_mangled']then usable=true end
+   end
+   if not usable or aff.entangled or aff.paralysed or aff.fallen then return false end
+  else
+   for _,k in ipairs({'left_arm','right_arm'})do if not flag(v.raw[k])then return false end end
+   for _,k in ipairs({'left_arm_balance','right_arm_balance'})do if not flag(s.player[k])then return false end end
+  end
   if flag(v.raw.channeling)or flag(v.raw.writhing)or flag(v.raw.prone)or flag(v.raw.fallen)or s.player.prone then return false end
-  for _,k in ipairs({'blackout','recklessness','paralysis','paresis','asleep','unconscious','unconsciousness','stun','stunned','webbed','bound','transfixed','impaled','left_arm_broken','right_arm_broken','left_arm_mangled','right_arm_mangled'})do if flag((s.player.afflictions or {})[k])then return false end end
+  local hinders={'blackout','recklessness','paralysis','paresis','asleep','unconscious','unconsciousness','stun','stunned','webbed','bound','transfixed','impaled'}
+  if key~='reinforce'then for _,k in ipairs({'left_arm_broken','right_arm_broken','left_arm_mangled','right_arm_mangled'})do hinders[#hinders+1]=k end end
+  for _,k in ipairs(hinders)do if flag((s.player.afflictions or {})[k])then return false end end
   return finite(tonumber(s.player.hp))and tonumber(s.player.hp)>0
    and tonumber(v.raw.hp)==tonumber(s.player.hp)and tonumber(v.raw.maxhp)==tonumber(s.player.maxhp)
  end
  local function learned(s,key)
   local e=context(s);local z=schemas[key];local a=z and e.ab[key]
-  if not e.scope or not a or not a.syntax or not a.cost then return false end
+  -- Reinforce's self syntax/150 fervour/50 WP/3s schema is qualified by the
+  -- preserved own receipt + DETAILS. Runtime reacquires ownership, not prose.
+  if not e.scope or not a or key~='reinforce'and(not a.syntax or not a.cost)then return false end
   local o=s.class_observations;local rec=o.learned and o.learned[z.group:lower()]
   if not rec or e.learned[z.group:lower()]~=rec or not rec.scope or rec.scope.session~=o.session or rec.scope.life~=o.life or rec.scope.epoch~=o.epoch or rec.version~=o.version or rec.observer~=o.observer_version then return false end
   for _,x in ipairs(rec.raw.list or {})do if type(x)=='table'and tostring(x.name):lower()==z.ability:lower()and(x.known==true or x.known==1 or x.known=='Yes')and x.inactive~=true then return true end end
@@ -151,10 +165,12 @@ function M.new(modules)
   local e=context(s);local z=schemas[key]
   if not z or not learned(s,key)then return nil,'current own AB and learned-list proof required'end
   if z.resource=='impurity'then return nil,'raw impurity maximum/headroom unobserved; percentage is not capacity'end
-  if not dynamic(s,e)then return nil,'fresh exact readiness required'end
+  if key=='reinforce'and s.earthcaller and s.earthcaller.native and s.earthcaller.native.documentation then return nil,'native documentation active'end
+  if not dynamic(s,e,key)then return nil,'fresh exact readiness required'end
+  if key=='reinforce'and(not e.wp or not recent(s,e.wp.record)or not integer(e.wp.value)or e.wp.value<50)then return nil,'fresh absolute willpower >=50 required'end
   local q=current_resource(s,e,z.resource)
   if not q or not integer(q.maximum)or q.maximum<=0 or q.value>q.maximum or q.value<z.cost then return nil,'fresh raw resource/max or unspent budget required'end
-  if z.resource=='fervour'and e.fervour_max~=65000 then return nil,'current native Fervour maximum AB required'end
+  if z.resource=='fervour'and key~='reinforce'and e.fervour_max~=65000 then return nil,'current native Fervour maximum AB required'end
   return {schema='earth-defense-native-v1',syntax=z.command,costs_verified=true,channels_verified=true,ledger_verified=true,cost=z.cost,resource=z.resource,before=q.value,maximum=q.maximum,record=q.record,generation=q.generation,scope=e.scope},nil
  end
  local function reserve(s,key,a,p)
@@ -162,10 +178,11 @@ function M.new(modules)
   if not x or e.pending or a.command~=z.command or type(p)~='table'then return false,why end
   local o=s.class_observations
   local api=modules.Earthcaller
-  local token=api.resource_reserve(s,x.resource,x.cost,key=='ribcage'and 'survival.ribcage'or 'buffs.'..key,x.generation)
+  local token=api.resource_reserve(s,x.resource,x.cost,(key=='ribcage'or key=='reinforce')and 'survival.'..key or 'buffs.'..key,x.generation)
   if not token then return false,'shared resource reservation denied'end
   if not api.resource_commit(s,token)then api.resource_release(s,token);return false,'shared resource commit denied'end
   p.earth_reservation={key=key,scope=e.scope,before=x.before,maximum=x.maximum,resource=x.resource,cost=x.cost,seq=o.sequence,at=s.clock,command=z.command,channel='equilibrium',token=token}
+  if key=='reinforce'then p.earth_reservation.wp_before=e.wp.value end
   e.pending=p.earth_reservation
   return true
  end
@@ -180,7 +197,8 @@ function M.new(modules)
  function r.earth_contract(s,key)return contract(s,key)end
  local function prompt_after_witnesses(x,prompt)
   if not prompt then return false end
-  for _,key in ipairs({'own','add','debit','channel_used','loss','recovery'})do
+  local required=x.key=='reinforce'and {'own','heal','wp_after','debit','channel_used','loss','recovery'}or {'own','add','debit','channel_used','loss','recovery'}
+  for _,key in ipairs(required)do
    if not x[key]or prompt<=x[key]then return false end
   end
   return true
@@ -189,7 +207,7 @@ function M.new(modules)
   local x=p and p.earth_reservation
   if not x then return true end
   local e=context(s)
-  return e.scope==x.scope and e.pending==x and not x.invalidated and not x.fault and prompt_after_witnesses(x,x.prompt)and dynamic(s,e)
+  return e.scope==x.scope and e.pending==x and not x.invalidated and not x.fault and prompt_after_witnesses(x,x.prompt)and dynamic(s,e,x.key)
  end
  function r.earth_retire(s,p)
   if not r.earth_settled(s,p)then return false end
@@ -220,14 +238,16 @@ function M.new(modules)
     if f.maximum and raw=='Maximum amount of fervour: 65,000' then e.fervour_max=65000 end
     local z=schemas[f.key];local ab=e.ab[f.key]
     if z and ab then
-     if raw=='Syntax: '..z.command or f.key=='ribcage'and raw=='Syntax: OSSO RIBCAGE [target]'then ab.syntax=true end
+     if raw=='Syntax: '..z.command or (f.key=='ribcage'or f.key=='reinforce')and raw=='Syntax: '..z.command..' [target]'then ab.syntax=true end
      local label=z.resource=='fervour'and 'Fervour cost: 'or z.resource=='impurity'and 'Impurity gained: 'or 'Fragment cost: '
      if raw==label..z.cost then ab.cost=true end
     end
    end
    if x and not f and rec.seq>x.seq then
     local z=schemas[x.key]
+    if x.key=='reinforce'and raw:match('^You use ')and(raw~='You use Apocalyptia Reinforce.'or x.own)then x.fault='foreign/duplicate action during Reinforce'end
     if raw=='You use '..z.group..' '..z.ability..'.'then x.own=rec.seq end
+    if x.key=='reinforce'and x.own and raw=='The strength of stone and sand envelops you as the earth mends your wounds.'then x.heal=rec.seq end
     if x.own and z.eq and raw=='Equilibrium Used: '..z.eq..' seconds'then x.channel_used=rec.seq end
     if raw=='You have recovered equilibrium.'and x.loss then x.recovery=rec.seq end
    end
@@ -235,7 +255,17 @@ function M.new(modules)
    e.learned[raw.group:lower()]=rec
   elseif source=='Char.Vitals'and type(raw)=='table'then
    e.vitals=rec
+   if raw.wp~=nil then
+    local wp=tonumber(raw.wp);e.wp=integer(wp)and {value=wp,record=rec}or nil
+    -- WP regeneration and FIRSTAID can share a Vitals frame: net WP is not
+    -- an attributable 50-point debit. Require actual post-own-ACK WP instead;
+    -- admission still needs >=50, and own heal/fervour/EQ settle execution.
+    if x and x.key=='reinforce'and x.own and rec.seq>x.own and integer(wp)then
+     x.wp_after=rec.seq
+    end
+   end
    if x and rec.seq>x.seq then
+    if x.key=='reinforce'and x.recovery and(raw.equilibrium=='0'or raw.equilibrium==0)then x.fault='second EQ consumption during Reinforce'end
     if raw.equilibrium=='0'or raw.equilibrium==0 then x.loss=rec.seq;x.recovery=nil
     elseif flag(raw.equilibrium)and x.loss then x.recovery=rec.seq end
    end
@@ -275,6 +305,17 @@ function M.new(modules)
  function r.reserve_ribcage(s,p)
   if not r.ribcage_ready(s)then return false end
   return reserve(s,'ribcage',{command='OSSO RIBCAGE'},p)
+ end
+ -- Emergency heal, not a canonical DEF/upkeep producer. Acquisition stays native.
+ function r.reinforce_known(s)return learned(s,'reinforce')end
+ function r.reinforce_ready(s)
+  local e=context(s)
+  if e.pending or r.barrier(s)then return false,'another action is issued'end
+  local x,why=contract(s,'reinforce');return x~=nil,why
+ end
+ function r.reserve_reinforce(s,p)
+  if not r.reinforce_ready(s)then return false end
+  return reserve(s,'reinforce',{command='DIRGE REINFORCE'},p)
  end
  function r.defense(s,key,selecting)
   local cl=s.player.class;local module=modules[cl];if not module then return wait('unsupported current class')end

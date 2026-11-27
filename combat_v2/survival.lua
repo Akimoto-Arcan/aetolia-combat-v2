@@ -175,11 +175,11 @@ function M.bind(c,binding)
   local passive=readonly_ok(binding.classifiers.passive_restock,c);local terminal=readonly_ok(binding.classifiers.terminal_globe,c)
   for name,o in pairs(all)do
    local skip={}
-   if own and own.kind=='ribcage'and x.s.transport_barriers and router.owns_resource_barrier(x.s,own.pending,x.s.transport_barriers.cv2_earthcaller_resources)then skip.earth_resource=x.s.transport_barriers.cv2_earthcaller_resources end
+   if own and(own.kind=='ribcage'or own.kind=='reinforce')and x.s.transport_barriers and router.owns_resource_barrier(x.s,own.pending,x.s.transport_barriers.cv2_earthcaller_resources)then skip.earth_resource=x.s.transport_barriers.cv2_earthcaller_resources end
    if o==c.restock_data and passive then skip.fault=true end
    if o==c.supplies_data and readonly_ok(binding.classifiers.readonly_supplies,c)then skip.pending=true end
    if o==c.elemental_recovery and terminal then skip.fault=true;skip.pending=true end
-   if own and own.kind=='ribcage'and o==own.pending then skip.committed=true end
+   if own and(own.kind=='ribcage'or own.kind=='reinforce')and o==own.pending then skip.committed=true end
    if own and own.kind=='escape'and o==x.s.walker then
     if o.pending and o.pending==own.pending then skip.pending=true end
     if o.dispatching and o.dispatching==own.pending then skip.dispatching=true end
@@ -220,11 +220,27 @@ function M.bind(c,binding)
   local ok,eligible,meta=pcall(x.escape_fn,c,c.bash_emergency)
   return ok and eligible==true and type(meta)=='table',meta
  end
+ local function reinforce_eligible(own)
+  local s=x.s;local n=x.n;local cfg=s.config or {};local hp=ratio(c)
+  local threshold=cfg.earthcaller_reinforce_health or 50
+  if not finite(threshold)or threshold<=20 or threshold>100 then return false end
+  if cfg.earthcaller_reinforce_enabled==false or cfg.defense_enabled==false or c.mode~='BASH'or s.mode~='BASH'or x.r.mode~='BASH'
+   or s.player.class~='Earthcaller'or s.connected~=true or s.player.dead or s.training_battle_ended or not hp or hp<.20 or hp>=threshold/100 then return false end
+  if not n or n.fault or not observer()or not n.live or not n.affs_known or n.affs_session~=n.session then return false end
+  local t=(binding.now or getEpoch or os.clock)()
+  if not finite(t)or not finite(n.hp_at)or t<n.hp_at or t-n.hp_at>2 or s.player.hp~=n.hp or s.player.maxhp~=n.maxhp then return false end
+  if type(getConnectionInfo)~='function'then return false end
+  local ok,_,_,tcp=pcall(getConnectionInfo);if not ok or tcp~=true then return false end
+  local ready,meta=escape_candidate();if ready and meta.cause=='incoming-stall'then return false end
+  if own then return own==s.earth_defense_pending and not own.invalidated and not own.fault and router.earth_contract(s,'reinforce')~=nil end
+  return type(router.reinforce_ready)=='function'and router.reinforce_ready(s)==true
+ end
  local function choose(kind,hp,lease,prospective)
   local actual=ratio(c);if not actual or not finite(hp)or hp~=actual then return nil,'fresh canonical ratio mismatch'end
   local clear,why=census(kind,lease,prospective);if not clear then return nil,why end
   local record=own_record(lease,kind)
   if record then
+   if kind=='reinforce'then return reinforce_eligible(record.pending)and 'reinforce'or nil end
    if kind=='escape'then local ready,meta=escape_candidate();return ready and meta.kind~='ribcage'and 'escape'or nil end
    if kind=='ribcage'then local ready,meta=escape_candidate();return ready and meta.kind=='ribcage'and x.s.player.class=='Earthcaller'and 'ribcage'or nil end
    return defense_eligible(kind,record.pending)and kind or nil
@@ -233,6 +249,7 @@ function M.bind(c,binding)
   -- NEW-grant incoming-pressure episode. Never infer a numeric HP crossing.
   local ready,meta=escape_candidate()
   if ready and meta.kind~='ribcage'and(actual<.20 or meta.cause=='incoming-stall')then return 'escape'end
+  if reinforce_eligible()then return 'reinforce'end
   if defense_eligible('shift',prospective)then return 'shift'end
   if defense_eligible('numb',prospective)then return 'numb'end
   if ready and meta.kind=='ribcage'and(actual<.20 or meta.cause=='incoming-stall')
@@ -244,10 +261,11 @@ function M.bind(c,binding)
  function api.choose(controller,kind,hp,lease)if controller~=c then return nil end;return choose(kind,hp,lease)end
  function api.owns(controller,lease)return controller==c and own_record(lease)~=nil end
  function api.reserve(controller,kind,args)
-  if controller~=c or x.active or type(args)~='table'or(kind~='numb'and kind~='shift'and kind~='escape'and kind~='ribcage')then return false end
+  if controller~=c or x.active or type(args)~='table'or(kind~='numb'and kind~='shift'and kind~='escape'and kind~='ribcage'and kind~='reinforce')then return false end
   local pending=x.n and x.n.pending
+  if kind=='reinforce'then pending=x.reinforce_prospective;if not pending or pending.owner~=x.defense then return false end end
   if kind=='ribcage'then pending=x.ribcage_prospective;if not pending or pending.owner~=c.bash_emergency then return false end end
-  if kind~='escape'and kind~='ribcage'and(not pending or pending.kind~=kind or pending.lease~=nil or pending.dispatching~=true)then return false end
+  if kind~='escape'and kind~='ribcage'and kind~='reinforce'and(not pending or pending.kind~=kind or pending.lease~=nil or pending.dispatching~=true)then return false end
   local choice=choose(kind,args.hp_ratio,nil,kind~='escape'and pending or nil);if choice~=kind then return false end
   local meta
   if kind=='escape'or kind=='ribcage'then local ready;ready,meta=escape_candidate();if not ready or args.session~=meta.session or(kind=='ribcage')~=(meta.kind=='ribcage')then return false end
@@ -257,6 +275,7 @@ function M.bind(c,binding)
   return lease
  end
  local function command_allowed(a,command)
+  if a.kind=='reinforce'then return command=='DIRGE REINFORCE'and not a.issued and reinforce_eligible(a.pending)end
   if a.kind=='ribcage'then
    local p=a.pending
    return c.mode=='BASH'and x.s.mode=='BASH'and x.r.mode=='BASH'and x.s.player.class=='Earthcaller'
@@ -293,7 +312,7 @@ function M.bind(c,binding)
     local ok,result=pcall(group.original,...);a.dispatching=false;a.finalized=true;a.transport_ok=ok and result~=false
     if not ok then error(result)end;return result
    end
-   if command=='NUMB'or command=='SHIFT'or command=='OSSO RIBCAGE'then return false,'emergency recipe requires an actual owned survival lease'end
+   if command=='NUMB'or command=='SHIFT'or command=='OSSO RIBCAGE'or command=='DIRGE REINFORCE'then return false,'emergency recipe requires an actual owned survival lease'end
    x.foreign_dispatch=(x.foreign_dispatch or 0)+1
    local ok,one,two,three=pcall(group.original,...)
    x.foreign_dispatch=x.foreign_dispatch-1;if x.foreign_dispatch==0 then x.foreign_dispatch=nil end
@@ -349,6 +368,28 @@ function M.bind(c,binding)
   if not p.transport_ok then p.fault='Ribcage transport unknown; commitment retained'end
   return p.transport_ok,p.transport_ok and 'Ribcage issued once; awaiting native settlement'or p.fault
  end
+ -- Called by the existing defense service only; no new callback or timer.
+ function api.reinforce(controller)
+  if controller~=c then return false,'foreign controller'end
+  local a=x.active
+  if a then
+   if a.kind~='reinforce'then return false,'another survival owner'end
+   if api.settle(c)then return true,'Reinforce settled'end
+   return true,'Reinforce committed; awaiting own heal/debits/EQ/later prompt'
+  end
+  if not reinforce_eligible()then return false,'Reinforce not eligible'end
+  local p={owner=x.defense,committed=true,session=x.n.session,kind='reinforce'}
+  x.reinforce_prospective=p
+  local lease=api.reserve(c,'reinforce',{hp_ratio=ratio(c),session=p.session})
+  x.reinforce_prospective=nil
+  if not lease then return false,'Reinforce lease declined'end
+  if not router.reserve_reinforce(x.s,p)then x.active=nil;return false,'Reinforce resource reservation declined'end
+  p.lease=lease;x.s.earth_defense_pending=p
+  local ok,result=pcall(api.transport,c,lease,'reinforce',c.defense_sender,'DIRGE REINFORCE')
+  p.transport_ok=ok and result~=false
+  if not p.transport_ok then p.fault='Reinforce transport failed/unknown; commitment retained'end
+  return true,p.fault or 'Reinforce issued once; awaiting native settlement'
+ end
  function api.release(controller,lease)
   local a=controller==c and own_record(lease)
   if not a or a.scope or a.dispatching then return false end
@@ -357,7 +398,7 @@ function M.bind(c,binding)
   if not a.issued then
    if a.kind~='escape'or x.s.walker.pending or x.s.walker.dispatching then return false end
   elseif not a.finalized or not a.transport_ok or not p or p.transport_ok~=true then return false
-  elseif a.kind=='ribcage'then
+  elseif a.kind=='ribcage'or a.kind=='reinforce'then
    if x.s.earth_defense_pending~=p or p.fault or not router.earth_retire(x.s,p)then return false end
    x.s.earth_defense_pending=nil
   elseif a.kind=='escape'then
@@ -372,7 +413,7 @@ function M.bind(c,binding)
  end
  function api.settle(controller)
   if controller~=c then return false end;local a=x.active
-  if a and(a.kind=='escape'or a.kind=='ribcage')then return api.release(c,a.lease)end
+  if a and(a.kind=='escape'or a.kind=='ribcage'or a.kind=='reinforce')then return api.release(c,a.lease)end
   return false
  end
  function api.busy(controller)return controller~=c or x.active~=nil or x.fault~=nil or x.binding end

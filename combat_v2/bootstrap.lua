@@ -769,7 +769,16 @@ function combat_v2_set_mode(mode)
    c.state.record(s,"class_query","native Quash discovery for new BASH intent")
    send("ab subjugation")
    send("ab subjugation quash details")
-  end
+   end
+   -- Native list + explicit Known header are paired by existing ingress (5s).
+   -- Once per new BASH intent; no timer/query loop or replayed capability.
+   if new_bash_intent and s.connected and not s.player.dead and (tonumber(s.player.hp)or 0)>0
+   and s.player.class=="Earthcaller" and (s.config or {}).earthcaller_reinforce_enabled~=false
+   and not c.class_router.reinforce_known(s) and not c.class_router.barrier(s) then
+   c.state.record(s,"class_query","native Reinforce discovery for new BASH intent")
+   send("ab apocalyptia")
+   send("ab apocalyptia reinforce details")
+   end
   if c.supplies and (c.supplies_quiet==false or not c.supplies_data or not c.supplies_data.requested) then combat_v2_supplies("check")end
   local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end
   c.current.hunting.verified_generation=nil

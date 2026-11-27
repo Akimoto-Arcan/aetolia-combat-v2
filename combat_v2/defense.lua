@@ -265,7 +265,7 @@ function M.shift_candidate(c,own)
 end
 function M.numb_hold(s)
  local n=numb_state(s)
- return n and (n.pending~=nil or n.fault~=nil)and true or false,n and n.status
+ return (s.earth_defense_pending~=nil or n and(n.pending~=nil or n.fault~=nil))and true or false,n and n.status
 end
 local function numb_defence(n,active)
  n.defs_at=now()
@@ -470,6 +470,12 @@ end
 function M.numb_service(s,sender)
  local n,c=numb_state(s);if not n then return false end
  numb_observer_proof(c,n)
+ -- Existing service/arbiter/owned sender only. FIRSTAID retains ordinary cures.
+ local arb=numb_arbiter(c)
+ if arb and type(arb.reinforce)=='function'then
+  local busy,status=arb.reinforce(c)
+  if busy then n.status=status;return true end
+ end
  local p=n.pending
  if p then
   if p.settling then return true end
