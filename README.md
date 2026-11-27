@@ -1,5 +1,7 @@
 # Aetolia Combat V2
 
+Optional Poker/Farkle helper: `cv2 games on|off|status`, or `cv2 poker on|off` / `cv2 farkle on|off`. Defaults OFF, pauses during combat/travel, and never raises/all-ins. Poker auto-buy-in spends 200 in-game gold when enabled. See [minigames](docs/minigames.md).
+
 ## Manual-walk area bashing (integrated update)
 
 Do NOT install the separate ManualBasher package alongside Combat V2.

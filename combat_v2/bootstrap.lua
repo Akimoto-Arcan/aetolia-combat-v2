@@ -63,6 +63,9 @@ if c.defense.attach then c.defense.attach(c)end
 c.defense.numb_bind(c)
 c.mental=dofile(root.."mental.lua");c.mental.bind_defense(c.defense);local mental_disarmed=operator_reset_off or c.current.mental and c.current.mental.enabled==false;c.current.mental=nil;if mental_disarmed then c.mental.state(c.current).enabled=false end;c.current.config.pvp_stance=c.current.config.pvp_stance or "eagle";c.current.config.finish_stance=c.current.config.finish_stance or "cobra"
 c.mode="OFF";c.current.mode="OFF";c.current.hunting.active=false;c.current.stop_reason=nil
+local games_playing=c.minigames and c.minigames.playing
+if c.minigames then c.minigames.stop("reload; minigames disabled")end
+c.minigames=dofile(root.."minigames.lua").new(c,{send=function(command)return send(command,false)end},games_playing)
 local function refresh() c.gui.refresh(c.current,c.runner,c.cure) end
 -- Buff preparation/upkeep is separate from FIRSTAID's survival governor.
 c.buffs=dofile(root.."buffs.lua");c.buffs.bind_classes(c.class_router,class_modules,dofile(root.."class_catalog.lua"),c.current);c.buffs.stop(c.current,"reload; upkeep disarmed");c.buff_class_seen=nil;c.buff_skill_seen=nil
@@ -516,6 +519,7 @@ function combat_v2_start_ih(reason,force,defer_entry)
  return combat_v2_request_ih()
 end
 function combat_v2_stop(reason)
+ if c.minigames then c.minigames.stop(reason or "Combat V2 STOP")end
  if c.elementals then c.elementals.arm(c,false)end
  c.buffs.stop(c.current,reason or "OFF; upkeep disarmed")
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"OFF")end
@@ -895,12 +899,13 @@ local function handler(event,fn)
  survival_events[#survival_events+1]={id=id,event=event,fn=fn}
 end
 handler("gmcp.Char.Status",function()class_ingress("Char.Status",gmcp.Char.Status);buff_snapshot("gmcp.Char.Status");c.buffs.race_status(c.current,(gmcp.Char.Status or {}).race);c.defense.numb_observe(c,"status",gmcp.Char.Status);combat_v2_tick()end)
-handler("gmcp.Char.Vitals",function() class_ingress("Char.Vitals",gmcp.Char.Vitals);buff_snapshot("gmcp.Char.Vitals");c.state.sync_gmcp(c.current,gmcp);if c.current.player.dead then c.current.hunting.manual_target=nil;c.current.hunting.manual_certificate=nil end;if c.current.player.dead and c.current.hunting.area_auto_intent then c.current.hunting.area_auto_suspended='dead; fresh BASH intent required';c.current.hunting.auto_certificate=nil;c.current.hunting.verified_generation=nil end;c.buffs.vitals(c.current,gmcp.Char.Vitals or {});c.buff_sensory_vitals(gmcp.Char.Vitals or {});c.defense.numb_observe(c,"vitals",gmcp.Char.Vitals);combat_v2_tick() end)
+handler("gmcp.Char.Vitals",function() class_ingress("Char.Vitals",gmcp.Char.Vitals);buff_snapshot("gmcp.Char.Vitals");c.state.sync_gmcp(c.current,gmcp);if c.current.player.dead then if c.minigames then c.minigames.stop("dead; minigames disabled")end;c.current.hunting.manual_target=nil;c.current.hunting.manual_certificate=nil end;if c.current.player.dead and c.current.hunting.area_auto_intent then c.current.hunting.area_auto_suspended='dead; fresh BASH intent required';c.current.hunting.auto_certificate=nil;c.current.hunting.verified_generation=nil end;c.buffs.vitals(c.current,gmcp.Char.Vitals or {});c.buff_sensory_vitals(gmcp.Char.Vitals or {});c.defense.numb_observe(c,"vitals",gmcp.Char.Vitals);combat_v2_tick() end)
 for _,kind in ipairs({"Groups","List"})do
  local event="gmcp.Char.Skills."..kind
  handler(event,function()class_ingress("Char.Skills."..kind,gmcp.Char.Skills[kind]);buff_snapshot(event);c.defense.numb_observe(c,kind=="List"and"skills"or"groups",gmcp.Char.Skills[kind]);combat_v2_tick()end)
 end
 handler("sysDisconnectionEvent",function()
+ if c.minigames then c.minigames.disconnect()end
  class_ingress("sysDisconnectionEvent")
  c.defense.numb_observe(c,"disconnect")
  if c.walker_boot then c.walker_boot.revoke(c,"disconnected; walking disabled")end
@@ -996,6 +1001,7 @@ handler("combat_v2.observation",function(_,kind,target,key,value,confidence)
 end)
 local survival_line=function()
  local text=line or matches[1]
+ if c.minigames then c.minigames.line(text)end
  if raiseEvent then raiseEvent("operator.reset.firstaid.text",text)end
  class_ingress("native.text",text)
  c.buff_sensory_text(text)
@@ -1073,6 +1079,7 @@ c.alias=tempAlias([[^cv2(?:\s+(.*))?$]],function()
  local ok,why=true,nil
  if cmd=="target" then ok,why=combat_v2_set_target(rest)
  elseif cmd=="approve" then ok,why=combat_v2_approve()
+ elseif cmd=="games"or cmd=="poker"or cmd=="farkle"then ok,why=c.minigames.command(cmd,rest);if ok then print(why)end
  elseif cmd=="stop" or cmd=="off" then combat_v2_stop()
  elseif cmd=="walk"then ok,why=combat_v2_walk(rest)
  elseif cmd=="enemy" then if rest=="reset" then ok,why=combat_v2_reset_enemy_afflictions() else ok,why=false,"cv2 enemy reset" end
