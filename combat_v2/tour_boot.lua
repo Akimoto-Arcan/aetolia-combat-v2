@@ -448,12 +448,38 @@ function B.attach(c)
   if sid(c.current.room.id)==slot.row.entry then slot.local_entry=true;return send('look')~=false end
   local ok,why=owned(c.travel_module.pt,c,slot.row.entry)
   slot.transfer_serial=(c.travel_owner or {}).serial
-  return ok,why
- end
- io.arrived=function(slot,stamp)
+   if not ok and tostring(why or ''):find('PATH CLEAR requested',1,true) then
+    local reconcile=c.travel and c.travel.reconcile_status and c.travel.reconcile_status()
+    if type(reconcile)~='table'or reconcile.stage~='clear'then return false,why end
+    -- PATH CLEAR is an owned recovery prerequisite, not a terminal tour
+    -- failure. Solicit the required current-room evidence now and let ARRIVED
+    -- issue the new explicit PT request after the later prompt settles it.
+    slot.transfer_reconcile={serial=reconcile.serial,started=io.now()}
+    local sent=send('look')
+    local refreshed=c.travel.io.refresh_items()
+    if sent==false or refreshed==false then return false,'travel reconciliation status transport unknown'end
+    return true
+   end
+   return ok,why
+  end
+  io.arrived=function(slot,stamp)
   local tr=c.travel_owner or {}
   if tr~=slot.transfer_owner then return nil,'PT owner identity changed'end
   if tr.fault or tr.follow_fault then return nil,tr.fault or tr.follow_fault end
+   if slot.transfer_reconcile then
+    local recovery=slot.transfer_reconcile
+    local reconcile=c.travel and c.travel.reconcile_status and c.travel.reconcile_status()
+    if type(reconcile)~='table'or reconcile.serial~=recovery.serial then return nil,'travel reconciliation identity changed'end
+    if reconcile.ready~=true then
+     if io.now()-recovery.started>20 then return nil,'travel reconciliation response incomplete'end
+     return false
+    end
+    local ok,why=owned(c.travel_module.pt,c,slot.row.entry)
+    if not ok then return nil,why or 'reconciled PT request refused'end
+    slot.transfer_serial=(c.travel_owner or {}).serial
+    slot.transfer_reconcile=nil
+    tr=c.travel_owner or {}
+   end
   if not slot.local_entry and (tr.destination~=slot.row.entry or tr.serial<(slot.transfer_serial or 0))then return nil,'transfer destination/serial changed'end
   if trbusy()then return false end
   local refusal=tr.refusal;local rejected=tr.last_find_rejection
