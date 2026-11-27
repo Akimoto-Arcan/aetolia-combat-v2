@@ -1444,4 +1444,7 @@ end
 do local row=assert(M.catalog["ac2-the-offspring"])
  row.mobs["a chromatic aquatic dragonfly"]={priority=10,aggressive=false,provenance="Sunder@8eb9891505232cc505527e33f455404579a03f07 / Sunder.xml:64986 / the Offspring; source line 64986",evidence="historical exact area/species fact; current native metadata/room/ownership and all existing policy required"}
 end
+-- Exact native AREAS/Room.Info spelling, also used by the reviewed tour alias.
+-- Keep the existing catalog and protected-role rules; never strip articles.
+M.catalog.teshen.areas['the teshen caldera']=true
 return M

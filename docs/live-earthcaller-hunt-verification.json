@@ -1,0 +1,36 @@
+{
+  "source_patch": "Earthcaller new-action documentation gate",
+  "rooms_visited": 96,
+  "mapped_rooms": 96,
+  "movement_steps": 185,
+  "core_kills": 42,
+  "xp_before": 234986800,
+  "xp_after": 236481700,
+  "xp_gained": 1494900,
+  "elapsed_seconds": 642.247,
+  "sample_count": 313,
+  "minimum_sampled_hp": 2725,
+  "maximum_hp": 4042,
+  "deaths_observed": 0,
+  "final_mode": "OFF",
+  "final_hp": 4042,
+  "parent_attack_sends_after_patch": 0,
+  "note": "Player-occupied rooms skipped; visiting all rooms does not mean every mob was killed. Emergency low-health and natural re-wield not exercised.",
+  "observed_uncertain_issue_samples": 0,
+  "automatic_startup_live_check": {
+    "before": "Quash unknown after genuine native list/reload",
+    "after": "Quash learned from automatic native list + Known header",
+    "native_area": "the Teshen Caldera",
+    "selected_preset": "teshen",
+    "automatic": true,
+    "walking": false,
+    "hold": false,
+    "final_state": "OFF"
+  },
+  "earthcaller_emergency_heal": {
+    "native_skill": "DIRGE REINFORCE",
+    "manually_observed": true,
+    "native_eq_recovery_seconds": 3,
+    "automatic_failsafe_integrated": false
+  }
+}

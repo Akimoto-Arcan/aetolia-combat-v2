@@ -166,6 +166,10 @@ local function rewield(s)
 end
 function M.choose(s)
  if not M.active(s) then return wait('fresh current Earthcaller class required')end
+ -- A Known header arrives before its AB body. Defer new actions until the
+ -- genuine prompt closes that frame; help text must not poison a new issue.
+ local native=M.state(s).native
+ if native and native.documentation then return wait('native documentation frame still open')end
  if M.target_check then M.certify_target(s,M.target_check)end
  if s.mode~='BASH' and s.mode~='ASSIST' and s.mode~='FULL_AUTO' and s.mode~='SHADOW' then return wait('offense mode not permitted')end
  local p=s.player;local aff=p.afflictions or {}

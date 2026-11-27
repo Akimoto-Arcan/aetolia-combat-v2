@@ -749,6 +749,7 @@ end
 function combat_v2_set_mode(mode)
  mode=string.upper(mode or "OFF");if mode=="AUTO" or mode=="PVP" then mode="FULL_AUTO" end
  if not ({OFF=true,SHADOW=true,ASSIST=true,BASH=true,FULL_AUTO=true})[mode] then return false,"invalid mode" end
+ local new_bash_intent=mode=="BASH" and c.mode~="BASH"
  if c.monk.cancel_flurry and mode~=c.mode then c.monk.cancel_flurry(c.current,"mode changed")end
  if mode~="BASH"and c.elementals then c.elementals.arm(c,false)end
  if mode=="OFF" then return combat_v2_stop() end
@@ -759,6 +760,16 @@ function combat_v2_set_mode(mode)
  c.mode=mode;c.runner.mode=mode;c.current.mode=mode;c.runner.pending=nil;c.current.hunting.active=false
  c.current.hunting.area_auto_intent=mode=='BASH' or nil;c.current.hunting.area_auto_suspended=nil;c.current.hunting.area_auto=nil;c.current.hunting.area_auto_hold=nil;c.current.hunting.auto_certificate=nil
  if mode=="BASH" then
+  -- Acquire the actual string list and its separate Known header together.
+  -- Once per explicit OFF->BASH intent, never timer polling or learned guesses.
+  local s=c.current
+  if new_bash_intent and s.connected and not s.player.dead and (tonumber(s.player.hp)or 0)>0
+   and s.player.class=="Earthcaller" and not c.earthcaller.known(s,"quash")
+   and not c.class_router.barrier(s) then
+   c.state.record(s,"class_query","native Quash discovery for new BASH intent")
+   send("ab subjugation")
+   send("ab subjugation quash details")
+  end
   if c.supplies and (c.supplies_quiet==false or not c.supplies_data or not c.supplies_data.requested) then combat_v2_supplies("check")end
   local ok=c.bashing.start(c.current);if not ok then c.current.hunting.active=true;c.current.stop_reason=nil end
   c.current.hunting.verified_generation=nil
