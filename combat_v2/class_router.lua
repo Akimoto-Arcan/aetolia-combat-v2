@@ -62,7 +62,7 @@ function M.new(modules)
   elseif cl=='Infiltrator'then success,why=module.commit(s,b,o.sequence,s.clock)
   elseif cl=='Shapeshifter'then success,why=module.commit(s,b,id)
   elseif cl=='Archivist'then success,why=module.issued(s,b,id)
-  elseif cl=='Earthcaller'then module.issued(s,b)end
+  elseif cl=='Earthcaller'then success,why=module.issued(s,b)end
   if success==false then return false,why end
   o.issued={id=id,class=cl,scope={session=o.session,life=o.life,epoch=o.epoch},seq=o.sequence,at=s.clock,action=copy(b),state='issued/unknown'}
   r.sync_transport(s)

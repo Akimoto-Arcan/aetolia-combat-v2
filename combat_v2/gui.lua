@@ -318,7 +318,7 @@ function M.player_status_text(state,runner)
   prefix="<b style='font-size:16px;color:"..color..";'>STANCE: "..esc(stance).."</b> &nbsp; Kai: "..esc(p.kai or "?").."<br>"
   balances=balances.." &nbsp; Arms %s / %s";values[#values+1]=ready(p.left_arm_balance);values[#values+1]=ready(p.right_arm_balance)
  end
- return html(heading("PLAYER STATUS")..prefix..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana))..string.format(balances,(table.unpack or unpack)(values)).."<br>Executor: "..esc(runner.status or "idle"))
+ return html(heading("PLAYER STATUS")..prefix..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana))..string.format(balances,(table.unpack or unpack)(values)).."<br>Executor: "..esc(runner.status or "idle")..(state.earthcaller and state.earthcaller.graft and ("<br>GRAFT: "..esc(state.earthcaller.graft.status)..((state.earthcaller.graft.status=="active" or state.earthcaller.graft.drain_possible) and " — drain 10 fragments/20s may continue outside BASH; OFF does not cease" or "")) or ""))
 end
 function M.prompt_text(state,runner)
  local p=state.player;local prefix="";local monk=M.monk_display(state)

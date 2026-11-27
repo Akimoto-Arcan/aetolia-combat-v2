@@ -95,28 +95,41 @@ function M.execute(r,a,approved)
   a=canonical
  end
  local earth_owner=r.class_router and r.class_router.modules.Earthcaller
- if (a.name=='earth_quash' or a.name=='earth_rewield') and earth_owner and not earth_owner.transport_begin(s) then
+ if (a.name=='earth_quash' or a.name=='earth_rewield' or a.name=='earth_graft') and earth_owner and not earth_owner.transport_begin(s) then
   return deny('Earthcaller issued identity missing; retained unknown')
  end
- local ok,err=pcall(sender,a.command)
  local earth=r.class_router and r.class_router.modules.Earthcaller
  local transaction=earth and s.earthcaller and s.earthcaller.physical
- if (a.name=='earth_quash' or a.name=='earth_rewield') and transaction then
-  earth.transport_result(s,a.name=='earth_rewield' and 'rewield' or 'quash',ok,err)
-  -- No command concatenation, queue, timer or second owner. Recheck emergency
-  -- priority and live policy after the first real transport returns.
+ local command=a.command;local batch=false
+ if a.name=='earth_quash' and transaction then
+  -- Commit both legs BEFORE a single native Mudlet separator-expanded send.
+  -- Server prompts remain server output, never an admission wait for Splinter.
   local hold=M.defense and M.defense(s)
   local safe=M.policy and M.policy(s)
-  if a.name=='earth_quash' and ok and err==true and not hold and safe and r.mode=='BASH' and s.mode=='BASH'
+  local separator=type(getCommandSeparator)=='function' and getCommandSeparator()
+  if type(separator)=='string' and #separator>0 and not separator:find('[%w%s]')
+   and not hold and safe and r.mode=='BASH' and s.mode=='BASH'
    and connected(s) and not r.fault and not(s.buffs and s.buffs.pending)
    and not(s.walker and(s.walker.pending or s.walker.dispatching or s.walker.arrival_hold))
    and earth.pair_commit(s) then
-   local paired,result=pcall(sender,'OSSO SPLINTER')
-   earth.transport_result(s,'splinter',paired,result)
-   if paired and result==true then
+   command=command..separator..'OSSO SPLINTER';batch=true
+  end
+ end
+ local ok,err=pcall(sender,command)
+ if (a.name=='earth_quash' or a.name=='earth_rewield' or a.name=='earth_graft') and transaction then
+  earth.transport_result(s,a.name=='earth_graft' and 'graft' or a.name=='earth_rewield' and 'rewield' or 'quash',ok,err)
+  if batch then
+   earth.transport_result(s,'splinter',ok,err)
+   if ok and err==true then
     if s.stats then s.stats.sent=s.stats.sent+1 end
-    if s.history then s.history[#s.history+1]={time=now(),kind='send',target=s.target.name,detail='OSSO SPLINTER',reason='owned immediate Quash pair',generation=s.target_generation}end
+    if s.history then s.history[#s.history+1]={time=now(),kind='send',target=s.target.name,detail='OSSO SPLINTER',reason='owned separator-batched Quash pair',generation=s.target_generation}end
    end
+  end
+  if a.name=='earth_graft' and ok and err==true and r.mode=='BASH' and s.mode=='BASH' then
+   -- One activation readback, not per-swing polling. The same Runner owns IO.
+   local counted,result=pcall(sender,'OSSO COUNT')
+   transaction.graft.count_transport=counted and result==true
+   if not transaction.graft.count_transport then transaction.unknown='Graft COUNT transport unresolved' end
   end
   transaction.dispatching=false
   if transaction.unknown then

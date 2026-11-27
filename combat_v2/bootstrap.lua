@@ -763,12 +763,16 @@ function combat_v2_set_mode(mode)
   -- Acquire the actual string list and its separate Known header together.
   -- Once per explicit OFF->BASH intent, never timer polling or learned guesses.
   local s=c.current
+  local want_graft=(s.config or {}).earthcaller_graft_enabled~=false
   if new_bash_intent and s.connected and not s.player.dead and (tonumber(s.player.hp)or 0)>0
-   and s.player.class=="Earthcaller" and not c.earthcaller.known(s,"quash")
+   and s.player.class=="Earthcaller" and (want_graft or not c.earthcaller.known(s,"quash"))
    and not c.class_router.barrier(s) then
-   c.state.record(s,"class_query","native Quash discovery for new BASH intent")
+   c.state.record(s,"class_query","native Quash/Graft discovery for new BASH intent")
    send("ab subjugation")
    send("ab subjugation quash details")
+   if want_graft then send("ab subjugation graft details")end
+   if (s.config or {}).earthcaller_optional_splinter~=false then send("ab subjugation splinter details")end
+   if want_graft then send("osso count")end
    end
    -- Native list + explicit Known header are paired by existing ingress (5s).
    -- Once per new BASH intent; no timer/query loop or replayed capability.

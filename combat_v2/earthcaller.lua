@@ -12,7 +12,7 @@ local reservation_specs=setmetatable({},{__mode='k'})
 local reservation_evidence=setmetatable({},{__mode='k'})
 local function yes(x)return x==true or x==1 or x=='1'end
 local groups={subjugation=true,apocalyptia=true,tectonics=true}
-local abilities={splinter='subjugation',quash='subjugation',raze='subjugation',subdue='subjugation',beset='subjugation',deface='subjugation',fragmentation='subjugation',lavacoat='tectonics',heatshield='tectonics',smothering='tectonics',insulation='tectonics',battlehymn='apocalyptia',constitution='apocalyptia',revelation='apocalyptia',nightsight='tectonics'}
+local abilities={graft='subjugation',splinter='subjugation',quash='subjugation',raze='subjugation',subdue='subjugation',beset='subjugation',deface='subjugation',fragmentation='subjugation',lavacoat='tectonics',heatshield='tectonics',smothering='tectonics',insulation='tectonics',battlehymn='apocalyptia',constitution='apocalyptia',revelation='apocalyptia',nightsight='tectonics'}
 function M.state(s)
  if not s.earthcaller then s.earthcaller={epoch=0,skills={},resources={},effects={}}end
  return s.earthcaller
@@ -24,7 +24,7 @@ function M.invalidate(s,reason)
   local evidence=reservation_evidence[token]
   if evidence and not evidence.ambiguity then evidence.ambiguity={reason=reason or 'scope lost',seq=s.native_event_sequence}end
  end
- local e=M.state(s);if e.physical then e.physical.unknown=reason or 'scope revoked' end;e.epoch=e.epoch+1;e.skills={};e.resources={};e.effects={};e.equipment=nil;e.mana=nil;e.status=nil;e.observer=nil;e.native=nil;e.reason=reason
+ local e=M.state(s);if e.graft then e.graft={status='unknown',drain_possible=e.graft.status~='inactive',reason=reason}end;if e.physical then e.physical.unknown=reason or 'scope revoked' end;e.epoch=e.epoch+1;e.skills={};e.resources={};e.effects={};e.equipment=nil;e.mana=nil;e.status=nil;e.observer=nil;e.native=nil;e.reason=reason
  -- An issued or unknown action belongs to runner/buffs. Never clear it here.
 end
 -- Invoke ONLY for a genuinely received Char.Status server event (not cached replay).
@@ -187,6 +187,12 @@ function M.choose(s)
   if not M.known(s,'quash') then return wait('fresh learned Quash required')end
   -- Lavacoat enhances Quash; it is not an activation prerequisite. No automatic
   -- equipment modification or impurity spend in the bounded hunting baseline.
+  local g=M.state(s).graft;local q=M.resource_receipt(s,'fragments')
+  if (s.config or {}).earthcaller_graft_enabled~=false and M.known(s,'graft') and g and g.status=='inactive'
+   and q and not q.unavailable and finite(q.value) and q.value>=150 and q.record and now()>=q.record.at and now()-q.record.at<=5
+   and not next(M.state(s).reservations or {}) then
+   return action(s,'graft','OSSO GRAFT','BASH sustained healing; 10 fragments / 20s continuing drain','graft',{equilibrium=true},{fragments=150})
+  end
   return action(s,'quash','QUASH '..name,'bounded denizen baseline; no assumed mana/afflictions','quash')
  end
  if shield~=false or rebound~=false then return wait('fresh PvP protection absence required')end
@@ -218,15 +224,25 @@ function M.validate(s,a)
 end
 -- Call after runner commits its waiting barrier, immediately BEFORE transport.
 function M.issued(s,a)
+ local graft_token
+ if a and a.name=='earth_graft' then
+  local q=M.resource_receipt(s,'fragments')
+  graft_token=q and M.resource_reserve(s,'fragments',150,'bash.graft',q.generation)
+  if not graft_token then return false,'Graft fragment reservation denied'end
+  if not M.resource_commit(s,graft_token)then M.resource_release(s,graft_token);return false,'Graft fragment commit denied'end
+ end
  if a and a.class=='earthcaller' then for resource in pairs(a.earth_cost or {})do M.state(s).resources[resource]=nil end end
- if not a or (a.name~='earth_quash' and a.name~='earth_rewield') then return end
+ if not a or (a.name~='earth_quash' and a.name~='earth_rewield' and a.name~='earth_graft') then return end
  local o=s.class_observations;local item=s.room.items[tostring(s.target.name)]
  M.state(s).physical={action=deep(a),seq=o.sequence,epoch=M.state(s).epoch,
   session=o.session,life=o.life,scope_epoch=o.epoch,character=o.character,
   generation=s.target_generation,target=tostring(s.target.name),room=s.room.id,
   label=item and item.name,dispatching=true}
  local t=M.state(s).physical
- if a.name=='earth_rewield' then
+ if a.name=='earth_graft' then
+  t.graft={seq=o.sequence,at=now(),channel='equilibrium',token=graft_token}
+  M.state(s).graft={status='unknown',drain_possible=true,reason='activation issued; awaiting native status'}
+ elseif a.name=='earth_rewield' then
   t.rewield={seq=o.sequence,at=now(),channel='balance'}
   local n=M.state(s).native;t.other_side=a.wield_side=='left' and 'right' or 'left'
   t.other_token=n.wield[t.other_side].token
@@ -302,6 +318,37 @@ local function physical_observe(s,source,raw,record)
   or not physical_scope(s,t) then t.unknown='issued identity/scope/target changed';return end
  t.id=t.id or issued.id;if t.id~=issued.id then t.unknown='issued identity changed';return end
  if record.seq<=t.seq or t.unknown then return end
+ if t.graft then
+  local leg=t.graft;local n=M.state(s).native
+  if source=='native.text' and type(raw)=='string' then
+   local line=raw:gsub(string.char(27)..'%[[%d;]*m',''):match('^%s*(.-)%s*$')
+   if line=='Pieces from a swarm of bone fragments shift in wait to hover over your skin, ready to submerge' then
+    if leg.start then t.unknown='duplicate Graft activation';return end
+    leg.start=record.seq
+   elseif line=='themselves as needed.' and leg.start and record.seq==leg.start+1 then leg.ack=record.seq
+   elseif line=='Pieces from a swarm of bone fragments shift in wait to hover over your skin, ready to submerge themselves as needed.' then leg.ack=record.seq
+   elseif line=='Equilibrium Used: 4.50 seconds' and leg.ack then leg.used=record.seq
+   elseif line:match('^You use ') or line:match('^Syntax:') or line:match('^Message:') or line:match('^[%a][%a ]* %([%a ]+%)')
+    or line=='You must first draw out your a swarm of bone fragments.' then t.unknown='foreign action/documentation or rejected Graft';return end
+  elseif source=='Char.Vitals' and type(raw)=='table' then
+   if raw.equilibrium==0 or raw.equilibrium=='0' or raw.equilibrium==false then
+    if leg.recovered then t.unknown='second Graft EQ loss';return end
+    leg.loss=leg.loss or record.seq
+   elseif yes(raw.equilibrium) and leg.loss then leg.recovered=leg.recovered or record.seq end
+  elseif source=='native.prompt' and not t.dispatching then
+   local g=M.state(s).graft
+   if leg.transport and leg.count_transport and leg.ack and leg.used and leg.loss and leg.recovered and g and g.status=='active' and g.seq>leg.seq
+    and record.seq>leg.ack and record.seq>leg.used and record.seq>leg.recovered and record.seq>g.seq and yes(s.player.equilibrium) then
+    if not M.resource_settle(s,leg.token) then return end
+    leg.state='physical-settled';leg.settled_seq=record.seq
+    o.issued=nil;M.state(s).physical=nil
+    local map=s.transport_barriers and s.transport_barriers.cv2_earthcaller_resources
+    if type(map)=='table' and next(map)==nil then s.transport_barriers.cv2_earthcaller_resources=nil end
+    if runtime and runtime.current==s then runtime.class_router.sync_transport(s);runtime.runner.waiting=false;runtime.runner.saw_unready=false end
+   end
+  end
+  return
+ end
  if t.rewield then
   local leg=t.rewield;local a=t.action
   if source=='native.text' and type(raw)=='string' then
@@ -605,14 +652,26 @@ function M.observe(s,source,raw,record)
   if n.documentation then return false end
   if line=='There is no bone swarm of your own to answer your call.' then
    raw_resource(s,'fragments',nil,nil,record,true);e.resources.fragments=nil;n.count_frame=nil
-  elseif line=='You draw your gaze upon a swarm of bone fragments, noting its status.' then n.count_frame=record
-  else
+   e.graft={status='inactive',seq=record.seq,at=record.at}
+  elseif line=='Your swarm ceases its attempt at graft.' then
+   e.graft={status='inactive',seq=record.seq,at=record.at};n.count_frame=nil
+  elseif line=='You draw your gaze upon a swarm of bone fragments, noting its status.' then
+   n.count_frame={seq=record.seq,at=record.at,stage='header',graft=false}
+  elseif n.count_frame then
+   local f=n.count_frame
    local value,maximum=line:match('^Your swarm contains (%d+) fragments of a maximum (%d+)%.$')
-   if n.count_frame then
-    if value and record.seq==n.count_frame.seq+1 and record.at-n.count_frame.at<=5 then raw_resource(s,'fragments',tonumber(value),tonumber(maximum),record)
-    else lose_resource(s,'fragments',record,'malformed/incomplete COUNT response')end
+   if record.seq~=f.seq+1 or record.at-f.at>5 then
+    lose_resource(s,'fragments',record,'interrupted COUNT');e.graft={status='unknown',drain_possible=true};n.count_frame=nil
+   elseif line=='You currently call upon your swarm for:' and f.stage=='header' then f.stage='powers';f.seq=record.seq
+   elseif line=='grafting fragments' and f.stage=='powers' and not f.graft then f.graft=true;f.seq=record.seq
+   elseif value then
+    raw_resource(s,'fragments',tonumber(value),tonumber(maximum),record)
+    e.graft={status=f.graft and 'active' or 'inactive',seq=record.seq,at=record.at,drain_possible=f.graft}
+    n.count_frame=nil
+   else
+    -- Unreviewed powers cannot prove Graft absence. Retain unknown, not DEF.
+    lose_resource(s,'fragments',record,'unreviewed COUNT status row');e.graft={status='unknown',drain_possible=true};n.count_frame=nil
    end
-   n.count_frame=nil
   end
   if line=='It is a one-handed weapon and can be used to parry.' then n.probe_frame={stage=1,record=record};return true end
   local f=n.probe_frame
@@ -628,7 +687,7 @@ function M.observe(s,source,raw,record)
   elseif f then n.probe_frame=nil end
  elseif source=='native.prompt' then
   n.documentation=nil
-  if n.count_frame then lose_resource(s,'fragments',record,'COUNT ended without complete response')end
+  if n.count_frame then lose_resource(s,'fragments',record,'COUNT ended without complete response');e.graft={status='unknown',drain_possible=true}end
   n.count_frame=nil
   local f=n.probe_frame;n.probe_frame=nil
   if f and f.stage==6 and record.at-f.record.at<=8 and f.bound==o.character then
