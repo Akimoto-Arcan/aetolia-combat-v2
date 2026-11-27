@@ -58,6 +58,7 @@ function M.item_removed(s,payload)
  if type(payload)~="table" or payload.location~="room" then return end
  local raw=payload.item or payload.id;local id=type(raw)=="table" and raw.id or raw
  if not id then return end
+ if s.hunting.manual_target and s.hunting.manual_target.id==tostring(id)then s.hunting.manual_target=nil;s.hunting.query=nil end
  s.room.items[tostring(id)]=nil;s.room.item_version=(s.room.item_version or 0)+1
  if s.walker and s.walker.active then s.walker.reinspect=true end -- actual Remove invalidates departure evidence, not traversal consent
  if M.areas then s.hunting.area_snapshot=nil;s.hunting.area_dirty=true end
@@ -69,6 +70,8 @@ function M.item_changed(s,payload,added)
  if not item.id then return false end
  local id=tostring(item.id);local old=s.room.items[id] or {}
  local nextitem={name=tostring(item.name or old.name or id),attrib=tostring(item.attrib or old.attrib or ""),icon=item.icon or old.icon}
+ local m=s.hunting.manual_target
+ if m and m.id==id and(nextitem.name~=m.name or nextitem.attrib~=m.attrib or nextitem.icon~=m.icon)then s.hunting.manual_target=nil;s.hunting.query=nil end
  s.room.items[id]=nextitem;s.room.item_version=(s.room.item_version or 0)+1
  if M.areas then s.hunting.area_snapshot=nil;s.hunting.area_dirty=true end
  local flags=nextitem.attrib;local living=(flags:find("m",1,true) or nextitem.icon=="monster") and not flags:find("d",1,true) and not flags:find("x",1,true)
@@ -114,11 +117,11 @@ function M.ih_select(s)
  if scan.room_id~=nil and scan.room_id~=s.room.id then return false,"IH room changed" end
  if scan.area~=nil and scan.area~=s.room.area then return false,"IH area changed"end
  if M.areas and s.hunting.preset and s.hunting.area_recovery then return false,"awaiting solicited recovery list and later prompt"end
- if scan.invalidated or (scan.recovery_prompt or s.hunting.area_auto) and not scan.prompt_ready then return false,"awaiting solicited complete list and later prompt" end
+ if scan.invalidated or (scan.recovery_prompt or s.hunting.area_auto or s.hunting.manual_target) and not scan.prompt_ready then return false,"awaiting solicited complete list and later prompt" end
  if M.areas and s.hunting.preset and (not M.areas.fresh(s)or scan.items~=s.room.items)then return false,"awaiting complete fresh room list" end
  scan.pending=false
- if M.areas and (s.hunting.area_auto or s.hunting.preset or s.hunting.defensive)then
-  if s.hunting.area_auto_hold then return false,s.hunting.area_auto_hold end
+ if M.areas and (s.hunting.area_auto or s.hunting.preset or s.hunting.defensive or s.hunting.manual_target)then
+  if s.hunting.area_auto_hold and not M.areas.manual_permitted(s)then return false,s.hunting.area_auto_hold end
   local id,why=M.areas.pick(s,scan.items)
   if not id then s.hunting.verified_generation=nil;return false,why end
   local item=scan.items[id]

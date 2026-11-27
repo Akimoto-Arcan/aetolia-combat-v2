@@ -417,6 +417,7 @@ function combat_v2_priority_held()
    if type(v)=='table'and next(v)~=nil or type(v)~='table'and v~=nil and v~=false then return true end
   end
  end
+ local class_held=c.class_router.barrier(s);if class_held then return true end
  local m=s.mental or {};local b=s.buffs or {};local g=c.elemental_recovery or {};local co=c.containers_data or {}
  return r.waiting or r.dispatching or r.transport_commit or r.transport_barrier or r.transport_unknown or c.transport_unknown or root.transport_unknown or root.dispatching or root.action_dispatching or m.pending or m.eq_pending or m.dispatching or b.pending or b.dispatching or g.committed or g.dispatching or co.barrier or co.action_dispatching or c.monk.flurry_active and c.monk.flurry_active(s)
 end
@@ -435,9 +436,9 @@ end
 function combat_v2_ih_result()
  local s=c.current;local scan=s.hunting.ih
  if c.mode~="BASH" or not scan or not scan.active or not scan.pending or not scan.responded then return false end
- if scan.invalidated or (scan.recovery_prompt or s.hunting.area_auto)and not scan.prompt_ready then return false,"awaiting fresh solicited list and prompt"end
+ if scan.invalidated or (scan.recovery_prompt or s.hunting.area_auto or s.hunting.manual_target)and not scan.prompt_ready then return false,"awaiting fresh solicited list and prompt"end
  if scan.entry_full and not c.policy.allowed(s)and not(c.walker_boot and c.walker_boot.occupied(c))then return false,'entry waits for current player/area proof'end
- if s.hunting.preset and combat_v2_priority_held()then return false,"priority waits for action settlement"end
+ if (s.hunting.preset or s.hunting.manual_target)and combat_v2_priority_held()then return false,"priority waits for action settlement"end
  if c.walker_boot then c.walker_boot.inspected(c,scan)end
  if c.walker_boot and c.walker_boot.occupied(c)then
   if c.walker_boot.skip(c)then cancel_ih();return combat_v2_tick()end
@@ -445,6 +446,9 @@ function combat_v2_ih_result()
  end
  if s.hunting.area_auto and c.areas.fresh(s)and scan.items==s.room.items then
   s.hunting.auto_certificate={room=s.room.id,area=s.room.area,items=s.room.items,version=s.room.item_version}
+ end
+ if scan.prompt_ready and c.areas.fresh(s)and scan.items==s.room.items then
+  s.hunting.manual_certificate={room=s.room.id,area=s.room.area,items=s.room.items,version=s.room.item_version,at=getEpoch and getEpoch()or os.clock()}
  end
  local ok,why=c.bashing.ih_select(s)
  if ok then
@@ -515,7 +519,7 @@ function combat_v2_stop(reason)
  if c.elementals then c.elementals.arm(c,false)end
  c.buffs.stop(c.current,reason or "OFF; upkeep disarmed")
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"OFF")end
- cancel_ih();c.current.hunting.watch=nil;c.current.hunting.area_auto_intent=nil;c.current.hunting.area_auto=nil;c.current.hunting.auto_certificate=nil
+ cancel_ih();c.current.hunting.watch=nil;c.current.hunting.manual_target=nil;c.current.hunting.manual_certificate=nil;c.current.hunting.area_auto_intent=nil;c.current.hunting.area_auto=nil;c.current.hunting.auto_certificate=nil
  if c.current.training_battle_ended then
   local m=c.current.mental
   if m then if m.target then pcall(send,"mind cease") end;m.status="stopped";m.target=nil;m.lock_target=nil;m.eq_pending=nil end
@@ -647,8 +651,8 @@ function combat_v2_tick()
   if c.runner.fault then cancel_ih();c.runner.status=c.runner.fault;refresh();return false,c.runner.fault end
   local automatic,auto_reason=c.areas.auto_scope(s)
   if automatic then
-   if auto_reason then
-    cancel_ih();s.hunting.verified_generation=nil;c.runner.pending=nil
+   if auto_reason and not c.areas.manual_permitted(s)then
+       cancel_ih();s.hunting.verified_generation=nil;c.runner.pending=nil
     c.runner.status='BASH armed HOLD: '..auto_reason;refresh();return false,c.runner.status
    end
    -- New visit enrollment is an explicit consequence of this session's BASH
@@ -678,7 +682,7 @@ function combat_v2_tick()
    if watch and watch.room_id==s.room.id and watch.checked_version==s.room.item_version then
     c.runner.status='BASH armed: '..tostring(watch.reason or 'no eligible area NPC; waiting for native room changes');refresh();return false,c.runner.status
    end
-   if not c.areas.auto_certified(s)then
+   if not c.areas.auto_certified(s)or s.hunting.manual_target and not c.areas.manual_certified(s)then
     s.hunting.verified_generation=nil
     if combat_v2_priority_held()then return false,'priority waits for action settlement'end
     if scan and scan.active then
@@ -700,7 +704,7 @@ function combat_v2_tick()
    end
    s.hunting.defensive_selected=nil;s.hunting.area_dirty=true
   end
-  if (s.hunting.preset or s.hunting.defensive or s.hunting.defensive_selected)and s.hunting.area_dirty then
+  if (s.hunting.preset or s.hunting.defensive or s.hunting.defensive_selected or s.hunting.manual_target)and s.hunting.area_dirty then
    local r=c.runner
    if combat_v2_priority_held()then return false,"priority waits for action settlement"end
    local scan=s.hunting.ih
@@ -781,29 +785,32 @@ function combat_v2_reverify_current_target(id)
  return true
 end
 function combat_v2_set_target(name)
- local s=c.current;local resolved
- if c.mode=="BASH" and s.hunting.preset and tostring(name or ""):match("%S")then
-  if s.hunting.area_recovery then return false,"awaiting solicited recovery list and later prompt"end
-  local why;resolved,why=c.areas.pick(s,s.room.items,name)
-  if not resolved then return false,why end
-  name=resolved
+ local s=c.current;name=tostring(name or ''):match('^%s*(.-)%s*$')
+ if name~=''and not c.state.valid_target(name)then return false,'invalid target'end
+ -- PvP/assist targeting keeps its existing API; only OFF/BASH enroll NPC intent.
+ if name~=''and(c.mode=='OFF'or c.mode=='BASH')then
+  local o=s.class_observations
+  s.hunting.manual_target={query=name,room=s.room.id,area=s.room.area,character=s.policy.self_name,session=o and o.session,life=o and o.life}
+  s.hunting.verified_generation=nil;s.hunting.area_dirty=true;s.hunting.watch=nil;c.runner.pending=nil
+  if c.mode=='OFF'then c.state.set_target(s,name)end -- display only; BASH resolves numeric ID anew
+  local id,why=c.areas.manual_pick(s,s.room.items)
+  if id and not combat_v2_priority_held()then
+   c.state.set_target(s,id);s.target.display_name=s.room.items[id].name
+   s.hunting.target_name=s.target.display_name;s.hunting.verified_generation=s.target_generation
+  end
+  if c.mode=='BASH'then combat_v2_tick()end
+  refresh()
+  if s.hunting.manual_target and s.hunting.manual_target.hold then return false,s.hunting.manual_target.hold end
+  return true,why or 'room-local target queued; fresh BASH FULL and later prompt required'
  end
- local previous=s.target_generation
- local ok,why=c.state.set_target(s,name)
+ s.hunting.manual_target=nil
+ local previous=s.target_generation;local ok,why=c.state.set_target(s,name)
  if ok then
   c.runner.pending=nil
-  if c.current.target_generation~=previous and c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"manual target changed")end
   if s.target_generation~=previous then
-   s.hunting.watch=nil;s.hunting.target_name=nil
+   if c.monk.cancel_flurry then c.monk.cancel_flurry(s,'manual target changed')end
+   s.hunting.verified_generation=nil;s.hunting.query=s.target.name;s.hunting.watch=nil;s.hunting.target_name=nil
    if not s.hunting.preset then s.hunting.killed_ids={}end
-   s.hunting.query=s.target.name
-  end
-  s.hunting.manual_target=nil
-  if resolved then
-   s.hunting.manual_target={room=s.room.id,area=s.room.area,id=resolved}
-   s.target.display_name=s.room.items[resolved].name;s.hunting.target_name=s.target.display_name
-   s.hunting.verified_generation=s.target_generation;s.hunting.area_dirty=true
-   cancel_ih();s.hunting.watch=nil
   end
  end
  refresh();return ok,why
@@ -888,7 +895,7 @@ local function handler(event,fn)
  survival_events[#survival_events+1]={id=id,event=event,fn=fn}
 end
 handler("gmcp.Char.Status",function()class_ingress("Char.Status",gmcp.Char.Status);buff_snapshot("gmcp.Char.Status");c.buffs.race_status(c.current,(gmcp.Char.Status or {}).race);c.defense.numb_observe(c,"status",gmcp.Char.Status);combat_v2_tick()end)
-handler("gmcp.Char.Vitals",function() class_ingress("Char.Vitals",gmcp.Char.Vitals);buff_snapshot("gmcp.Char.Vitals");c.state.sync_gmcp(c.current,gmcp);if c.current.player.dead and c.current.hunting.area_auto_intent then c.current.hunting.area_auto_suspended='dead; fresh BASH intent required';c.current.hunting.auto_certificate=nil;c.current.hunting.verified_generation=nil end;c.buffs.vitals(c.current,gmcp.Char.Vitals or {});c.buff_sensory_vitals(gmcp.Char.Vitals or {});c.defense.numb_observe(c,"vitals",gmcp.Char.Vitals);combat_v2_tick() end)
+handler("gmcp.Char.Vitals",function() class_ingress("Char.Vitals",gmcp.Char.Vitals);buff_snapshot("gmcp.Char.Vitals");c.state.sync_gmcp(c.current,gmcp);if c.current.player.dead then c.current.hunting.manual_target=nil;c.current.hunting.manual_certificate=nil end;if c.current.player.dead and c.current.hunting.area_auto_intent then c.current.hunting.area_auto_suspended='dead; fresh BASH intent required';c.current.hunting.auto_certificate=nil;c.current.hunting.verified_generation=nil end;c.buffs.vitals(c.current,gmcp.Char.Vitals or {});c.buff_sensory_vitals(gmcp.Char.Vitals or {});c.defense.numb_observe(c,"vitals",gmcp.Char.Vitals);combat_v2_tick() end)
 for _,kind in ipairs({"Groups","List"})do
  local event="gmcp.Char.Skills."..kind
  handler(event,function()class_ingress("Char.Skills."..kind,gmcp.Char.Skills[kind]);buff_snapshot(event);c.defense.numb_observe(c,kind=="List"and"skills"or"groups",gmcp.Char.Skills[kind]);combat_v2_tick()end)
@@ -897,7 +904,7 @@ handler("sysDisconnectionEvent",function()
  class_ingress("sysDisconnectionEvent")
  c.defense.numb_observe(c,"disconnect")
  if c.walker_boot then c.walker_boot.revoke(c,"disconnected; walking disabled")end
- c.areas.invalidate(c.current);c.current.hunting.defensive_refresh=nil
+ c.areas.invalidate(c.current);c.current.hunting.manual_target=nil;c.current.hunting.manual_certificate=nil;c.current.hunting.defensive_refresh=nil
  if c.current.hunting.area_auto_intent then c.current.hunting.area_auto_suspended='disconnected; fresh BASH intent required';c.current.hunting.auto_certificate=nil;c.current.hunting.verified_generation=nil end
  if c.monk.cancel_flurry then c.monk.cancel_flurry(c.current,"disconnect")end
  c.buffs.stop(c.current,"disconnect; upkeep disarmed");buff_invalidate();local b=c.buffs.state(c.current);b.defs_known=false;b.defs_at=nil

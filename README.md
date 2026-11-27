@@ -104,3 +104,12 @@ Bashing/PvP testing build with hunting queues, Scorpion-aware bashing, parry-awa
 Only Lua modules, loader, installer, documentation and tests belong here. Never commit profile XML exports, passwords, tokens, logs, command history or live combat state. The loader XML contains only a startup script, not a complete profile.
 
 Cloud source access does not grant remote desktop/MCP access to either computer. Live GUI debugging on the second computer needs separately configured access.
+
+## Explicit manual NPC priority
+
+With BASH enabled, `t ID`, `cv2 target ID`, or the existing target GUI selects
+one eligible current-room NPC ahead of ordinary catalog priority. Selection
+before BASH is reacquired only in the same room. Fresh FULL + later prompt and
+all physical/class recovery barriers remain mandatory; excluded NPCs and
+restricted encounters are not overridden. No new sender or automatic unknown
+area mob learning. See [manual target behavior and limits](docs/manual-target.md).

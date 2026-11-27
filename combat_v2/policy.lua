@@ -85,6 +85,7 @@ function M.area_allowed(s)
 end
 function M.allowed(s)
  local p=s.policy;if not p then return false,'BASH safety policy not initialized' end
+ if p.denied==p.visit then return false,'BASH paused: explicitly denied area visit'end
  local ok,why=M.area_allowed(s);if not ok then return false,why end
  if not p.players_known or p.players_room~=s.room.id then return false,'BASH paused: waiting for room player list' end
  if M.has_others(s) then
@@ -100,6 +101,15 @@ end
 function M.attack_allowed(s)
  if s.walker and s.walker.active and s.policy.players_known and s.policy.players_room==s.room.id and M.has_others(s)then return false,'BASH paused: WALK skips occupied player rooms'end
  local ok,why=M.allowed(s);if not ok then return false,why end
+ if s.hunting.area_auto then
+  if not Areas or s.hunting.area_auto_hold and not Areas.manual_permitted(s)or not Areas.auto_certified(s)then return false,'BASH paused: current area target proof required'end
+  local id=Areas.pick(s,s.room.items)
+  if id~=tostring(s.target.name)then return false,'BASH paused: selector no longer approves target'end
+ end
+ if s.hunting.manual_target then
+  local id,why=Areas and Areas.manual_pick(s,s.room.items)
+  if not id or id~=tostring(s.target.name)then return false,why or 'manual target not certified'end
+ end
  local item=s.room.items[tostring(s.target.name)]
  if s.hunting.verified_generation~=s.target_generation or not item then return false,'BASH paused: target not confirmed in current room' end
  if s.hunting.defensive_selected==tostring(s.target.name)and(not Areas or not Areas.defensive_eligible(s,s.target.name))then return false,'BASH paused: defensive attack evidence expired or invalid'end

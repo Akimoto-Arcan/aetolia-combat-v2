@@ -24,7 +24,7 @@ end
 function M.invalidate(s,keep_encounter)
  incoming[s]=nil
  incoming_generations[s]=nil
- if not s.connected or s.player and s.player.dead then hostile_loyals[s]=nil end
+ if not s.connected or s.player and s.player.dead then hostile_loyals[s]=nil;s.hunting.manual_target=nil;s.hunting.manual_certificate=nil end
  s.hunting.area_snapshot=nil;s.hunting.area_dirty=true
  s.hunting.defensive=nil;s.hunting.defensive_fragment=nil
  local used=s.hunting.defensive_refresh
@@ -55,6 +55,7 @@ function M.configure(s,id,area,rooms,encounter)
   if (role~='shard'and role~='nest'and role~='knight')or type(name)~='string'or name==''then return false,'invalid exact encounter name'end
   names[role]=key(name)
  end
+ s.hunting.manual_target=nil;s.hunting.manual_certificate=nil
  s.hunting.preset={id=key(id),area=area,rooms=allowed,encounter=names,cutter_limit=4}
  M.invalidate(s);s.hunting.verified_generation=nil
  return true,'Preset configured; stationary, fresh IH and walking YES still required'
@@ -83,21 +84,46 @@ function M.auto_scope(s)
  local row=chosen and M.catalog[chosen]
  reason=reason or (not row and 'unknown native area; no approved catalog')
   or (row and (row.requires_rooms or chosen=='tiyen')and 'restricted encounter/room preset; explicit review required')
- if not p or p.area~=s.room.area or p.id~=chosen or reason then
+ if not h.area_auto or h.auto_scope_area~=s.room.area or h.area_auto_hold~=reason or p and(p.area~=s.room.area or p.id~=chosen)then
   h.preset=nil;h.verified_generation=nil;h.auto_certificate=nil;h.area_dirty=true
-  h.query=nil;h.target_name=nil;h.manual_target=nil
+  h.query=nil;h.target_name=nil
   if not reason then h.preset={id=chosen,area=s.room.area,automatic=true,encounter={},cutter_limit=4}end
  end
- h.area_auto=true;h.area_auto_hold=reason
+ h.area_auto=true;h.auto_scope_area=s.room.area;h.area_auto_hold=reason
  return true,reason
 end
 function M.auto_certified(s)
  local q=s.hunting.auto_certificate
  return q and q.room==s.room.id and q.area==s.room.area and q.items==s.room.items and q.version==s.room.item_version and M.fresh(s)
 end
+-- Explicit user authority is one entity, not a catalog/area expansion.
+function M.manual_scope(s)
+ local m=s.hunting.manual_target;local o=s.class_observations
+ return m and same(m.room,s.room.id)and same(m.area,s.room.area)
+  and m.character==s.policy.self_name and m.session==(o and o.session)
+  and m.life==(o and o.life)and s.connected and not s.player.dead
+end
+function M.manual_permitted(s)
+ if not M.manual_scope(s)or s.hunting.area_auto_suspended or s.policy.denied==s.policy.visit then return false end
+ local p=M.scope(s)
+ if s.hunting.encounter then return false end
+ for id,row in pairs(M.catalog)do
+  if row.areas[key(s.room.area)]and(row.requires_rooms or id=='tiyen')then
+   return false -- restricted encounters remain on their reviewed ordinary selector only
+  end
+ end
+ return true
+end
+function M.manual_certified(s)
+ local q=s.hunting.manual_certificate
+ return q and q.room==s.room.id and q.area==s.room.area and q.items==s.room.items
+  and q.version==s.room.item_version and now()-q.at<=5 and M.fresh(s)and not s.hunting.area_recovery
+end
 function M.snapshot(s,payload)
  s.hunting.area_snapshot=nil;s.hunting.area_dirty=true
  if not M.complete(payload)then return false end
+ local m=s.hunting.manual_target;local it=m and m.id and s.room.items[m.id]
+ if m and m.id and(not it or it.name~=m.name or it.attrib~=m.attrib or it.icon~=m.icon)then s.hunting.manual_target=nil;s.hunting.query=nil end
  s.hunting.area_snapshot={room=s.room.id,area=s.room.area,items=s.room.items,version=s.room.item_version,at=now()}
  return true
 end
@@ -133,6 +159,38 @@ local function defendable(s,it)
  if protected[n]or n:find('guard',1,true)or n:find('loyal',1,true)or n:match('%f[%a]mounts?%f[%A]')or n:match('%f[%a]mounted%f[%A]')or n:find('horse',1,true)or n:find('steed',1,true)or n:match('%f[%a]rocs?%f[%A]')then return false end
  if s.policy and s.policy.players and s.policy.players[n]then return false end
  return true
+end
+function M.manual_pick(s,items)
+ local m=s.hunting.manual_target
+ if not m then return nil end
+ if not M.manual_scope(s)then s.hunting.manual_target=nil;return nil end
+ if not M.manual_permitted(s)then return nil,'manual target HOLD: restricted scope or denied visit' end
+ if not M.manual_certified(s)or items~=s.room.items then return nil,'manual target awaits solicited FULL and later prompt' end
+ if m.hold then return nil,m.hold end
+ if m.id then
+  local it=items[m.id]
+  if not it or (s.hunting.killed_ids or {})[m.id]or it.name~=m.name or it.attrib~=m.attrib or it.icon~=m.icon or not defendable(s,it)then
+   s.hunting.manual_target=nil;s.hunting.query=nil;return nil
+  end
+  return m.id,'manual room-local NPC'
+ end
+ local token=key(m.query);local found,kind
+ for id,it in pairs(items)do
+  local n=key(it.name);local a,z=n:find(token,1,true)
+  local word=not token:match('^%d+$')and a and(a==1 or not n:sub(a-1,a-1):match('%w'))and(z==#n or not n:sub(z+1,z+1):match('%w'))
+  if tostring(id)==token or n==token or word then
+   -- Include excluded identities in ambiguity; do not silently pick another kind.
+   if kind and kind~=n then m.hold='ambiguous room NPC keyword; use numeric ID';return nil,m.hold end
+   kind=n
+   if not defendable(s,it)or it.attrib~='m'or(s.hunting.killed_ids or {})[tostring(id)]then
+    m.hold='manual target is protected or not a positively identified NPC';return nil,m.hold
+   end
+   if not found or tonumber(id)<tonumber(found)then found=tostring(id)end
+  end
+ end
+ if not found then m.hold='manual target absent from current FULL; select again';return nil,m.hold end
+ local it=items[found];m.id=found;m.name=it.name;m.attrib=it.attrib;m.icon=it.icon
+ return found,'manual room-local NPC'
 end
 -- Recovery may leave a genuinely attacking excluded NPC; it may not attack it.
 local function pressure_identity(s,it)
@@ -317,6 +375,11 @@ function M.pick(s,items,wanted)
  -- room sets bound navigation/tests only; they never broaden area/NPC approval.
  if p and (row.requires_rooms or (s.walker or {}).active)and (not p.rooms and row.requires_rooms or p.rooms and not p.rooms[tostring(s.room.id)])then return nil,'preset room boundary'end
  if not M.fresh(s)or items~=s.room.items then return nil,'awaiting complete fresh room list'end
+ local manual_id,manual_reason=M.manual_pick(s,items)
+ if manual_reason then
+  if wanted==nil or tostring(wanted)==manual_id then return manual_id,manual_reason end
+  return nil,'manual target priority retained'
+ end
  local candidates={};local cutters=0
  local e=s.hunting.encounter
  if e and (not same(e.room,s.room.id)or e.area~=s.room.area)then return nil,"encounter scope unresolved"end

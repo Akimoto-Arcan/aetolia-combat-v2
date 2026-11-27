@@ -1,0 +1,100 @@
+{
+  "focused_replays": [
+    {
+      "command": [
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_11-39-33_iasha-offline-causal-regression/lua-5.1.5/src/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/manual_target_tests.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/"
+      ],
+      "exit": 0,
+      "stdout": "PASS manual-target actual-bootstrap assertions=126\n"
+    },
+    {
+      "command": [
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_11-39-33_iasha-offline-causal-regression/lua-5.1.5/src/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/integrated_area_tests.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/"
+      ],
+      "exit": 0,
+      "stdout": "PASS integrated-area actual-bootstrap assertions=45\n"
+    },
+    {
+      "command": [
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_11-39-33_iasha-offline-causal-regression/lua-5.1.5/src/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/integrated_irongrip_unit.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/"
+      ],
+      "exit": 0,
+      "stdout": "PASS Irongrip 115 assertions\n"
+    },
+    {
+      "command": [
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_11-39-33_iasha-offline-causal-regression/lua-5.1.5/src/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/integrated_irongrip_bootstrap.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/",
+        "wired"
+      ],
+      "exit": 0,
+      "stdout": "PASS actual-bootstrap Irongrip 14 assertions\n"
+    },
+    {
+      "command": [
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_11-39-33_iasha-offline-causal-regression/lua-5.1.5/src/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/integrated_shared_regression.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/"
+      ],
+      "exit": 0,
+      "stdout": "PASS unchanged shared regressions 10 assertions\n"
+    },
+    {
+      "command": [
+        "/bin/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/manual_target_tests.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/"
+      ],
+      "exit": 0,
+      "stdout": "PASS manual-target actual-bootstrap assertions=126\n"
+    },
+    {
+      "command": [
+        "/bin/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/integrated_area_tests.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/"
+      ],
+      "exit": 0,
+      "stdout": "PASS integrated-area actual-bootstrap assertions=45\n"
+    },
+    {
+      "command": [
+        "/bin/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/integrated_irongrip_unit.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/"
+      ],
+      "exit": 0,
+      "stdout": "PASS Irongrip 115 assertions\n"
+    },
+    {
+      "command": [
+        "/bin/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/integrated_irongrip_bootstrap.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/",
+        "wired"
+      ],
+      "exit": 0,
+      "stdout": "PASS actual-bootstrap Irongrip 14 assertions\n"
+    },
+    {
+      "command": [
+        "/bin/lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/tests/integrated_shared_regression.lua",
+        "/mnt/windows_share/Public_Folder/Maintenance/Software/New Operator Program/ERP_backups/2026-11-26_19-59-44_manual-target-priority/CANDIDATE49/combat_v2/"
+      ],
+      "exit": 0,
+      "stdout": "PASS unchanged shared regressions 10 assertions\n"
+    }
+  ],
+  "baseline_red_verified": true,
+  "all49_compile_both": true,
+  "BaseUI_unchanged": true,
+  "full_legacy_suite_not_green": true
+}
