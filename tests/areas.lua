@@ -9,6 +9,9 @@ local wolf={id=1,name='a gray wolf',attrib='m'};local python={id=8,name='a brown
 check(list({wolf,python})and s.target.name=='8','python explicit override')
 check(list({python,wolf})and s.target.name=='8','list ordering changed priority')
 check(list({wolf})and s.target.name=='1','absent python stale ID')
+check(list({wolf,python})and s.target.name=='1','higher priority arrival must not interrupt current kill')
+s.target.dead=true
+check(list({wolf,python})and s.target.name=='8','highest priority selected after current target dies')
 local wolf2={id=2,name='a gray wolf',attrib='m'}
 S.set_target(s,'2');check(list({wolf,wolf2})and s.target.name=='2','equal priority target stability')
 S.set_target(s,'999');check(list({wolf2,wolf})and s.target.name=='1','deterministic new target')

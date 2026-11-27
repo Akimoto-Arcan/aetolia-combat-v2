@@ -425,6 +425,16 @@ function M.pick(s,items,wanted)
   -- Removed/dead/changed scope is not a kill and must not stick to an old ID.
   s.hunting.manual_target=nil;s.hunting.query=nil
  end
+ -- One kill owns the target until that exact room-local NPC dies, departs, or
+ -- becomes ineligible. A newly arrived higher-priority NPC is queued by the
+ -- sorted candidate list, but may not interrupt the living current target.
+ -- Once the current target is gone/dead the normal per-area priority wins.
+ if not s.target.dead then
+  local current=tostring(s.target.name or '')
+  for _,candidate in ipairs(candidates)do
+   if candidate.id==current then return current,'current living target retained until kill'end
+  end
+ end
  return candidates[1]and candidates[1].id or nil,'no eligible preset NPC'
 end
 function M.killed(s)
