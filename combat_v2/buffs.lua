@@ -1,7 +1,8 @@
 -- Class-scoped Monk/shared preparations and read-only Archivist defence tracking.
 -- No IO/global sender, generic cures, emergency abilities or ENEMY changes.
 -- Intent is revocable; an already dispatched action is a physical barrier until
--- confirmed AND followed by a real ready prompt. Only reset may waive that barrier.
+-- confirmed AND followed by a real ready prompt. Exact BAL/EQ non-execution
+-- replies for ordinary skills may retire after fresh native channel readiness.
 local M={}
 local class_groups={monk={'kaido','telepathy','survival','vision','avoidance'},archivist={'geometrics','numerology','bioessence','survival','vision','avoidance'}}
 local function class_name(x) return tostring(x or ''):lower() end
@@ -473,6 +474,7 @@ function M.invalidate(s)
  b.observed={};b.have={};b.defs_known=false;b.ability_listing=nil;b.immunity_clock_known=false;b.bolstered_clock_known=false
  b.native_priorities={};b.native_full_required=true;b.native_listing=nil;b.native_version=(b.native_version or 0)+1
  if b.pending then b.pending.confirmed=false;b.pending.prompt=nil;b.pending.prompt_ready=false
+  if b.pending.channel_retry then b.pending.channel_retry.ready=nil end
   if b.pending.key=='irongrip' then
    b.pending.irongrip_own=nil;b.pending.irongrip_gain=nil;b.pending.irongrip_measured=nil;b.pending.irongrip_lost=nil;b.pending.irongrip_recovered=nil
   end
@@ -976,7 +978,18 @@ function M.text(s,line)
    -- and activation clock; only ACK + fresh ready prompt (or reset) settles it.
    b.status='Unattributed rejection; '..b.pending.key..' confirmation/recovery still required'
   else
-   b.pending.rejected=true;b.retry[b.pending.key]=now()+5;fault(b,'Buff rejected: '..line..' Review/reset required')
+   local p=b.pending;local e=index[p.key]
+   local channel=line=='You must regain balance first.' and 'balance' or line=='You must regain equilibrium first.' and 'equilibrium'
+   -- Only ordinary skill non-execution is retryable. Resource debits, racial
+   -- proofs, routed ledgers, ambiguous sends and confirmed actions stay fenced.
+   if channel and e and not e.tattoo and not e.racial and not p.curative and not routed(s,e) and not p.shape_reservation and not p.earth_reservation and not p.send_failed and not p.confirmed and not b.fault then
+    p.rejected=true;p.channel_retry={channel=channel};p.prompt=nil;p.prompt_ready=false
+    if b.sequence and b.todo and b.wanted[p.key] and not p.off then b.todo[p.key]=true end
+    if p.off then b.cancel[p.key]=true end
+    b.status='Buff not executed; awaiting fresh native '..channel..' readiness'
+   else
+    p.rejected=true;b.retry[p.key]=now()+5;fault(b,'Buff rejected: '..line..' Review/reset required')
+   end
   end
  end
 end
@@ -984,6 +997,13 @@ end
 function M.vitals(s,v)
  local b=M.state(s)
  local ip=b.pending
+ if ip and ip.channel_retry then
+  local r=ip.channel_retry;local value=v[r.channel]
+  if value~=nil then
+   r.ready=(value==true or value==1 or value=='1')
+   r.witness_prompt=b.prompt;ip.prompt=nil;ip.prompt_ready=false
+  end
+ end
  if ip and ip.key=='irongrip' and v.balance~=nil then
   local value=v.balance
   if value==false or value==0 or value=='0' then
@@ -1172,6 +1192,16 @@ local function service(s,runner,sender,hold,policy)
  end
  -- Recovery is processed even while intent is disarmed or survival holds.
  local p=b.pending
+ if p and p.channel_retry then
+  local r=p.channel_retry
+  if not p.send_failed and not p.confirmed and not b.fault and r.ready and p.prompt and p.prompt>(r.witness_prompt or p.prompt) and p.prompt_ready and ready(s) then
+   -- Retire a proven non-execution, not a successful action. Normal selection
+   -- below remains the sole sender and rechecks current intent and every gate.
+   b.pending=nil;b.status='Native channel ready after rejected '..p.key;p=nil
+  else
+   return {busy=true,status=b.fault or 'awaiting fresh native channel readiness after buff rejection'}
+  end
+ end
  if p then
   if not p.send_failed and not p.rejected and (not(p.shape_reservation or p.earth_reservation)or M.class_router and M.class_router.defense_settled(s,p)) and (not(s.class_observations and s.class_observations.defense_issued and s.class_observations.defense_issued.pending==p)or s.class_observations.defense_issued.native_ready_seq) and (p.key~='irongrip' or same_irongrip_transport(p.irongrip_binding,irongrip_binding(s)) and p.irongrip_own and p.irongrip_gain and p.irongrip_measured and p.irongrip_lost and p.irongrip_recovered and p.prompt and p.prompt>(p.irongrip_witness_prompt or p.prompt)) and p.confirmed and p.prompt and p.prompt>p.dispatched_prompt and (not (index[p.key] and index[p.key].racial) or p.confirmed_prompt and p.prompt>p.confirmed_prompt) and p.prompt_ready and ready(s) and (not p.curative or p.herb_recovered and b.herb==true) then
    if p.earth_reservation and not M.class_router.earth_retire(s,p)then return {busy=true,status='Earthcaller ledger settlement held'}end
