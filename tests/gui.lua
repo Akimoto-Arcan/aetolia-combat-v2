@@ -50,6 +50,11 @@ local output={};function cecho(value)output[#output+1]=value end
 other.render_prompt(state,combat_v2.runner);assert(#output==1 and output[1]:find('SCORPION',1,true),'subprompt renderer failed')
 state.player.dead=true;assert(other.stance(state)=='NOT STANCED (dead)','dead player displayed stanced');state.player.dead=false
 state.player.stance='scorpion';state.player.prone=false;state.player.mounted=false
+state.earthcaller={graft={status='active',drain_possible=true}}
+state.player.class='Earthcaller';assert(other.player_status_text(state,combat_v2.runner):find('GRAFT:',1,true),'Earthcaller Graft status missing')
+other.refresh(state,combat_v2.runner,combat_v2.cure);assert(not other.cards.header.html:find('MIND:',1,true),'foreign Monk MIND status visible');assert(combat_v2_ui.body==nil or not combat_v2_ui.body.subtitle.html:find('MONK ANATOMY',1,true),'foreign Monk body subtitle visible')
+state.player.class='Wayfarer';assert(not other.player_status_text(state,combat_v2.runner):find('GRAFT:',1,true),'stale Earthcaller Graft visible in another class')
+state.player.class='Monk';other.refresh(state,combat_v2.runner,combat_v2.cure);assert(other.cards.header.html:find('MIND:',1,true),'Monk MIND status hidden')
 
 local selected,removed=false,nil
 function selectCurrentLine()selected=true end
@@ -296,6 +301,10 @@ assert(legacy.rows.old.info.deleted and legacy.rows.old.toggle.deleted and legac
 assert(combat_v2_ui.walk_popup==walker_before and reloaded.root==root_before and #calls==dispatched,'migration touched other UI or dispatched')
 -- Final composed backend row projection: do not assume manual owners equal SKILL.
 local actual=dofile(path..'buffs.lua');local archive_state=dofile(path..'state.lua').new()
+local class_modules={Monk=dofile(path..'monk.lua')}
+for _,name in ipairs({'Wayfarer','Earthcaller','Infiltrator','Archivist','Shapeshifter'})do class_modules[name]=dofile(path..name:lower()..'.lua')end
+local class_router=dofile(path..'class_router.lua').new(class_modules)
+actual.bind_classes(class_router,class_modules,dofile(path..'class_catalog.lua'),archive_state)
 archive_state.player.class='Archivist';actual.set_class(archive_state,'Archivist')
 local saved_core=combat_v2.buffs;combat_v2.buffs=actual;combat_v2.current=archive_state
 reloaded.defense_page(0,'CLIENT');local archive_manager=combat_v2_ui.defenses
@@ -309,7 +318,33 @@ repeat
  local page=archive_manager.page;reloaded.defense_page(1)
  if archive_manager.page==page then break end
 until false
-assert(archives==14 and seen_rows.daydream and not seen_rows.blindness and not seen_rows.deafness and seen_rows.cloak and seen_rows.nightsight and seen_rows.clarity and not seen_rows.weathering and not seen_rows.speed,'actual CLIENT projection lost class/shared/manual rows or included sensory/foreign/native')
+assert(archives==12 and seen_rows.sublimation and seen_rows.veiled and seen_rows.daydream and not seen_rows.blindness and not seen_rows.deafness and seen_rows.cloak and seen_rows.nightsight and seen_rows.clarity and not seen_rows.weathering and not seen_rows.speed,'actual CLIENT projection lost class/shared/manual rows or included sensory/foreign/native')
+-- Every composed row has explicit relevance. Sunder selections are inert catalog
+-- coverage: every current-class key is visible, but metadata alone grants no control.
+for _,class in ipairs({'Monk','Wayfarer','Earthcaller','Infiltrator','Archivist','Shapeshifter'})do
+ archive_state.player.class=class;actual.set_class(archive_state,class)
+ local projected={};for _,row in ipairs(actual.rows(archive_state))do assert(type(row.relevant)=='boolean','nil relevance for '..class..' row '..row.key);projected[row.key]=row end
+ for _,key in ipairs(actual.sunder_def_options[class:lower()])do
+  local row=assert(projected[key],'missing Sunder '..class..' defense '..key)
+  assert(row.relevant==true,'Sunder '..class..' defense marked foreign '..key)
+  if not row.producer and row.class~=class:lower() and row.class~='shared'then assert(row.control=='observed','Sunder metadata became executable '..class..' '..key)end
+ end
+ reloaded.defense_page(0,'CLIENT');local visible={}
+ repeat
+  for _,row in ipairs(archive_manager.rows)do if not row.info.hidden then visible[row.key]=true end end
+  local page=archive_manager.page;reloaded.defense_page(1);if archive_manager.page==page then break end
+ until false
+ for _,key in ipairs(actual.sunder_def_options[class:lower()])do assert(visible[key],'CLIENT hid Sunder '..class..' defense '..key)end
+end
+archive_state.player.class='Earthcaller';actual.set_class(archive_state,'Earthcaller');reloaded.defense_page(0,'ALL')
+local earth_rows={}
+repeat
+ for _,row in ipairs(archive_manager.rows)do if not row.info.hidden then earth_rows[row.key]=true end end
+ local page=archive_manager.page;reloaded.defense_page(1);if archive_manager.page==page then break end
+until false
+for _,key in ipairs({'weathering','ironskin','warding','ameliorate','hardening'})do assert(not earth_rows[key],'Earthcaller ALL exposed foreign '..key)end
+assert(earth_rows.battlehymn and earth_rows.speed,'Earthcaller ALL lost current-class or shared defense')
+archive_state.player.class='Archivist';actual.set_class(archive_state,'Archivist');reloaded.defense_page(0,'CLIENT')
 -- Even fresh legacy policy/stock proof cannot restore sensory defense controls.
 local sensory_clock=500;function getEpoch()return sensory_clock end
 local ap=archive_state.player;ap.balance=true;ap.equilibrium=true;ap.left_arm_balance=true;ap.right_arm_balance=true

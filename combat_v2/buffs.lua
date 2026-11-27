@@ -15,8 +15,20 @@ local function allowed_group(class,group)
  return false
 end
 local function in_class(b,e)
- return M.supported_class(b.class) and e and (e.tracking_only and e.metadata_classes and e.metadata_classes[b.class] or e.class_routes and e.class_routes[b.class] or e.tattoo or e.class=='shared' or e.class==b.class or allowed_group(b.class,e.group) or e.also_group and allowed_group(b.class,e.also_group))
+ return M.supported_class(b.class) and e and (e.metadata_classes and e.metadata_classes[b.class] or e.class_routes and e.class_routes[b.class] or e.tattoo or e.class=='shared' or e.class==b.class or allowed_group(b.class,e.group) or e.also_group and allowed_group(b.class,e.also_group))
 end
+-- Static selections transcribed from Sunder's snd.def_options table. They are
+-- display/catalog metadata only: "on"/"once" is not learned, active, command,
+-- resource or protocol authority. Shared entries retain their existing owners.
+M.sunder_def_options={
+ shared={'thirdeye','cloak','instawake','deathsight','insomnia','arcane','levitation','speed','nightsight','clarity'},
+ monk={'weathering','toughness','vitality','regeneration','resistance','constitution','splitting','immunity','boosting','consciousness'},
+ wayfarer={'ironskin','weathering','axe_obstruct','brutality'},
+ earthcaller={'heatshield','battlehymn','smothering','constitution','insulation','unbending'},
+ infiltrator={'warding','finesse','shadowsight','ghosted','shroud','lipreading','palming'},
+ archivist={'spheres','linked','oneness','sublimation','ameliorate','catabolism'},
+ shapeshifter={'weathering','bodyheat','metabolism','celerity','thickhide','cornering','hardening','boneshaking','berserk'}
+}
 M.catalog={
  {key='vitality',label='Vitality',command='vitality',default=true,requires_full=true,cooldown_loss=180},
  {key='weathering',label='Weathering',command='weathering',default=true},
@@ -127,6 +139,9 @@ function M.bind_classes(router,modules,catalogs,s)
    if e.class=='metadata'or e.class==cl:lower()then e.tracking_only=false end
   end
  end
+ for cl,keys in pairs(M.sunder_def_options)do if cl~='shared'then
+  for _,k in ipairs(keys)do add(cl:sub(1,1):upper()..cl:sub(2),{key=k,sunder_selection=true})end
+ end end
  for cl,rows in pairs(catalogs)do for _,row in ipairs(rows)do add(cl,row)end end
  for _,row in pairs(modules.Earthcaller.defense_routes)do add('Earthcaller',row)end
  for _,cl in ipairs({'Wayfarer','Infiltrator'})do for _,row in ipairs(modules[cl].defense_catalog)do if row.command and not row.tracking_only then add(cl,row)end end end
@@ -295,12 +310,15 @@ function M.rows(s)
   if e and e.passive and in_class(b,e) and b.known[k] then active=true end
   local pri=M.native_priority(s,k);local wanted
   if native then if pri then wanted=pri<26 end elseif class then wanted=b.wanted[k] end
+  local relevant=(not class) or in_class(b,e)==true
   local routed_class=e and e.routed_classes and e.routed_classes[b.class]and b.class
+  local current_specific=class and relevant and e and (e.class==b.class or e.metadata_classes and e.metadata_classes[b.class])
+  local class_control=class and relevant and not e.passive and not e.tracking_only and (routed_class or e.class==b.class or e.class=='shared')
   rows[#rows+1]={key=k,label=e and e.label or k,active=active,wanted=wanted,canonical_id=e and e.canonical_id,producer=routed_class,
-   owner=e and e.curative and 'CURATIVE' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or routed_class and 'BUFFS' or e and e.owner or class and (e.class=='archivist' and 'ARCHIVIST' or e.class=='monk' and 'MONK' or 'SKILL') or tattoo and 'TATTOO' or 'UNAVAILABLE',
-   control=native and 'native' or class and not e.passive and not e.tracking_only and 'class' or 'observed',priority=pri,drain=e and e.drain==true or false,
+   owner=e and e.curative and 'CURATIVE' or native and 'FIRSTAID' or e and e.tattoo and 'TATTOO' or routed_class and 'BUFFS' or current_specific and b.class:upper() or e and e.owner or class and 'SKILL' or tattoo and 'TATTOO' or 'UNAVAILABLE',
+   control=native and 'native' or class_control and 'class' or 'observed',priority=pri,drain=e and e.drain==true or false,
    available=available,availability=reason,group=e and e.group,passive=e and e.passive or e and e.login_auto and tattoo and tattoo.active,
-   required=k=='mindseye',class=e and e.class or 'shared',relevant=not class or in_class(b,e),tracking_only=e and e.tracking_only or k=='daydream',
+   required=k=='mindseye',class=e and e.class or 'shared',relevant=relevant,tracking_only=e and e.tracking_only or k=='daydream',
    off=e and e.off,requires_full=e and e.requires_full,cooldown_loss=e and e.cooldown_loss,cooldown_activation=e and e.cooldown_activation}
  end
  for _,e in ipairs(M.catalog) do add(e.key,e) end

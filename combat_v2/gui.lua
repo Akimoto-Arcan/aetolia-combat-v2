@@ -90,7 +90,8 @@ end
 function M.refresh_body(state,runner)
  local b=combat_v2_ui and combat_v2_ui.body;if not b then return end
  b.title:echo(scan_html("<b style='font-size:24px;letter-spacing:2px;'>V2 // BIOSTAT TERMINAL</b>"))
- b.subtitle:echo(scan_html("MONK ANATOMY SYSTEM  /  "..(state.connected and "<span style='color:#78f7a3;'>SIGNAL LIVE</span>" or "<span style='color:#ffd166;'>OFFLINE · CACHED</span>").."  /  MODE: "..esc(runner.mode)))
+ local anatomy=M.monk_display(state)and "MONK ANATOMY SYSTEM"or "BODY STATUS SYSTEM"
+ b.subtitle:echo(scan_html(anatomy.."  /  "..(state.connected and "<span style='color:#78f7a3;'>SIGNAL LIVE</span>" or "<span style='color:#ffd166;'>OFFLINE · CACHED</span>").."  /  MODE: "..esc(runner.mode)))
  for _,side in ipairs({"self","enemy"})do
   local p=b.sides[side];local actor=side=="self" and state.player or state.target
   p.heading:echo(scan_html("<b style='font-size:19px;'>"..(side=="self" and "02 // YOUR BODY" or "01 // ENEMY: "..esc(actor.name or "NO TARGET")).."</b>"))
@@ -152,8 +153,11 @@ local function defense_rows(c,state,filter)
  for _,e in ipairs(c.buffs.rows(state))do
   if type(e.key)=="string" and e.key:match("^[%a][%w_]*$") and not seen[e.key] then
    seen[e.key]=true
-   local foreign=e.relevant==false or (e.owner=="MONK"or e.owner=="ARCHIVIST")and e.owner~=class
-   local client=e.owner==class or e.owner=="SKILL"or e.owner=="TATTOO"or e.owner=="CURATIVE MANUAL"or e.owner=="CURATIVE"
+   -- Buffs rows carry a strict boolean relevance contract. Fail closed for
+   -- composed backend rows while retaining legacy test/manual rows that do
+   -- not carry class metadata.
+   local foreign=e.class~=nil and e.relevant~=true or e.class==nil and (e.owner=="MONK"or e.owner=="ARCHIVIST")and e.owner~=class
+   local client=e.owner==class or e.owner=="BUFFS"or e.owner=="SKILL"or e.owner=="TATTOO"or e.owner=="CURATIVE MANUAL"or e.owner=="CURATIVE"
    if not foreign and (filter=="ALL" or filter=="ACTIVE" and e.active==true or filter=="CLIENT" and client or e.owner==filter) then rows[#rows+1]=e end
   end
  end
@@ -318,7 +322,8 @@ function M.player_status_text(state,runner)
   prefix="<b style='font-size:16px;color:"..color..";'>STANCE: "..esc(stance).."</b> &nbsp; Kai: "..esc(p.kai or "?").."<br>"
   balances=balances.." &nbsp; Arms %s / %s";values[#values+1]=ready(p.left_arm_balance);values[#values+1]=ready(p.right_arm_balance)
  end
- return html(heading("PLAYER STATUS")..prefix..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana))..string.format(balances,(table.unpack or unpack)(values)).."<br>Executor: "..esc(runner.status or "idle")..(state.earthcaller and state.earthcaller.graft and ("<br>GRAFT: "..esc(state.earthcaller.graft.status)..((state.earthcaller.graft.status=="active" or state.earthcaller.graft.drain_possible) and " — drain 10 fragments/20s may continue outside BASH; OFF does not cease" or "")) or ""))
+ local earthcaller=type(p.class)=="string"and p.class:lower()=="earthcaller"
+ return html(heading("PLAYER STATUS")..prefix..string.format("HP %s / %s &nbsp; · &nbsp; Mana %s / %s<br>",esc(p.hp),esc(p.maxhp),esc(p.mana),esc(p.maxmana))..string.format(balances,(table.unpack or unpack)(values)).."<br>Executor: "..esc(runner.status or "idle")..(earthcaller and state.earthcaller and state.earthcaller.graft and ("<br>GRAFT: "..esc(state.earthcaller.graft.status)..((state.earthcaller.graft.status=="active" or state.earthcaller.graft.drain_possible) and " — drain 10 fragments/20s may continue outside BASH; OFF does not cease" or "")) or ""))
 end
 function M.prompt_text(state,runner)
  local p=state.player;local prefix="";local monk=M.monk_display(state)
@@ -646,7 +651,8 @@ function M.refresh(state,runner,cure)
  M.buttons.restock:setStyleSheet("background-color:"..(rs.enabled and "#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:1px;font-size:9px;")
  M.buttons.globe:setStyleSheet("background-color:"..(globe_on and"#22563e"or"#233c51")..";color:"..C.text..";border:1px solid #507590;padding:3px;font-size:10px;")
  local mental=state.mental;local mind=mental and (mental.fault or mental.status) or "idle"
- M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; "..esc(type(p.class)=="string"and p.class~=""and p.class:upper()or "UNKNOWN").." / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>MIND: "..esc(mind).." &nbsp; · &nbsp; cv2 help</span>"))
+ local classline=M.monk_display(state)and("MIND: "..esc(mind).." &nbsp; · &nbsp; cv2 help")or"cv2 help"
+ M.cards.header:echo(html("<b style='font-size:18px;color:"..C.accent..";'>COMBAT V2</b> &nbsp; "..esc(type(p.class)=="string"and p.class~=""and p.class:upper()or "UNKNOWN").." / "..esc(runner.mode).."<br><span style='color:"..C.muted..";'>"..classline.."</span>"))
  for _,m in ipairs({"OFF","SHADOW","ASSIST","BASH","FULL_AUTO"}) do M.buttons[m]:setStyleSheet("background-color:"..(m==runner.mode and "#386386" or "#233c51")..";color:"..C.text..";border:1px solid #507590;padding:5px;") end
  M.cards.status:echo(M.player_status_text(state,runner))
  local a=runner.pending or state.last_action or {}
