@@ -178,9 +178,16 @@ function M.request(c,input)
  if c.operator_abandoned_jobs then
   if M.busy(c) then return false,'current ink transaction already active' end
   local s=c.current or {};if not session(c) or not connected(c) or not (s.player or{}).class or not (s.room or{}).id then return false,'current known session/class/room required' end
-  local q={scope=session(c),class=s.player.class,room=s.room.id,phase='readonly tattoos; no job admitted',dispatching=true};recovery[c]=q
-  local sender=api(c).send;local ok,result=pcall(function()return assert(sender,'TATTOOS sender unavailable')('tattoos')end);q.dispatching=false;q.transport_ok=ok and result~=false
-  return false,q.transport_ok and 'read-only TATTOOS requested; native IC full ink framing required before a NEW ink job; no old receipt accepted' or 'TATTOOS transport unknown; no job admitted'
+  local q=recovery[c]
+  local fresh=q and q.phase=='fresh ink cache observed' and q.scope==session(c) and q.class==s.player.class and q.room==s.room.id
+   and q.spec and q.spec.type==spec.type and q.spec.target==spec.target
+  if fresh then
+   recovery[c]=nil
+  else
+   q={scope=session(c),class=s.player.class,room=s.room.id,spec=spec,phase='reading fresh IC INK; no job admitted',dispatching=true};recovery[c]=q
+   local sender=api(c).send;local ok,result=pcall(function()return assert(sender,'IC INK sender unavailable')('ic ink')end);q.dispatching=false;q.transport_ok=ok and result~=false
+   return false,q.transport_ok and 'fresh IC INK requested; the same explicit ink job will start after its complete native frame' or 'IC INK transport unknown; no job admitted'
+  end
  end
  if M.busy(c) then return false,'tattoo already pending' end
  local a=api(c)
@@ -235,8 +242,13 @@ function M.text(c,line)
  elseif line=='You will no longer utilize your first aid knowledge.' then native_on[c]=nil end
  local q=recovery[c]
  if q and q.scope==scope_session and q.class==(s.player or{}).class and q.room==(s.room or{}).id and q.transport_ok and not q.dispatching then
-  if line=='You have the following tattoos:' then q.rows={};q.header=true
-  elseif q.header then local slot,typ,n=line:match('^([%a ]+):%s+(%a+)%s+Uses left:%s+(%d+)%s*$');if slot then q.rows[slot]={type=typ:lower(),uses=tonumber(n)} end end
+  if line=='Glancing into the cache, you see:' then q.inks={};q.ink_header=true
+  elseif q.ink_header then
+   for n,label in line:gmatch('%[%s*(%d+)%]%s*([a-z]+ink)') do
+    local color=label:match('^([a-z]+)ink$')
+    if color and colors[color] then q.inks[color]=tonumber(n) end
+   end
+  end
  end
  local t=owner(c).txn;if not t or t.unknown or type(line)~='string' then return end
  if not M.tick(c) then return end
@@ -278,7 +290,20 @@ function M.text(c,line)
 end
 function M.prompt(c)
  local q=recovery[c];local s=c.current or{}
- if q and q.transport_ok and not q.dispatching and q.header and q.scope==session(c) and q.class==(s.player or{}).class and q.room==(s.room or{}).id then q.current_tattoos=q.rows;q.header=nil;q.phase='current tattoos observed; IC ink absolute framing required; no INK/OUTC job admitted' end
+ if q and q.transport_ok and not q.dispatching and q.ink_header and q.scope==session(c) and q.class==(s.player or{}).class and q.room==(s.room or{}).id then
+  local complete=true
+  for _,color in ipairs({'blue','gold','green','purple','red','yellow'}) do if type((q.inks or{})[color])~='number' then complete=false end end
+  q.ink_header=nil
+  if complete then
+   q.phase='fresh ink cache observed'
+   local spec=q.spec
+   local ok,why=M.request(c,spec.type..(spec.target~='me' and (' '..spec.target) or ''))
+   if not ok then note(c,why) end
+  else
+   q.phase='IC INK response incomplete; no job admitted'
+   note(c,q.phase)
+  end
+ end
  local t=owner(c).txn;if not t or t.unknown or t.dispatching then return end
  if not M.tick(c) then return end
  if t.phase=='restore' then if t.on_ack then return release(c,t) end;return end
